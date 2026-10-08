@@ -3,6 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<script>
+  /* Safari on an iPhone zooms the page in whenever a field under 16px takes
+     focus, and leaves it zoomed. maximum-scale stops that; iOS still lets the
+     person pinch to zoom (it ignores the limit for that), so nothing is lost.
+     Only iOS gets it: elsewhere it would block pinch zoom. */
+  if (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
+    document.querySelector('meta[name=viewport]').setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover');
+  }
+</script>
 <title>Comp Loader</title>
 <meta name="description" content="A broker's field kit: CoStar comp reports into an Excel comp set, offering memoranda read and underwritten on the spot, and the quick calculators a deal needs. Runs entirely on your device; nothing is uploaded.">
 <meta name="author" content="Kyle Alexander De Melo">
@@ -272,6 +281,25 @@ button.chip { cursor: pointer; }
 .field input.n, .input.n { font-variant-numeric: tabular-nums; }
 .input:focus, .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
 .grid-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px 14px; padding: 4px 16px 16px; }
+/* a scenario figure that differs from the deal: teal, so it can't be mistaken for the OM's */
+.field.changed > label { color: var(--teal); }
+.field.changed > label::after { content: " · scenario"; font-weight: 700; }
+.field.changed input { border-color: var(--teal); background: var(--teal-soft); }
+.mini.scn td.scn-diff { color: var(--teal); font-weight: 700; }
+.mini.scn { font-size: 13.5px; }
+.mini.scn th, .mini.scn td { padding: 8px 5px; white-space: nowrap; }
+.mini.scn th:first-child, .mini.scn td:first-child { padding-left: 2px; white-space: normal; }
+.mini.scn th:last-child, .mini.scn td:last-child { padding-right: 2px; }
+.results input.scn-target { width: 4.2em; margin: 0 2px 0 6px; padding: 3px 6px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--surface); color: var(--ink); font: inherit; text-align: right; }
+.voice { padding: 4px 16px 16px; }
+.voice-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.voice-head .sec-label { margin-right: auto; }
+.voice-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; padding: 8px 0; border-top: .5px solid var(--line); }
+.voice-row audio { grid-column: 1 / -1; grid-row: 2; width: 100%; height: 40px; }
+.voice-meta { display: flex; flex-direction: column; min-width: 0; font-size: 13px; color: var(--muted); }
+.voice-meta b { color: var(--ink); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lineage { padding: 2px 16px 14px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+.lineage .src { cursor: default; margin-right: 2px; }
 .search { position: relative; flex: 1 1 180px; max-width: 280px; }
 .search input { width: 100%; background: var(--fill); border: 0; border-radius: 10px; padding: 7px 10px 7px 32px; font-size: 14px; min-height: 34px; }
 .search svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--faint); }
@@ -379,7 +407,7 @@ td.act .chips { justify-content: flex-end; margin-right: 4px; }
   .ctable { min-width: 0; display: block; }
   .ctable thead { display: none; }
   .ctable tbody { display: block; }
-  .ctable tbody tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 8px; padding: 12px 12px 8px 44px; border-bottom: .5px solid var(--line); position: relative; }
+  .ctable tbody tr { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr) minmax(0, .9fr); gap: 0 6px; padding: 12px 10px 8px 42px; border-bottom: .5px solid var(--line); position: relative; }
   .ctable tbody tr:hover td { background: none; }
   .ctable tbody td { border: 0; padding: 0; min-width: 0; }
   .ctable td.tg { position: absolute; left: 14px; top: 19px; }
@@ -390,7 +418,7 @@ td.act .chips { justify-content: flex-end; margin-right: 4px; }
   .ctable td.f::before { content: attr(data-label); display: block; font: 600 11px/1.2 var(--ui); color: var(--faint); padding: 7px 0 0 7px; }
   .ctable td.f, .ctable td.f.r { text-align: left; }
   .ctable td.f input, .ctable td.f input.n { text-align: left; font-size: 15px; }
-  .ctable td.f input[type=date] { min-width: 0; width: 100%; font-size: 14.5px; padding-right: 2px; }
+  .ctable td.f input[type=date] { min-width: 0; width: 100%; font-size: 13.5px; padding-left: 4px; padding-right: 0; letter-spacing: -.01em; }
   .ctable td.f input[type=date]::-webkit-calendar-picker-indicator { display: none; }
   .card-head .tools .search { flex-basis: 100%; max-width: none; }
   .ctable td.act { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; padding-top: 6px; }
@@ -442,6 +470,11 @@ details.fold > summary .count { color: var(--muted); font-weight: 500; font-size
 .figs input.text { font-weight: 500; }
 .src { border: 0; cursor: pointer; border-radius: 999px; padding: 3px 8px; font: 650 11px/1.4 var(--ui); white-space: nowrap; justify-self: end; display: inline-flex; align-items: center; gap: 4px; }
 .src i { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+/* the tag stays small to look at but takes a finger-sized tap */
+button.src { position: relative; }
+button.src::after { content: ""; position: absolute; inset: -11px -6px; }
+/* a long "+ more fields" button wraps inside its card on the narrowest phones */
+.card > .btn-plain.btn-sm { max-width: calc(100% - 20px); white-space: normal; text-align: left; }
 .src.high { background: var(--good-soft); color: var(--good); } .src.high i { background: var(--good); }
 .src.medium { background: var(--accent-soft); color: var(--accent); } .src.medium i { background: var(--accent); }
 .src.low { background: var(--warn-soft); color: var(--warn); } .src.low i { background: var(--warn); }
@@ -627,6 +660,14 @@ dialog.sheet[open] { animation: up .24s cubic-bezier(.2, .9, .3, 1); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
 @media (max-width: 760px) { .charts { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 420px) { .view-head h1 { font-size: 29px; } .hide-sm { display: none; } }
+/* the narrowest phones (iPhone SE, 320pt): comp figures a size down so an eight-figure price fits */
+@media (max-width: 360px) {
+  .ctable tbody tr { padding-left: 38px; gap: 0 4px; }
+  .ctable td.f input, .ctable td.f input.n { font-size: 13.5px; padding-left: 3px; padding-right: 0; }
+  .ctable td.f input[type=date] { font-size: 12.5px; }
+  .mini.scn { font-size: 12.5px; }
+  .mini.scn th, .mini.scn td { padding-left: 3px; padding-right: 3px; }
+}
 </style>
 </head>
 <body>

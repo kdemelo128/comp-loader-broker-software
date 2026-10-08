@@ -139,7 +139,6 @@ export function renderCompSheet(box, { sales, market, subject = {}, label, prepa
     stats.appendChild(d);
   };
   const soldP = sales.map(ppsf).filter((x) => x !== null);
-  const askP = market.map(ppsf).filter((x) => x !== null);
   stat('Sold, SF-weighted', weighted(sales) === null ? '—' : `${money0(weighted(sales))}/SF`,
     soldP.length ? `${sales.length} sales · ${money0(Math.min(...soldP))}–${money0(Math.max(...soldP))}/SF` : `${sales.length} sales`);
   stat('Sold, median', median(soldP) === null ? '—' : `${money0(median(soldP))}/SF`, null);

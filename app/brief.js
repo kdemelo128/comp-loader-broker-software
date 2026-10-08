@@ -46,7 +46,7 @@ export function renderDealBrief(box, { deal, m, comps, photos = [], preparedBy =
 
   const head = h(doc, 'header', 'ps-head');
   const left = h(doc, 'div');
-  left.appendChild(h(doc, 'div', 'ps-eyebrow', `Deal brief${f.ptype ? ` · ${f.ptype}` : ''}`));
+  left.appendChild(h(doc, 'div', 'ps-eyebrow', `${deal.example ? 'FICTIONAL SAMPLE · ' : ''}Deal brief${f.ptype ? ` · ${f.ptype}` : ''}`));
   left.appendChild(h(doc, 'h1', 'ps-title', f.address || deal.name || 'Deal'));
   const where = [f.city, f.state, f.zip].filter(Boolean).join(', ');
   if (where) left.appendChild(h(doc, 'div', 'ps-sub', where));
@@ -140,6 +140,7 @@ export function renderDealBrief(box, { deal, m, comps, photos = [], preparedBy =
   into(a, () => list('What doesn’t add up', m.checks.map((c) => c.text)));
   into(a, () => list('Questions to ask', deal.activeQuestions || m.questions));
   into(b, () => list('Site visit', deal.visitLines || []));
+  into(b, () => list('Scenarios: assumptions, not the OM’s figures', deal.scenarioLines || []));
   if (photos.length) {
     const g = h(doc, 'div', 'ps-photos');
     for (const url of photos.slice(0, 8)) {

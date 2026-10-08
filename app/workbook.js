@@ -1326,6 +1326,7 @@ function dealTab(wb, deal, m, comps, meta) {
     ['WHAT DOESN\'T ADD UP', m.checks.map((c) => c.text)],
     ['QUESTIONS TO ASK', (deal.questions || m.questions)],
     ['SITE VISIT NOTES', deal.visitLines || []],
+    ['SCENARIOS — ASSUMPTIONS FROM THE APP, NOT THE OM\'S FIGURES (FIXED VALUES)', deal.scenarioLines || []],
   ];
   for (const [head, items] of lists) {
     if (!items.length) continue;

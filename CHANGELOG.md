@@ -1,5 +1,54 @@
 # Changelog
 
+## 3.1.0
+
+A reliability release, found by testing every workflow in a phone-sized
+browser, and a live what-if on the Deal tab.
+
+### Fixed
+
+- **A deal edited and closed within half a second was lost**, and a change
+  made just before switching deals could be written into the next one. Saves
+  now belong to their deal and are flushed on switch, close and leaving the
+  app; a change still in flight when the app is closed is replayed on the next
+  launch. Comp edits get the same protection.
+- **Photos chosen for one deal could land in another** if the deal was
+  switched while they were being shrunk. They now always go to the deal they
+  were chosen for; so do voice notes, and a photo's Undo.
+- **Closing costs, transfer tax and commission typed as 0.5 were read as
+  50%.** These fields take a percentage as typed; a % sign is always taken
+  literally.
+- **Break-even occupancy was overstated** for a part-let building (it divided
+  by effective rather than potential income). It now uses gross potential
+  rent, else effective income scaled by occupancy, and says which.
+- Gross potential rent is no longer taken for effective gross income, and
+  pro forma NOI is read from the Pro Forma column of an operating statement.
+- The lease clock counts down from the expiration date, not the OM's printed
+  "years remaining".
+- Value at the comps' cap rate warns when one or two comps carry it, and is
+  withheld for a zero or negative NOI.
+- On iPhone, tapping a field no longer zooms the page; comp prices and dates
+  fit on the narrowest phones; the page-source tags take a finger-sized tap.
+- Unreadable PDFs say why and what to do. A comps batch where every file
+  fails says so.
+- The brief no longer leaves a heading alone at the foot of a page (and is
+  now called the deal brief: a full one runs to a second page).
+- An installed copy downloads each release whole, bypassing the HTTP cache,
+  so it can't mix old and new files; it checks for an update when reopened.
+- The GitHub test workflow, `.nojekyll` and `.gitignore` are back.
+
+### New
+
+- **Live deal: what if**, with hold-period returns (levered and unlevered
+  IRR, equity multiple, exit value), the price for a target cap rate or IRR,
+  saved scenarios, and Save to deal only on confirmation.
+- **Voice notes** on the site visit: record, or add a Voice Memos file.
+  Stored with the deal, not transcribed.
+- Site-visit lines say what was observed and what was told.
+- A legend for the figure tags, and a fictional example deal.
+- Known-answer finance tests.
+
+
 ## 3.0.0
 
 A redesign, and two new screens beside the comps: **Deal** and **Tools**.

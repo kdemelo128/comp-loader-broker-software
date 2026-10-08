@@ -3,7 +3,10 @@
  * month-by-month loop in Python), not by running the code under test. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { debtService, loanConstant, balanceAfter, sizeLoan, compBasis, leaseStats, yearsLeft, analyze } from '../app/deal.js';
+import {
+  debtService, loanConstant, balanceAfter, compBasis, leaseStats, yearsLeft, analyze,
+  irr, holdReturns, solvePrice, runScenario, scenarioAnswers,
+} from '../app/deal.js';
 import { quickValue, loanTool, offerTool, netEffectiveRent, exchangeDates } from '../app/tools.js';
 
 const close = (a, b, tol = 0.01, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg || ''} expected ${b}, got ${a}`);
@@ -188,4 +191,75 @@ test('formatting: negatives, missing values and large numbers', async () => {
   assert.equal(short(12500000), '$12.50M');
   assert.equal(short(2.4e9), '$2.40B');
   for (const f of [money0, money2, short, pct, times]) for (const bad of [null, undefined, NaN, Infinity]) assert.equal(f(bad), '—');
+});
+
+test('IRR', () => {
+  close(irr([-100, 10, 10, 110]), 10, 1e-6, 'a par bond at 10%');
+  close(irr([-1000, 0, 0, 0, 0, 1610.51]), 10, 1e-4, '1.61051 = 1.1^5');
+  assert.equal(irr([100, 10, 10]), null, 'no outlay: no IRR');
+  assert.equal(irr([-100, -10]), null, 'nothing back: no IRR');
+  assert.equal(irr([-100, NaN]), null);
+});
+
+test('buy, hold five years and sell: worked independently', () => {
+  const r = holdReturns({ price: 12500000, noi: 875000, growth: 2, hold: 5, exitCap: 7.25, saleCost: 2, loan: LOAN });
+  close(r.balance, 7627401.40, 0.01, 'loan balance after five years');
+  close(r.exitValue, 13325113.14, 0.01, 'year-6 NOI at a 7.25% cap');
+  close(r.saleCosts, 266502.26, 0.01);
+  assert.equal(r.equity, 4625000);
+  close(r.leveredIrr, 8.871906, 1e-5);
+  close(r.unleveredIrr, 7.538699, 1e-5);
+  close(r.leveredMultiple, 1.475206, 1e-6);
+  close(r.unleveredMultiple, 1.381345, 1e-6);
+  assert.equal(holdReturns({ price: 12500000, noi: 875000, hold: 5 }), null, 'no exit cap: no returns');
+  const allCash = holdReturns({ price: 1e6, noi: 70000, growth: 0, hold: 1, exitCap: 7, saleCost: 0, loan: {} });
+  close(allCash.leveredIrr, 7, 1e-6, 'all cash, flat NOI, sold at the going-in cap: IRR = cap');
+});
+
+test('the price for a target IRR, checked by putting it back in', () => {
+  const d = { price: 12500000, noi: 875000, loan: LOAN };
+  const m = analyze(d, null, TODAY);
+  for (const [target, expected] of [[12, 11882900.448], [15, 11303643.231], [2, 13880311.888]]) {
+    const a = scenarioAnswers(d, m, { exitCap: 7.25 }, { targetIrr: target });
+    close(a.priceForIrr, expected, 1, `price for ${target}%`);
+    const back = holdReturns({ price: a.priceForIrr, noi: 875000, growth: 2, hold: 5, exitCap: 7.25, saleCost: 2, loan: LOAN });
+    close(back.leveredIrr, target, 1e-6);
+  }
+  const a = scenarioAnswers(d, m, {}, { targetCap: 7.5, capForValue: 6.5 });
+  close(a.priceForCap, 875000 / 0.075, 1e-6, 'price for a 7.5% cap');
+  close(a.valueAtCap, 875000 / 0.065, 1e-6, 'value at a 6.5% cap');
+  assert.equal(solvePrice(() => null, 5, 1e6), null);
+});
+
+test('a scenario never changes the deal it is run on', () => {
+  const d = { price: 14000000, noi: 980000, gross: 1600000, opex: 620000, occ: 94, loan: { ...LOAN } };
+  const frozen = JSON.stringify(d);
+  const m = analyze(d, null, TODAY);
+  const s = runScenario(d, m, { price: 13500000 });
+  assert.equal(s.inputs.price, 13500000);
+  close(s.m.capCalc, 980000 / 13500000 * 100, 1e-9, 'cap rate moves with the scenario price');
+  assert.equal(s.m.noi, 980000, 'a price change does not touch NOI');
+  assert.equal(JSON.stringify(d), frozen, 'the deal is untouched');
+  assert.equal(m.price, 14000000);
+  // occupancy and rent build NOI up from gross income and expenses
+  const o = runScenario(d, m, { occ: 85 });
+  close(o.m.noi, 1600000 * (85 / 94) - 620000, 1e-6, 'occupancy to 85% scales gross income');
+  const r = runScenario(d, m, { rentChange: 5 });
+  close(r.m.noi, 1600000 * 1.05 - 620000, 1e-6, 'rents up 5%');
+  const x = runScenario(d, m, { expenseChange: 10, noi: 900000 });
+  assert.equal(x.m.noi, 900000, 'a NOI typed straight in wins');
+  // the exit cap changes the returns, not the going-in cap rate
+  const e1 = runScenario(d, m, { exitCap: 7 });
+  const e2 = runScenario(d, m, { exitCap: 8 });
+  assert.equal(e1.m.capCalc, e2.m.capCalc);
+  assert.ok(e1.returns.leveredIrr > e2.returns.leveredIrr);
+  // LTV moves debt and equity, not NOI
+  const l = runScenario(d, m, { ltv: 50 });
+  assert.equal(l.m.noi, 980000);
+  assert.equal(l.m.loan, 7000000);
+  // without gross income and expenses a rent change is explained, not faked
+  const bare = { price: 5e6, noi: 3e5, loan: LOAN };
+  const n = runScenario(bare, analyze(bare, null, TODAY), { rentChange: 5 });
+  assert.equal(n.m.noi, 3e5);
+  assert.ok(n.notes.length);
 });

@@ -12,7 +12,7 @@
  * Deals are saved on the device (IndexedDB) after every change. */
 
 import { readOm } from './om.js';
-import { analyze, compBasis } from './deal.js';
+import { analyze, runScenario, scenarioAnswers } from './deal.js';
 import * as store from './store.js';
 import { renderDealBrief, dealSummaryText, placeLine } from './brief.js';
 import {
@@ -25,6 +25,12 @@ let deal = null;          // the open deal
 let reading = null;       // { name, done, total } while an OM is being read
 let saveTimer = null;
 let pending = null;       // the deal whose latest change has not reached storage yet
+/* One object per deal for the whole session. A photo still shrinking or a
+ * recording still running holds on to its deal; if that deal is closed and
+ * opened again it must be the same object, or the late arrival would be
+ * saved onto a stale copy over newer changes. */
+const opened = new Map();
+const deleted = new Set();  // a late photo or recording must not bring a deleted deal back
 let photoUrls = [];
 
 const LOAN_KEY = 'comp-loader.loan.v1';
@@ -96,9 +102,33 @@ function newDeal(extra = {}) {
     figures: {}, sources: {}, rentRoll: [], unpriced: false,
     loan: loanDefaults(),
     qDone: {}, myQuestions: [],
-    visit: { at: null, items: {}, notes: '', photos: [] },
+    live: {}, scenarios: [], targets: { cap: null, irr: 15, value: null },
+    visit: { at: null, items: {}, notes: '', photos: [], audio: [] },
     ...extra,
   };
+}
+
+/* An invented deal to try the screen with. Every figure is made up, the name
+ * says so, and the header, brief and workbook carry the label. */
+function exampleDeal() {
+  const y = new Date().getFullYear();
+  const iso = (yy, m, d) => new Date(Date.UTC(yy, m - 1, d)).toISOString();
+  const f = {
+    address: '100 Example Street (fictional)', city: 'Sampletown', state: 'MD', ptype: 'Retail', price: 4850000, noi: 315250, cap: 6.5, occ: 88,
+    bsf: 10400, lot_sf: 15000, year: 1962, zoning: 'MU-4', gpr: 540000, gross: 482000, opex: 166750, taxes: 61200, noi_pf: 352000,
+  };
+  const sources = Object.fromEntries(Object.keys(f).map((k) => [k, { hand: true }]));
+  return newDeal({
+    name: 'Example deal: fictional sample', example: true, figures: f, sources,
+    rentRoll: [
+      { suite: '101', tenant: 'Sample Bakery (fictional)', sf: 2200, annual: 101200, psf: 46, end: iso(y + 3, 5, 31) },
+      { suite: '102', tenant: 'Example Dental (fictional)', sf: 1800, annual: 79200, psf: 44, end: iso(y + 6, 8, 31) },
+      { suite: '103', tenant: 'Vacant', sf: 1250, vacant: true },
+      { suite: '201', tenant: 'Placeholder Law LLP (fictional)', sf: 3150, annual: 113400, psf: 36, end: iso(y + 1, 12, 31) },
+      { suite: '202', tenant: 'Demo Fitness (fictional)', sf: 2000, annual: 72000, psf: 36, mtm: true },
+    ],
+    myQuestions: [],
+  });
 }
 
 /* ------------------------------------------------------------- the maths */
@@ -120,10 +150,29 @@ function visitLines() {
   for (const [k, l] of VISIT) {
     const s = v.items[k];
     const note = v.itemNotes && v.itemNotes[k];
-    if (s || note) lines.push(`${l}: ${s === 'ok' ? 'fine' : s === 'issue' ? 'needs attention' : 'noted'}${note ? ` (${note})` : ''}`);
+    // what was looked at on the walk-through, kept apart from what was said
+    if (s || note) lines.push(`Observed, ${l.toLowerCase()}: ${s === 'ok' ? 'looked fine' : s === 'issue' ? 'needs attention' : 'noted'}${note ? ` (${note})` : ''}`);
   }
-  if (v.notes.trim()) lines.push(...v.notes.trim().split(/\n+/));
+  if (v.notes.trim()) lines.push(...v.notes.trim().split(/\n+/).map((x) => `Note, as written: ${x}`));
+  const n = (v.audio || []).length;
+  if (n) lines.push(`${n} voice note${n === 1 ? '' : 's'} recorded on the visit (kept with the deal; not transcribed)`);
   return lines;
+}
+
+/** Each saved scenario, and the unsaved one if it differs from the deal, as a line of text. */
+function scenarioLines(m) {
+  const line = (name, over) => {
+    const r = runScenario(figuresFor(deal), m, over);
+    const changed = Object.entries(over).map(([k, v]) => {
+      const spec = SCN.find((x) => x[0] === k);
+      return spec ? `${spec[1].replace(/, % change| %|, years/g, '').toLowerCase()} ${scnShow(spec[2], v)}` : null;
+    }).filter(Boolean).join(', ');
+    return `${name} (${changed}): price ${money0(r.inputs.price)}, NOI ${money0(r.m.noi)}, cap ${pct(r.m.capCalc)}, DSCR ${times(r.m.dscr)}, `
+      + `levered IRR ${pct(r.returns?.leveredIrr, 1)} over ${r.inputs.hold} years at a ${pct(r.inputs.exitCap)} exit`;
+  };
+  const out = (deal.scenarios || []).map((sc) => line(sc.name, sc.over));
+  if (deal.live && Object.keys(deal.live).length) out.unshift(line('Working scenario, unsaved', deal.live));
+  return out;
 }
 
 /** The open deal in the shape the workbook builder takes, or null. */
@@ -135,9 +184,9 @@ export function dealForWorkbook(basis) {
 }
 function workbookDeal(m) {
   return {
-    name: deal.name || deal.figures.address, source: deal.source, readAt: deal.readAt,
+    name: `${deal.example ? 'FICTIONAL SAMPLE — ' : ''}${deal.name || deal.figures.address}`, source: deal.source, readAt: deal.readAt,
     figures: { ...deal.figures, rentRoll: deal.rentRoll }, loan: deal.loan, sources: deal.sources,
-    questions: activeQuestions(m), visitLines: visitLines(),
+    questions: activeQuestions(m), visitLines: visitLines(), scenarioLines: scenarioLines(m),
   };
 }
 export const currentDealName = () => (deal && hasFigures() ? (deal.name || deal.figures.address || 'Untitled deal') : null);
@@ -150,7 +199,8 @@ const hasFigures = () => deal && Object.values(deal.figures).some((v) => v !== n
  * closing or leaving the app writes the last change first rather than
  * dropping it. */
 function touch(d = deal) {
-  if (!d) return;
+  if (!d || deleted.has(d.id)) return;
+  if (!opened.has(d.id)) opened.set(d.id, d);
   d.updatedAt = Date.now();
   queueSave(d);
   if (d === deal) {
@@ -185,7 +235,7 @@ const REC_KEY = 'comp-loader.deal.unsaved';
 function writeRecovery(d) {
   try {
     const { visit, ...rest } = d;
-    localStorage.setItem(REC_KEY, JSON.stringify({ ...rest, visit: { ...visit, photos: undefined } }));
+    localStorage.setItem(REC_KEY, JSON.stringify({ ...rest, visit: { ...visit, photos: undefined, audio: undefined } }));
   } catch { /* storage full or blocked: IndexedDB still gets it */ }
 }
 function readRecovery() {
@@ -199,8 +249,10 @@ function clearRecovery(id, at) {
 function recovered(id, stored) {
   const r = readRecovery();
   if (!r || r.id !== id || (stored && (r.updatedAt || 0) <= (stored.updatedAt || 0))) return { d: stored, replayed: false };
+  // photos and recordings are Blobs, which only IndexedDB holds: they always come from there
   const photos = stored?.visit?.photos || [];
-  return { d: { ...(stored || {}), ...r, visit: { ...(r.visit || {}), photos } }, replayed: true };
+  const audio = stored?.visit?.audio || [];
+  return { d: { ...(stored || {}), ...r, visit: { ...(r.visit || {}), photos, audio } }, replayed: true };
 }
 function dropPending(d) {
   if (pending === d) { clearTimeout(saveTimer); pending = null; }
@@ -214,6 +266,14 @@ function badge() {
 }
 async function openDeal(id, { quiet = false } = {}) {
   await flushDeal();
+  if (opened.has(id)) {
+    deal = opened.get(id);
+    try { localStorage.setItem(CUR_KEY, deal.id); } catch { /* fine */ }
+    render();
+    document.dispatchEvent(new CustomEvent('dealchange'));
+    badge();
+    return;
+  }
   const { d, replayed } = recovered(id, await store.loadDeal(id));
   if (!d) {
     if (!quiet) toast('That deal could not be opened.');
@@ -221,6 +281,7 @@ async function openDeal(id, { quiet = false } = {}) {
     return;
   }
   deal = { ...newDeal(), ...d, visit: { ...newDeal().visit, ...(d.visit || {}) } };
+  opened.set(deal.id, deal);
   try { localStorage.setItem(CUR_KEY, deal.id); } catch { /* fine */ }
   if (replayed) saveNow(deal);
   render();
@@ -311,7 +372,6 @@ const card = (title, extra) => {
   }
   return c;
 };
-const icon = (paths, size = 18) => { const s = el('span'); s.innerHTML = svg(paths, size); s.style.display = 'inline-flex'; return s; };
 
 function viewHead(title, sub, actions = []) {
   const h = el('div', 'view-head');
@@ -373,6 +433,7 @@ async function renderLanding(r) {
   pick.htmlFor = 'om-file';
   pick.addEventListener('pointerdown', () => getPdfjs().catch(() => {}), { once: true });
   acts.appendChild(pick);
+  acts.appendChild(button('btn-plain', 'Try a fictional example deal', () => { flushDeal(); deal = exampleDeal(); try { localStorage.setItem(CUR_KEY, deal.id); } catch { /* fine */ } render(); touch(); }));
   acts.appendChild(button('btn-lg', 'Enter figures by hand', () => { flushDeal(); deal = newDeal(); try { localStorage.setItem(CUR_KEY, deal.id); } catch { /* fine */ } render(); touch(); }));
   hero.appendChild(acts);
   hero.appendChild(Object.assign(el('div', 'trust'), { innerHTML: `${svg('<path d="M12 3l7 3v5c0 4.5-3 8.4-7 10-4-1.6-7-5.5-7-10V6z"/>', 14)}Read on this device. The OM is never uploaded.` }));
@@ -459,6 +520,7 @@ function renderDeal(r) {
   t.appendChild(el('div', 'sub', [where, deal.source ? `${deal.source} · ${deal.pages} page${deal.pages === 1 ? '' : 's'}` : 'entered by hand'].filter(Boolean).join(' — ')));
   const chipsBox = el('div', 'chips');
   chipsBox.style.marginTop = '6px';
+  if (deal.example) chipsBox.appendChild(el('span', 'chip chip-warn', 'Fictional sample: not a real property'));
   if (deal.unpriced) chipsBox.appendChild(el('span', 'chip chip-warn', 'Unpriced'));
   if (deal.visit.at) chipsBox.appendChild(el('span', 'chip chip-teal', `Visited ${niceDate(deal.visit.at)}`));
   if (chipsBox.children.length) t.appendChild(chipsBox);
@@ -478,6 +540,7 @@ function renderDeal(r) {
 
   stack.appendChild(figuresCard());
   stack.appendChild(financeCard());
+  stack.appendChild(scenarioCard());
   const ladder = el('section', 'card');
   ladder.id = 'deal-ladder';
   stack.appendChild(ladder);
@@ -638,6 +701,7 @@ function renderDerived() {
 
   renderRentRoll(m);
   renderQuestions(m);
+  renderScenario(m);
 }
 
 const BREAK_EVEN_WHY = {
@@ -679,6 +743,12 @@ function figuresCard() {
     b.style.margin = '0 10px 12px';
     c.appendChild(b);
   }
+  // where each kind of figure comes from, in one line
+  const lg = el('div', 'lineage');
+  lg.innerHTML = '<span class="src high"><i></i>p.4</span> read from the OM: green printed in a summary or more than once, blue a labelled line, amber a weak match · '
+    + '<span class="src derived">derived</span> worked out from the others · <span class="src hand">edited</span> <span class="src hand">typed</span> entered by you · '
+    + 'scenario figures live only in Live deal below.';
+  c.appendChild(lg);
   return c;
 }
 
@@ -863,6 +933,264 @@ function financeCard() {
   return c;
 }
 
+/* ------------------------------------------------------- live deal: what if */
+
+/* A scenario is only the changes typed here, kept apart from the deal's own
+ * figures: the OM's price and NOI never move unless "Save to deal" is tapped
+ * and confirmed. Hold-period assumptions (years, growth, exit cap, sale costs)
+ * are scenario assumptions too, and the Deal column uses the same ones, so
+ * the two columns differ only by what was changed. */
+const SCN = [
+  ['price', 'Purchase price', 'money'], ['noi', 'NOI', 'money'],
+  ['rentChange', 'Rents, % change', 'delta'], ['occ', 'Occupancy %', 'pct'], ['expenseChange', 'Expenses, % change', 'delta'],
+  ['rate', 'Interest rate %', 'pct'], ['ltv', 'Loan to value %', 'pct'],
+  ['exitCap', 'Exit cap rate %', 'pct'], ['hold', 'Hold, years', 'int'], ['growth', 'NOI growth a year %', 'delta'], ['saleCost', 'Sale costs %', 'pct0'],
+];
+const HOLD_KEYS = ['exitCap', 'hold', 'growth', 'saleCost'];
+const scnShow = (kind, v) => {
+  if (!ok(v)) return '';
+  if (kind === 'money') return money0(v);
+  if (kind === 'int') return String(Math.round(v));
+  if (kind === 'delta') return `${v > 0 ? '+' : ''}${dec(v, 2)}%`;
+  return `${dec(v, 2)}%`;
+};
+const scnRead = (kind, raw) => {
+  if (kind === 'money') return parseNum(raw);
+  if (kind === 'int') { const v = parseNum(raw); return ok(v) && v >= 1 && v <= 30 ? Math.round(v) : null; }
+  if (kind === 'delta') { const v = parseNum(raw); return ok(v) && v > -100 && v < 1000 ? v : null; }
+  if (kind === 'pct0') return parsePct(raw, { fraction: false });
+  return parsePct(raw);
+};
+
+function scenarioCard() {
+  deal.live ||= {};
+  deal.scenarios ||= [];
+  deal.targets ||= { cap: null, irr: 15, value: null };
+  const c = el('section', 'card');
+  c.id = 'deal-live';
+  const h = el('div', 'card-head');
+  h.appendChild(el('h2', null, 'Live deal: what if'));
+  h.appendChild(el('span', 'count', 'changes here never alter the deal unless you save them to it'));
+  c.appendChild(h);
+  const g = el('div', 'grid-form');
+  g.id = 'scn-inputs';
+  c.appendChild(g);
+  const notes = el('div');
+  notes.id = 'scn-notes';
+  c.appendChild(notes);
+  const out = el('div');
+  out.id = 'scn-out';
+  out.style.padding = '0 16px 6px';
+  c.appendChild(out);
+  const ans = el('div');
+  ans.id = 'scn-answers';
+  ans.style.padding = '6px 16px 6px';
+  c.appendChild(ans);
+  const acts = el('div', 'view-actions');
+  acts.style.cssText = 'padding:8px 16px 16px';
+  acts.appendChild(button('btn-sm', 'Reset to the deal', () => { deal.live = {}; touch(); render(); }));
+  acts.appendChild(button('btn-sm', 'Save scenario', saveScenario));
+  acts.appendChild(button('btn-sm btn-teal', 'Save to deal…', saveToDeal));
+  c.appendChild(acts);
+  const saved = el('div');
+  saved.id = 'scn-saved';
+  c.appendChild(saved);
+  return c;
+}
+
+function renderScenario(m) {
+  const g = $('scn-inputs');
+  if (!g) return;
+  const run = runScenario(figuresFor(deal), m, deal.live);
+  const base = run.base;
+  // inputs: drawn once, then only their state changes, so the keyboard stays put
+  if (!g.children.length) {
+    for (const [key, label, kind] of SCN) {
+      const fd = el('div', 'field');
+      fd.dataset.key = key;
+      const lab = el('label', null, label);
+      const i = el('input', 'n');
+      i.id = `scn-${key}`;
+      lab.htmlFor = i.id;
+      i.inputMode = 'decimal';
+      i.autocomplete = 'off';
+      i.addEventListener('change', () => {
+        const v = scnRead(kind, i.value);
+        if (v === null) delete deal.live[key]; else deal.live[key] = v;
+        touch();
+        renderDerived();
+      });
+      fd.append(lab, i);
+      g.appendChild(fd);
+    }
+  }
+  for (const [key, , kind] of SCN) {
+    const fd = g.querySelector(`[data-key="${key}"]`);
+    const i = fd.querySelector('input');
+    const changed = ok(deal.live[key]);
+    fd.classList.toggle('changed', changed);
+    if (document.activeElement !== i) i.value = changed ? scnShow(kind, deal.live[key]) : '';
+    const was = kind === 'delta' ? (key === 'growth' ? `${dec(base.growth, 2)}% assumed` : 'no change') : (ok(base[key]) ? scnShow(kind, base[key]) : '—');
+    i.placeholder = was;
+    i.title = changed ? `Scenario: ${scnShow(kind, deal.live[key])}; the deal has ${was}` : `The deal has ${was}`;
+  }
+
+  const nb = $('scn-notes');
+  nb.textContent = '';
+  for (const t of run.notes) { const p = el('p', 'hint-sm', t); p.style.padding = '0 16px 8px'; nb.appendChild(p); }
+
+  // the Deal column uses the deal's figures with the same hold assumptions
+  const holdOnly = Object.fromEntries(Object.entries(deal.live).filter(([k]) => HOLD_KEYS.includes(k)));
+  const dealRun = runScenario(figuresFor(deal), m, holdOnly);
+  const box = $('scn-out');
+  box.textContent = '';
+  const t = el('table', 'mini scn');
+  const tr0 = el('tr');
+  for (const x of ['', 'Deal', 'Scenario']) tr0.appendChild(el('th', null, x));
+  t.appendChild(tr0);
+  const A = dealRun; const B = run;
+  const rows = [
+    ['Price', (r) => money0(r.inputs.price)],
+    ['NOI, year 1', (r) => money0(r.m.noi)],
+    ['Cap rate', (r) => pct(r.m.capCalc)],
+    ['Price / SF', (r) => money2(r.m.ppsf)],
+    ['Loan', (r) => money0(r.m.loan)],
+    ['DSCR', (r) => times(r.m.dscr)],
+    ['Debt yield', (r) => pct(r.m.debtYield)],
+    ['Cash-on-cash, year 1', (r) => pct(r.m.cashOnCash)],
+    ['Equity, with closing', (r) => money0(r.m.equity)],
+    [`Exit value, year ${B.inputs.hold}`, (r) => money0(r.returns?.exitValue)],
+    ['Levered IRR', (r) => pct(r.returns?.leveredIrr)],
+    ['Equity multiple', (r) => (ok(r.returns?.leveredMultiple) ? `${r.returns.leveredMultiple.toFixed(2)}x` : '—')],
+    ['Unlevered IRR', (r) => pct(r.returns?.unleveredIrr)],
+  ];
+  for (const [label, f] of rows) {
+    const tr = el('tr');
+    const a = f(A); const b = f(B);
+    tr.appendChild(el('td', null, label));
+    tr.appendChild(el('td', null, a));
+    tr.appendChild(el('td', a !== b ? 'scn-diff' : null, b));
+    t.appendChild(tr);
+  }
+  const wrap = el('div', 'scroll');
+  wrap.appendChild(t);
+  box.appendChild(wrap);
+  const s = B.inputs;
+  const p = el('p', 'hint-sm', `Returns: ${s.hold}-year hold, NOI growing ${dec(s.growth, 2)}% a year, sold at a ${ok(s.exitCap) ? pct(s.exitCap) : '—'} cap on the following year's NOI, less ${dec(s.saleCost, 2)}% sale costs and the loan balance. All scenario assumptions: change them above.`);
+  p.style.marginTop = '8px';
+  box.appendChild(p);
+
+  // answers to the questions a buyer asks, on the scenario's terms
+  const tg = deal.targets;
+  const a = scenarioAnswers(figuresFor(deal), m, deal.live, { targetCap: tg.cap ?? (ok(s.exitCap) ? Math.round((m.cap ?? s.exitCap) * 4 + 1) / 4 : null), targetIrr: tg.irr, capForValue: tg.value ?? s.exitCap });
+  const ab = $('scn-answers');
+  ab.textContent = '';
+  ab.appendChild(el('div', 'sec-label', 'Answers, on the scenario’s terms'));
+  const res = el('ul', 'results');
+  const ask = (label, key, val, fmt, why) => {
+    const li = el('li');
+    const left = el('span');
+    const txt = el('span', null, label);
+    const i = el('input', 'n scn-target');
+    i.inputMode = 'decimal';
+    i.value = ok(val) ? dec(val, 2) : '';
+    i.setAttribute('aria-label', `${label} target, percent`);
+    i.addEventListener('change', () => { const v = parsePct(i.value); tg[key] = ok(v) && v > 0 && v < 100 ? v : null; touch(); renderDerived(); });
+    left.append(txt, i, el('span', null, '%'));
+    if (why) left.appendChild(el('span', 'why', why));
+    li.appendChild(left);
+    li.appendChild(el('b', null, fmt));
+    res.appendChild(li);
+  };
+  const capT = tg.cap ?? (ok(s.exitCap) ? Math.round((m.cap ?? s.exitCap) * 4 + 1) / 4 : null);
+  ask('Price for a cap rate of', 'cap', capT, money0(a.priceForCap), ok(s.noi) ? `NOI ${money0(s.noi)} ÷ cap rate` : 'needs NOI');
+  ask('Price for a levered IRR of', 'irr', tg.irr, money0(a.priceForIrr), a.priceForIrr ? 'same loan terms, hold and exit' : 'not reachable on these terms, or needs an exit cap');
+  ask('Value at a cap rate of', 'value', tg.value ?? s.exitCap, money0(a.valueAtCap), null);
+  const li = el('li');
+  li.appendChild(el('span', null, 'Equity needed, with closing costs'));
+  li.appendChild(el('b', null, money0(a.equity)));
+  res.appendChild(li);
+  ab.appendChild(res);
+
+  renderSavedScenarios(m);
+}
+
+function renderSavedScenarios(m) {
+  const box = $('scn-saved');
+  if (!box) return;
+  box.textContent = '';
+  if (!deal.scenarios.length) return;
+  box.appendChild(el('div', 'sec-label', 'Saved scenarios')).style.margin = '0 16px 6px';
+  const list = el('div', 'list');
+  list.style.cssText = 'margin:0 16px 14px;background:var(--surface-2);border-radius:13px';
+  for (const sc of deal.scenarios) {
+    const r = runScenario(figuresFor(deal), m, sc.over);
+    const row = el('div', 'li');
+    const main = el('div', 'li-main');
+    main.appendChild(el('div', 'li-title', sc.name));
+    const sub = el('div', 'li-sub', [short(r.inputs.price), `${pct(r.m.capCalc)} cap`, `${times(r.m.dscr)} DSCR`, `${pct(r.returns?.leveredIrr, 1)} levered IRR`].join(' · '));
+    sub.style.whiteSpace = 'normal';
+    main.appendChild(sub);
+    row.appendChild(main);
+    const use = button('btn-plain btn-sm', 'Load', () => { deal.live = { ...sc.over }; touch(); render(); toast(`Loaded “${sc.name}”. The deal itself is unchanged.`); });
+    const del = el('button', 'iconbtn');
+    del.type = 'button';
+    del.innerHTML = svg('<path d="M6 6l12 12M18 6L6 18"/>', 15);
+    del.setAttribute('aria-label', `Delete scenario ${sc.name}`);
+    del.addEventListener('click', () => {
+      const d = deal;
+      const keep = d.scenarios;
+      d.scenarios = keep.filter((x) => x !== sc);
+      touch(d);
+      renderDerived();
+      toast('Scenario deleted.', { label: 'Undo', run: () => { d.scenarios = keep; touch(d); if (deal === d) renderDerived(); } });
+    });
+    row.append(use, del);
+    list.appendChild(row);
+  }
+  box.appendChild(list);
+}
+
+function saveScenario() {
+  if (!Object.keys(deal.live).length) { toast('Change a figure first: the scenario is what differs from the deal.'); return; }
+  const n = deal.scenarios.length + 1;
+  const name = (window.prompt('Name this scenario', `Scenario ${n}`) || '').trim();
+  if (!name) return;
+  deal.scenarios.push({ id: `s${Date.now().toString(36)}`, name, at: Date.now(), over: { ...deal.live } });
+  touch();
+  renderDerived();
+  toast(`Saved “${name}”. The deal’s own figures are unchanged.`);
+}
+
+/* The one way a scenario reaches the deal: asked for, confirmed, and marked as typed. */
+function saveToDeal() {
+  const L = deal.live;
+  if (!Object.keys(L).length) { toast('Nothing to save: the scenario matches the deal.'); return; }
+  const { m } = metrics();
+  const run = runScenario(figuresFor(deal), m, L);
+  const writes = [];
+  if (ok(L.price)) writes.push(['price', run.inputs.price, `price ${money0(run.inputs.price)}`]);
+  if (ok(L.noi) || ok(L.rentChange) || ok(L.expenseChange) || ok(L.occ)) writes.push(['noi', run.m.noi, `NOI ${money0(run.m.noi)}`]);
+  if (ok(L.occ)) writes.push(['occ', L.occ, `occupancy ${pct(L.occ, 1)}`]);
+  const loanKeys = ['rate', 'ltv'].filter((k) => ok(L[k]));
+  const parts = [...writes.map((w) => w[2]), ...loanKeys.map((k) => `${k === 'rate' ? 'rate' : 'LTV'} ${pct(L[k])}`)];
+  const holdNote = HOLD_KEYS.some((k) => ok(L[k])) ? '\n\nHold, growth, exit cap and sale costs stay with the scenario: the deal has no such figures.' : '';
+  if (!parts.length) { toast('Only hold-period assumptions are changed; they stay with the scenario.'); return; }
+  if (!window.confirm(`Write ${parts.join(', ')} into the deal?\n\nThe OM’s own figures stay one tap away on each page tag.${holdNote}`)) return;
+  for (const [k, v] of writes) {
+    deal.figures[k] = v;
+    const s = deal.sources[k];
+    if (s) s.hand = s.orig !== v; else deal.sources[k] = { hand: true };
+  }
+  // a cap rate that no longer matches the new price and NOI would be flagged as a discrepancy
+  for (const k of loanKeys) deal.loan[k] = L[k];
+  const kept = Object.fromEntries(Object.entries(L).filter(([k]) => HOLD_KEYS.includes(k)));
+  deal.live = kept;
+  touch();
+  render();
+  toast('Saved to the deal. Figures you changed are tagged “edited”.');
+}
+
 /* --------------------------------------------------------------- rent roll */
 
 function renderRentRoll(m) {
@@ -1014,7 +1342,149 @@ function visitCard() {
   ph.id = 'deal-photos';
   c.appendChild(ph);
   renderPhotos(ph);
+  const au = el('div', 'voice');
+  au.id = 'deal-audio';
+  c.appendChild(au);
+  renderAudio(au);
   return c;
+}
+
+/* ------------------------------------------------------------ voice notes */
+
+/* Recorded with the microphone, or a Voice Memos file added, and kept with
+ * the deal as audio. Nothing is transcribed: that needs a speech-to-text
+ * service, which would mean sending the recording off the device, and this
+ * app has none. The screen says so rather than pretending. */
+let rec = null;            // { mr, d, start, timer } while recording
+
+function renderAudio(into = null) {
+  const box = into || $('deal-audio');
+  if (!box || !deal) return;
+  box.textContent = '';
+  const v = deal.visit;
+  v.audio ||= [];
+  const head = el('div', 'voice-head');
+  head.appendChild(el('span', 'sec-label', 'Voice notes'));
+  const recording = rec && rec.d === deal;
+  const recBtn = button(recording ? 'btn-sm btn-danger' : 'btn-sm', recording ? `Stop · ${clock((Date.now() - rec.start) / 1000)}` : 'Record', () => (rec ? stopRec() : startRec()),
+    recording ? '<rect x="7" y="7" width="10" height="10" rx="2"/>' : '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/>');
+  recBtn.id = 'rec-btn';
+  head.appendChild(recBtn);
+  const add = el('label', 'btn btn-sm btn-gray', 'Add audio file');
+  const fi = el('input');
+  fi.type = 'file';
+  fi.accept = 'audio/*,.m4a,.mp3,.wav,.aac,.caf';
+  fi.multiple = true;
+  fi.hidden = true;
+  fi.id = 'audio-file';
+  fi.addEventListener('change', () => { const fs = [...fi.files]; fi.value = ''; addAudioFiles(fs); });
+  add.htmlFor = fi.id;
+  head.append(add, fi);
+  box.appendChild(head);
+  for (const a of v.audio) {
+    const row = el('div', 'voice-row');
+    const meta = el('div', 'voice-meta');
+    meta.appendChild(el('b', null, a.name || 'Voice note'));
+    meta.appendChild(el('span', null, [new Date(a.at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }), ok(a.seconds) ? clock(a.seconds) : null].filter(Boolean).join(' · ')));
+    row.appendChild(meta);
+    const au = el('audio');
+    au.controls = true;
+    au.preload = 'metadata';
+    const url = URL.createObjectURL(a.blob);
+    photoUrls.push(url);
+    au.src = url;
+    row.appendChild(au);
+    const x = el('button', 'iconbtn');
+    x.type = 'button';
+    x.innerHTML = svg('<path d="M6 6l12 12M18 6L6 18"/>', 14);
+    x.setAttribute('aria-label', `Delete ${a.name || 'voice note'}`);
+    x.addEventListener('click', () => {
+      const d = deal;
+      const keep = d.visit.audio;
+      d.visit.audio = keep.filter((q) => q !== a);
+      touch(d);
+      renderAudio();
+      toast('Voice note deleted.', { label: 'Undo', run: () => { d.visit.audio = keep; touch(d); if (deal === d) renderAudio(); } });
+    });
+    row.appendChild(x);
+    box.appendChild(row);
+  }
+  box.appendChild(el('p', 'hint-sm', v.audio.length
+    ? 'Kept on this device with the deal. Not transcribed: that would need a speech service, and nothing here leaves the device.'
+    : 'Record what the owner or manager says, or add a Voice Memos file. Kept with the deal; not transcribed.'));
+}
+
+const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+async function startRec() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
+    toast('This browser can’t record here. Record in Voice Memos, then add the file.');
+    return;
+  }
+  const d = deal;
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    toast(err && err.name === 'NotAllowedError'
+      ? 'Microphone access was refused. Allow it for this site in Settings, or record in Voice Memos and add the file.'
+      : `The microphone could not start (${err && err.message ? err.message : err}). Record in Voice Memos and add the file instead.`, null, 8000);
+    return;
+  }
+  const type = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'].find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
+  let mr;
+  try { mr = new MediaRecorder(stream, type ? { mimeType: type } : undefined); } catch (err) {
+    stream.getTracks().forEach((t) => t.stop());
+    toast(`Recording could not start: ${err.message || err}`);
+    return;
+  }
+  const chunks = [];
+  const start = Date.now();
+  mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+  mr.onstop = () => {
+    stream.getTracks().forEach((t) => t.stop());
+    clearInterval(rec && rec.timer);
+    rec = null;
+    const blob = new Blob(chunks, { type: mr.mimeType || type || 'audio/mp4' });
+    if (!blob.size) { toast('Nothing was recorded. Check the microphone and try again.'); if (deal === d) renderAudio(); return; }
+    const n = (d.visit.audio || []).length + 1;
+    (d.visit.audio ||= []).push({ id: `a${Date.now().toString(36)}`, at: start, blob, name: `Voice note ${n}`, seconds: (Date.now() - start) / 1000 });
+    if (!d.visit.at) d.visit.at = start;
+    touch(d);
+    if (deal === d) renderAudio();
+    toast(`Voice note saved to ${deal === d ? 'the deal' : d.name || 'the earlier deal'}.`);
+  };
+  mr.start(1000);
+  rec = { mr, d, start, timer: setInterval(() => { const b = $('rec-btn'); if (b && rec && rec.d === deal) b.querySelector('span').textContent = `Stop · ${clock((Date.now() - rec.start) / 1000)}`; }, 500) };
+  renderAudio();
+}
+
+function stopRec() {
+  if (rec && rec.mr.state !== 'inactive') rec.mr.stop();
+}
+
+async function addAudioFiles(files) {
+  const d = deal;
+  if (!d) return;
+  const list = files.filter((f) => /^audio\//.test(f.type) || /\.(m4a|mp3|wav|aac|caf|ogg|webm)$/i.test(f.name));
+  const empty = list.filter((f) => !f.size);
+  const good = list.filter((f) => f.size);
+  if (!list.length) { toast('Those are not audio files.'); return; }
+  for (const f of good) {
+    const seconds = await new Promise((res) => {
+      const a = new Audio();
+      const u = URL.createObjectURL(f);
+      const done = (v) => { URL.revokeObjectURL(u); res(v); };
+      a.onloadedmetadata = () => done(Number.isFinite(a.duration) ? a.duration : null);
+      a.onerror = () => done(null);
+      setTimeout(() => done(null), 4000);
+      a.src = u;
+    });
+    (d.visit.audio ||= []).push({ id: `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, at: f.lastModified || Date.now(), blob: f, name: f.name.replace(/\.[^.]+$/, ''), seconds });
+  }
+  if (good.length) touch(d);
+  if (deal === d) renderAudio();
+  toast(`${good.length} voice note${good.length === 1 ? '' : 's'} added.${empty.length ? ` ${empty.length} empty file${empty.length === 1 ? '' : 's'} skipped.` : ''}`);
 }
 
 function renderPhotos(into = null) {
@@ -1136,7 +1606,7 @@ function printBrief() {
   const urls = deal.visit.photos.map((p) => { const u = URL.createObjectURL(p.blob); photoUrls.push(u); return u; });
   let preparedBy = '';
   try { preparedBy = (JSON.parse(localStorage.getItem('comp-loader.subject.v1') || '{}') || {}).preparedBy || ''; } catch { /* fine */ }
-  renderDealBrief($('print-sheet'), { deal: { ...deal, activeQuestions: activeQuestions(m), visitLines: visitLines() }, m, comps, photos: urls, preparedBy });
+  renderDealBrief($('print-sheet'), { deal: { ...deal, activeQuestions: activeQuestions(m), visitLines: visitLines(), scenarioLines: scenarioLines(m) }, m, comps, photos: urls, preparedBy });
   // images have to be decoded before the print snapshot is taken
   const imgs = [...$('print-sheet').querySelectorAll('img')];
   Promise.all(imgs.map((i) => (i.decode ? i.decode().catch(() => {}) : null))).then(() => window.print());
@@ -1167,10 +1637,12 @@ async function dealMenu() {
     const gone = deal;
     dropPending(gone);
     clearRecovery(gone.id, Infinity);
+    opened.delete(gone.id);
+    deleted.add(gone.id);
     await store.deleteDeal(gone.id);
     deal = null;
     closeDeal();
-    toast('Deal deleted.', { label: 'Undo', run: async () => { await store.saveDeal(gone); openDeal(gone.id); } });
+    toast('Deal deleted.', { label: 'Undo', run: async () => { deleted.delete(gone.id); await store.saveDeal(gone); openDeal(gone.id); } });
   }
 }
 
