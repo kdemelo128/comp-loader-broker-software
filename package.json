@@ -1,0 +1,24 @@
+{
+  "name": "comp-loader",
+  "version": "3.0.0",
+  "description": "A broker's field kit in the browser: CoStar comp reports into an Excel comp set or your own template, offering memoranda read and underwritten on the spot, and deal calculators.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "serve": "python3 -m http.server 8080"
+  },
+  "devDependencies": {
+    "@xmldom/xmldom": "0.9.12",
+    "exceljs": "4.4.0",
+    "fflate": "0.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "overrides": {
+    "uuid": "11.1.1"
+  },
+  "author": "Kyle Alexander De Melo"
+}

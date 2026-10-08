@@ -1,0 +1,188 @@
+# Changelog
+
+## 3.0.0
+
+A redesign, and two new screens beside the comps: **Deal** and **Tools**.
+
+### New
+
+- **Offering memorandum scanner (Deal tab).** Choose an OM's PDF and the asking
+  price, NOI, cap rate, building and land size, units, year built, occupancy,
+  income, expenses, taxes, zoning, single-tenant lease terms and the rent roll
+  are read from it. Every figure shows the page it came from: tap the tag to see
+  the line, and pick another reading if the OM prints more than one. Any two of
+  price, NOI and cap rate give the third, marked as derived.
+- **What doesn't add up.** The OM checked against itself: a stated cap rate that
+  isn't NOI over price, a $/SF on a different square footage, a rent roll whose
+  occupancy or area disagrees with the summary, pro forma upside, light
+  expenses, and thin debt coverage.
+- **Against your comps.** The asking $/SF against the sale comps on the Comps
+  tab, where it falls in their range, and the value at their $/SF and median cap.
+- **Financing and loan sizing.** Loan, debt service, DSCR, debt yield, cash flow,
+  cash-on-cash, break-even occupancy, and the largest loan the property supports
+  by LTV, DSCR and debt yield. Your terms are remembered for the next deal.
+- **Value across cap rates**, WALT and rollover from the rent roll, and
+  **questions to ask**, written from the gaps in the OM, to tick off on site.
+- **Site visit**: a walk-through checklist, notes and photos, kept with the deal.
+- **Deal outputs**: an Excel workbook (Deal Analysis and Rent Roll tabs, every
+  result a live formula), a one-page brief to print or save as PDF with the
+  photos, a five-line summary to text, and "use as the comps subject". The comp
+  workbook can carry the open deal's analysis as a tab after the Summary.
+- **Your own Excel template.** Upload the comp sheet your firm already uses and
+  the Excel button fills it: the header row is found and each column matched to
+  a comp figure by its wording, and you can change any match. Only the comp
+  cells change; formatting, formulas, charts, logos and every other sheet stay
+  exactly as they were. The built-in workbook is one tap away.
+- **Tools tab**: quick value, loan sizing, offer price and seller net sheet, net
+  effective rent, 1031 exchange deadlines, WALT and rollover, and a converter.
+- Saved deals, stored on the device; deals, template and settings survive a reload.
+
+### Changed
+
+- **New design.** A tab bar on the phone and a sidebar on a desk, grouped cards,
+  the system font, a cobalt-and-teal palette, light and dark, and a new icon.
+- **Comps on a phone are cards**, not a table to scroll sideways. Every figure is
+  still editable in place.
+- **Faster comps.** Search, sort (by $/SF, date, price, size, cap rate or name),
+  include or set aside every comp in one tap, read two PDFs at a time with
+  page-by-page progress, and the PDF reader and Excel library start loading
+  before the tap that needs them.
+- Export, CSV, comp sheet and project actions are in one action sheet.
+- Copyright Kyle Alexander De Melo.
+
+### Fixed
+
+- The first visit no longer announces "a new version is ready".
+
+## 2.1.0
+
+### New
+
+- **Buyer, seller and deal terms.** Each comp now carries CoStar's true buyer and
+  seller (the recorded entity when no true party is printed), sale type
+  (investment or owner-user), sale conditions (1031 exchange, bankruptcy, high
+  vacancy, sale-leaseback and so on) and hold period. They appear on the Sale
+  Comps tab, in the comp detail panel, in the CSV, and beside the Adjustment
+  Grid, where they inform the conditions-of-sale adjustment.
+- **Comp detail panel.** ⓘ on any row shows everything on a comp: figures,
+  parties and terms, flags, CoStar's full notes, and a map link.
+- **Printable comp sheet.** One landscape page with the headline figures and both
+  comp tables, for a BOV or an offering memorandum. Print it, or save it as a PDF
+  from the print dialog.
+- **CSV export**, with a single full-address column that Google My Maps can
+  geocode, so the whole comp set can go on a map in a minute.
+- **Owner-user** sales and listings are marked in the comp tables.
+- **Lender-guideline flags in the Adjustment Grid.** Each comp shows its overall
+  net adjustment; comps past 15% net or 25% gross (both editable) are shaded and
+  counted. These are underwriting guidelines, not limits, so nothing is dropped.
+- The version number is shown at the foot of the page.
+
+### Fixed
+
+- **The market-conditions adjustment came from a regression that explained
+  nothing.** Across a mixed comp set the $/SF-over-time line measures which
+  properties sold when, not how the market moved; in the southeast Baltimore set
+  it implied +61% a year and adjusted one sale up 341%. On all seven test sets R²
+  was between 0.01 and 0.27. The adjustment now starts at 0% unless the line is
+  reliable (five or more sales, R² 0.5 or better, within ±10% a year), and the
+  reason is printed beside the rate.
+- The size-adjustment note told you to enter a negative rate to adjust a larger
+  comp up; with the formula as written, that adjusts it down. The note now
+  matches the formula.
+- Older iPhones could not read PDFs: the pdf.js build used needs Safari 17.4.
+  The legacy build, which polyfills what is missing, supports iOS 16.4 and
+  later, and an older browser is told plainly to update.
+- The "Install app" button, the iPhone home-screen hint and an empty file list
+  showed on every device: the stylesheet let a class override `hidden`.
+- On a slow connection, a nine-second start-up timer could declare a working
+  browser unsupported and hide the app for good. Start-up is now judged when the
+  page finishes loading, and a file that failed to download gets its own message.
+- Opening the app and dropping a report before saved work had loaded could
+  overwrite the new report with the old session.
+- Library files are now named with their version, so an installed copy can never
+  keep a stale one from its cache.
+- Montgomery County zones written without a hyphen (`CR3.0`) and the industrial
+  zones (`IL-1.0 H-50`) now give a buildable SF.
+- The test workflow failed on GitHub before running a test: it needed a
+  `package-lock.json`, and `npm test` pointed at a folder Node 22 will not
+  accept. Two tests also checked for the wrong XML spelling.
+- Test dependencies: fflate 0.8.3 fixes a ZIP64 parsing loop (the browser copy
+  is updated too), and uuid is pinned to a patched release. `npm audit` is clean.
+
+### Checked
+
+Every XML part of every generated workbook now validates against the ISO/IEC
+29500 schemas, the check behind Excel's "We found a problem with some content".
+
+## 2.0.0
+
+### New in the workbook
+
+- **Charts tab.** Native Excel charts: sale comps ranked by $/SF, sale $/SF over
+  time with a linear trendline, and listings ranked by asking $/SF. They read
+  live cell ranges, so they move when a comp is edited, and they carry cached
+  values, so they draw in Protected View and in previews.
+- **Adjustment Grid in the appraisal sequence.** Property rights, financing,
+  conditions of sale and market conditions compound to a normalized $/SF; the
+  property adjustments (location, size, age and condition, quality, occupancy
+  and lease, other) are then summed and applied once. Each comp shows its gross
+  adjustment and a reliability weight, and the conclusion is given both by your
+  weights and weighted toward the comps that needed the least adjusting.
+- **Pricing matrix.** The subject's value at a ladder of cap rates, with the
+  center and the step as inputs, and each row's $/SF and premium or discount to
+  the asking price.
+- **Market read.** Median asking $/SF against median sold $/SF, and a count of
+  sales in the last eighteen months that warns when the set is thin.
+- **Montgomery County zoning.** Zone names such as `CR-3.0 C-2.0 R-2.75 H-145`
+  state their own maximum FAR; it is read from the name, added to the Zoning
+  Catalogue, and Bethesda and Silver Spring comps get a buildable SF.
+- **No fifteen-comp ceiling.** The grids hold fifteen, as the template did, and
+  grow when more comps are included.
+- **Prepared by** line on the Summary.
+- Hand edits, moves between Sales and On Market, and hand-entered comps are all
+  named in each comp's flags and on the Audit Trail.
+
+### New in the app
+
+- Reports **add to the set**. Dropping a second batch no longer replaces the
+  first, and edits survive.
+- **Your work is kept** on the device between visits, and can be saved as a
+  **project file** to open on another device or hand to someone else.
+- **At a glance** panel: headline figures, a ranked $/SF chart of sold and
+  asking side by side, and sale $/SF over time with the trend.
+- **Add a comp** by hand, **move** a comp between Sales and On Market,
+  **sold-within** window for the sales.
+- Comps past the fifteenth are kept and set aside rather than dropped; tick one
+  to include it.
+- **Share** the workbook straight to Mail, Outlook or Files from a phone.
+- Numbers can be typed as brokers type them: `5.2m`, `850k`, `6.25%`.
+- Installs as an app on Android and desktop Chrome or Edge, and shows iPhone
+  users how to add it to the home screen. On the desktop, an installed copy
+  opens PDFs double-clicked in the file manager.
+- Starts faster: the PDF reader and the Excel writer load only when needed.
+
+### Fixed
+
+- Editing a figure redrew the whole table and lost the keyboard's place.
+- An edited price or size could leave the workbook out of $/SF order. The
+  workbook is now always written high to low.
+- Installed copies never picked up a new version unless the cache was renamed.
+  The app's own files now come from the network first.
+- Vertical alignment in the workbook was silently dropped by ExcelJS, so cells
+  sat at the bottom of their rows.
+- `INDEX` on a zoning code with no FAR recorded returned 0 rather than blank.
+- A sale with no date in the Adjustment Grid read as day zero, a century ago.
+- An active listing laid out as "Status  Active" on a line of its own was
+  flagged as under contract. (The Python loader had the same flaw; it is fixed
+  there too.)
+- Lowercase zoning matched in Excel but not in the stored value.
+- Typing `5.2M` blanked the price.
+- One malformed comp page stopped the whole batch.
+- Clipboard text starting with `=`, `+`, `-` or `@` could run as a formula when
+  pasted into a spreadsheet.
+- The download's file name used tomorrow's date after 8 p.m. Eastern.
+
+## 1.0.0
+
+First release: CoStar comp PDFs parsed in the browser into the comp workbook,
+with the same rules as the original Python loader.
