@@ -1,0 +1,5 @@
+node_modules/
+*.pdf
+*.xlsx
+*.xls
+.DS_Store

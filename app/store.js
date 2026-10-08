@@ -18,34 +18,45 @@ export const VERSION = 1;
 
 /* Version 2 adds two stores beside the session: `deals` (one record per OM
  * analysed, with its site-visit photos as Blobs) and `kv` (the custom Excel
- * template and small settings). An existing session survives the upgrade. */
+ * template and small settings). An existing session survives the upgrade.
+ *
+ * One connection is kept open and reused. Opening a database is asynchronous,
+ * and a save made as the app leaves the screen (pagehide) has to start its
+ * transaction straight away, before the page is frozen, or it is lost. */
+let dbP = null;
 function open() {
-  return new Promise((resolve, reject) => {
+  if (dbP) return dbP;
+  dbP = new Promise((resolve, reject) => {
     if (!('indexedDB' in globalThis)) { reject(new Error('no IndexedDB')); return; }
     const req = indexedDB.open(DB, 2);
     req.onupgradeneeded = () => {
       const db = req.result;
       for (const name of [STORE, 'deals', 'kv']) if (!db.objectStoreNames.contains(name)) db.createObjectStore(name);
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      // another tab upgrading the database, or the browser closing it: start afresh next time
+      db.onversionchange = () => { db.close(); dbP = null; };
+      db.onclose = () => { dbP = null; };
+      resolve(db);
+    };
     req.onerror = () => reject(req.error);
     req.onblocked = () => reject(new Error('storage is busy in another tab'));
   });
+  dbP.catch(() => { dbP = null; });
+  return dbP;
 }
 
 async function tx(mode, fn, store = STORE) {
   const db = await open();
-  try {
-    return await new Promise((resolve, reject) => {
-      const t = db.transaction(store, mode);
-      const req = fn(t.objectStore(store));
-      t.oncomplete = () => resolve(req ? req.result : undefined);
-      t.onerror = () => reject(t.error);
-      t.onabort = () => reject(t.error);
-    });
-  } finally {
-    db.close();
-  }
+  return new Promise((resolve, reject) => {
+    let t;
+    try { t = db.transaction(store, mode); } catch (err) { dbP = null; reject(err); return; }
+    const req = fn(t.objectStore(store));
+    t.oncomplete = () => resolve(req ? req.result : undefined);
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error);
+  });
 }
 
 export async function saveSession(session) {

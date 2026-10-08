@@ -202,9 +202,15 @@ export const FIELDS = {
     labels: [
       [/\beffective gross (?:income|revenue)\b|\begi\b/i, 3],
       [/\btotal (?:gross |rental |operating )?(?:income|revenue)\b|\bgross (?:operating |rental )?(?:income|revenue)\b/i, 2.5],
-      [/\bgross potential (?:rent|income)\b|\bgpr\b|\bpotential gross income\b/i, 2],
     ],
-    skip: /\b(per\s+(?:sf|unit)|\/\s*(?:sf|unit)|psf|growth|%|multiplier)\b/i,
+    // potential rent at full occupancy is not effective income: it has its own field
+    skip: /\b(per\s+(?:sf|unit)|\/\s*(?:sf|unit)|psf|growth|%|multiplier|potential)\b/i,
+    divert: [PROFORMA, null],
+  },
+  gpr: {
+    label: 'Gross potential rent', kind: 'money', min: 1000, max: 2e9,
+    labels: [[/\bgross potential (?:rent|rental income|income|revenue)\b|\bgpr\b|\bpotential gross (?:income|rent|revenue)\b|\bpgi\b/i, 3]],
+    skip: /\b(per\s+(?:sf|unit)|\/\s*(?:sf|unit)|psf|growth|%)\b/i,
     divert: [PROFORMA, null],
   },
   opex: {
@@ -265,7 +271,7 @@ export const FIELDS = {
 /* Field order matters where labels overlap: the specific forms (price per SF,
  * pro forma NOI) are tried before the general ones on the same cell. */
 const ORDER = ['price_psf', 'price_unit', 'noi_pf', 'cap_pf', 'price', 'noi', 'cap', 'bsf', 'lot', 'units',
-  'year', 'renovated', 'occ', 'gross', 'opex', 'taxes', 'stories', 'parking', 'zoning', 'tenant', 'guarantor',
+  'year', 'renovated', 'occ', 'gpr', 'gross', 'opex', 'taxes', 'stories', 'parking', 'zoning', 'tenant', 'guarantor',
   'lease_type', 'lease_exp', 'term_left', 'increases', 'options'];
 
 const SUMMARY = /(executive|investment|offering|property|financial|deal|pricing)\s+(summary|highlights|overview)|the offering|offering terms|pricing\s*(?:&|and)\s*financ|financial analysis|key facts|at a glance/i;
@@ -322,6 +328,18 @@ function candidates(pages) {
     const pageBonus = (pi < 4 ? 1 : 0) + (SUMMARY.test(page) ? 2 : 0) - (DEMOGRAPHICS.test(page) && !SUMMARY.test(page) ? 2 : 0);
     const finBonus = FINANCIALS.test(page) ? 1 : 0;
 
+    // an operating statement with a Pro Forma column: the column headings
+    // that say so, carried down to the rows beneath them
+    const pfCols = [];
+    let cur = null;
+    let since = 0;
+    grid.forEach((cells, li) => {
+      const heads = cells.filter((c) => c.text.length <= 40 && PROFORMA.test(c.text) && !/\d{4,}|\$/.test(c.text.replace(/\b(?:19|20)\d\d\b/g, '')));
+      if (heads.length && cells.length >= 2) { cur = heads; since = 0; } else if (cur && ++since > 40) cur = null;
+      pfCols[li] = cur;
+    });
+    const inPf = (li, c) => !!pfCols[li] && pfCols[li].some((h) => c.start <= h.end + 4 && c.end >= h.start - 4);
+
     grid.forEach((cells, li) => {
       cells.forEach((cell, ci) => {
         const prose = cell.text.length > 70;
@@ -366,10 +384,35 @@ function candidates(pages) {
           // a word in a table header is not a label with a value beside it
           if (TF.kind === 'text' && v === null && cells.length > 3 && !/:\s*$/.test(labelText + rest.slice(0, 2))) continue;
           // 2. the next cells on the line ("Asking Price      $4,950,000")
+          let vk = -1;
           for (let k = ci + 1; v === null && k < Math.min(cells.length, ci + 3); k++) {
             const r = readValue(TF, cells[k].text, labelText);
-            if (plausible(TF, r)) v = r;
+            if (plausible(TF, r)) { v = r; vk = k; }
             if (TF.kind === 'text') break;
+          }
+          // in a Current / Pro Forma statement the in-place figure is the one
+          // outside the Pro Forma column, and the one inside it is the pro forma NOI
+          if (vk >= 0 && pfCols[li] && TF.kind === 'money') {
+            let pfVal = null;
+            if (inPf(li, cells[vk])) {
+              pfVal = v;
+              v = null;
+              for (let k = ci + 1; k < cells.length; k++) {
+                if (k === vk || inPf(li, cells[k])) continue;
+                const r = readValue(TF, cells[k].text, labelText);
+                if (plausible(TF, r)) { v = r; break; }
+              }
+            } else {
+              for (let k = vk + 1; k < cells.length; k++) {
+                if (!inPf(li, cells[k])) continue;
+                const r = readValue(TF, cells[k].text, labelText);
+                if (plausible(TF, r)) { pfVal = r; break; }
+              }
+            }
+            if (pfVal !== null && target === 'noi') {
+              out.push({ key: 'noi_pf', value: pfVal, page: pi + 1, line: lines[li].trim().replace(/\s{2,}/g, '   '), score: weight + pageBonus + finBonus });
+            }
+            if (v === null) continue;
           }
           // 3. a figure stacked above or below its caption, in the same column
           if (v === null && TF.kind !== 'text' && !prose) {

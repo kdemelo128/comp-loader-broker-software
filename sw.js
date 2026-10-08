@@ -12,9 +12,15 @@
  *     (the libraries carry their version in the file name), so they are
  *     answered from the cache first.
  *
- * Bump CACHE when the list of files below changes; the old cache is dropped on
- * activate. The test suite checks this list against the files on disk. */
-const CACHE = 'comp-loader-v6';
+ * CACHE carries the app's version, and the test suite fails unless it matches
+ * the version in package.json and app/exporters.js. So every release changes
+ * this file, which makes every installed copy install afresh: it downloads
+ * the whole set again in one pass (bypassing the HTTP cache), so the modules
+ * it holds offline always belong to the same release, never a mix of the old
+ * and the new. The old cache is dropped on activate. The test suite also
+ * checks this list against the files on disk. */
+const VERSION = '3.1.0';
+const CACHE = `comp-loader-${VERSION}`;
 const ASSETS = [
   './',
   'index.html',
@@ -57,7 +63,11 @@ const IMMUTABLE = /\/(vendor|fonts|icons)\//;
 const NETWORK_WAIT_MS = 3500;
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // cache: 'reload' skips the browser's HTTP cache (GitHub Pages lets it keep a
+  // file for ten minutes), so a fresh install never stores a stale copy
+  e.waitUntil(caches.open(CACHE)
+    .then((c) => c.addAll(ASSETS.map((a) => new Request(a, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {

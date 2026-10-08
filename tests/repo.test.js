@@ -62,3 +62,22 @@ test('the page makes no request to another site', () => {
     for (const m of src.matchAll(/fetch\(\s*['"`](https?:[^'"`]+)/g)) assert.fail(`${f} fetches ${m[1]}`);
   }
 });
+
+test('the offline cache is named for this release, so every release reinstalls it whole', () => {
+  const pkg = JSON.parse(read('package.json')).version;
+  const lock = JSON.parse(read('package-lock.json')).version;
+  const app = /export const VERSION = '([^']+)'/.exec(read('app/exporters.js'))[1];
+  const sw = /const VERSION = '([^']+)'/.exec(read('sw.js'))[1];
+  assert.equal(app, pkg, 'app/exporters.js VERSION matches package.json');
+  assert.equal(sw, pkg, 'sw.js VERSION matches package.json');
+  assert.equal(lock, pkg, 'package-lock.json version matches package.json');
+  assert.match(read('sw.js'), /const CACHE = `comp-loader-\$\{VERSION\}`/);
+  assert.match(read('sw.js'), /cache: 'reload'/, 'install bypasses the HTTP cache');
+});
+
+test('GitHub Pages serves the site as is, and the tests run on every push', () => {
+  assert.ok(exists('.nojekyll'), '.nojekyll stops Jekyll from processing the site');
+  assert.ok(exists('.github/workflows/test.yml'), 'the test workflow is in the repository');
+  const ignore = read('.gitignore');
+  for (const p of ['node_modules', '*.pdf', '*.xlsx']) assert.ok(ignore.includes(p), `.gitignore keeps ${p} out`);
+});

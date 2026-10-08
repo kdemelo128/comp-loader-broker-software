@@ -7,7 +7,8 @@ app. Three tabs:
   workbook (the built-in one, or **your own template**, filled in place).
 - **Deal** reads an **offering memorandum** on the spot: the key figures with the
   page each came from, what doesn't add up, where it sits against your comps, a
-  loan run, the questions to ask, and site-visit notes and photos.
+  loan run, a **live what-if** with hold-period returns, the questions to ask,
+  and site-visit notes, photos and voice notes.
 - **Tools** holds the calculators a deal needs between meetings: quick value,
   loan sizing, offer and seller net, net effective rent, 1031 deadlines, WALT
   and a converter.
@@ -65,14 +66,25 @@ download). In a few seconds:
   median cap rate.
 - **Financing**: loan, debt service, DSCR, debt yield, cash-on-cash, break-even
   occupancy, and the largest loan the property supports and which test limits it.
+- **Live deal: what if.** Change the price, NOI, rents, occupancy, expenses,
+  rate, LTV, exit cap, hold or growth and see the deal and the scenario side by
+  side: cap rate, DSCR, debt yield, cash-on-cash, equity, exit value, levered and
+  unlevered IRR and equity multiple. It answers the price for a target cap rate
+  or a target IRR, and the value at any cap rate. **A scenario never changes the
+  deal**: the OM's figures move only when you tap **Save to deal** and confirm,
+  and the figures you save are tagged "edited". Scenarios can be saved by name.
 - **Value across cap rates**, the **rent roll** with WALT and rollover, and
   **questions to ask**, written from this OM's gaps, to tick off.
-- **Site visit**: a checklist, notes and photos.
+- **Site visit**: a checklist (what you observed), notes (what you were told),
+  photos and voice notes, recorded on the spot or added from Voice Memos. Voice
+  notes are kept as audio with the deal; they are **not transcribed**, because
+  that needs a speech service and nothing here leaves the device.
 
 Then: **Excel** (a Deal Analysis tab and a Rent Roll tab, every result a live
-formula), **Share** (a five-line summary), **One-page brief** (print or save as
-PDF, with photos), or **Use as the comps subject**. Deals are saved on the
-device; **All deals** lists them.
+formula), **Share** (a five-line summary), **Deal brief** (print or save as
+PDF, with photos and any scenarios, labelled as assumptions), or **Use as the
+comps subject**. Deals are saved on the device; **All deals** lists them, and
+**Try a fictional example deal** shows the screen with invented figures.
 
 An OM that is a scan, with no text in it, can't be read: enter the figures by
 hand and everything else works the same. OMs have no standard layout, so check
@@ -135,7 +147,7 @@ It is a static site: no build step, no server, no keys.
    (Mac: press **Cmd+Shift+.** to show hidden files. Windows: View → Show →
    Hidden items.)
 3. GitHub Desktop lists the changed files. Type a summary such as
-   `Comp Loader 3.0`, click **Commit to main**, then **Push origin**.
+   `Comp Loader 3.1`, click **Commit to main**, then **Push origin**.
 4. GitHub rebuilds the site in a minute or two (the **Actions** tab shows a green
    check when the tests pass). Installed copies offer **Reload** the next time
    they open online.
@@ -153,8 +165,25 @@ python3 -m http.server 8080      # then open http://localhost:8080
 
 ```sh
 npm ci        # the packages the tests use
-npm test      # parser, OM reader, deal maths, tools, template filling, workbook, exports, repository
+npm test      # parser, OM reader, deal maths, known-answer finance, tools, template, workbook, exports, repository
 ```
+
+`tests/finance.test.js` checks the deal arithmetic against figures worked out
+independently (debt service, balances, DSCR, debt yield, cash-on-cash, loan
+sizing, break-even occupancy, WALT, net effective rent, IRR, equity multiple,
+the price for a target IRR) and that junk inputs never produce NaN or Infinity.
+
+`tests/e2e/run.sh` drives the app in an iPhone-sized Chromium page: comps,
+a template, three OM layouts, bad files, the live what-if, photos and voice
+notes, two deals side by side, reloads mid-edit, offline use, and a full
+broker walk-through. It then recalculates every exported workbook in
+LibreOffice and checks each formula against the value stored beside it. It
+needs Playwright, Python (reportlab, Pillow, openpyxl) and LibreOffice, so it
+is not part of `npm test`.
+
+Each release bumps the version in `package.json`, `package-lock.json`,
+`app/exporters.js` and `sw.js` together (`npm test` fails otherwise). That is
+what makes every installed copy download the new release whole.
 
 Tests run on invented documents (`tests/fixtures.js`, `tests/om-fixtures.js`);
 real reports and OMs are licensed or confidential and stay out of the repository
@@ -204,11 +233,29 @@ vendor/, fonts/       bundled dependencies (see VENDOR.md)
 
 ## Limits
 
-- Scanned PDFs with no text layer can't be read.
+- Scanned PDFs with no text layer can't be read (that needs OCR; see below).
+- Voice notes are stored, not transcribed.
+- Hold-period returns are a simple annual model: NOI grows at one rate, the
+  sale is priced on the following year's NOI, no capital reserves, no tax.
 - OM layouts vary without limit; the reader shows its sources so you can check it.
 - CoStar lease reports are not parsed; the Lease Comps tab is filled by hand.
 - Zoning covers the District of Columbia table and Montgomery County zone names.
 - Needs iOS 16.4 or later, or a current Chrome, Edge, Firefox or Safari.
+
+## What would need a server
+
+The app is a static site: no keys, no backend, nothing leaves the device.
+Three things people ask for need more than that:
+
+- **Transcribing voice notes** and **AI reading of an OM** need a speech or
+  language-model API. Its key must never sit in this page's JavaScript (anyone
+  could copy it from a public GitHub Pages site). It would need a small server
+  or serverless function that holds the key, receives the audio or text with
+  the broker's consent, and returns the result, and the app would have to say
+  plainly that the file leaves the device.
+- **Scanned OMs** need OCR. Tesseract compiled to WebAssembly can run on the
+  device (several MB to download, slow on a phone); a hosted OCR service would
+  be faster but, again, sends the document off the device.
 
 ## Licence
 

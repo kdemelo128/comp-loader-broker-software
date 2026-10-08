@@ -1,0 +1,14 @@
+import { phone, BASE } from './lib.mjs';
+const F = new URL('./files/', import.meta.url).pathname;
+const { browser, page, errors } = await phone();
+await page.goto(BASE, { waitUntil: 'load' });
+await page.setInputFiles('#file', F + 'costar-comps.pdf');
+await page.waitForFunction(() => document.querySelectorAll('#sales-table tbody tr').length > 0);
+await page.waitForTimeout(1200);
+const price = page.locator('#sales-table tbody tr').first().locator('input[aria-label="Sale price"]');
+await price.fill('4.75m'); await price.press('Tab');
+await page.reload({ waitUntil: 'load' });
+await page.waitForTimeout(1500);
+console.log('price after immediate reload (expect 4,750,000):', await page.locator('#sales-table tbody tr').first().locator('input[aria-label="Sale price"]').inputValue());
+console.log('errors', errors);
+await browser.close();
