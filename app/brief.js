@@ -38,7 +38,7 @@ export function dealSummaryText(deal, m, comps) {
   return lines.filter(Boolean).join('\n');
 }
 
-/** Fill `box` with the one-page brief. `photos` are object URLs. */
+/** Fill `box` with the deal brief (a page or two). `photos` are object URLs. */
 export function renderDealBrief(box, { deal, m, comps, photos = [], preparedBy = '' }) {
   const doc = box.ownerDocument;
   box.textContent = '';
@@ -91,12 +91,12 @@ export function renderDealBrief(box, { deal, m, comps, photos = [], preparedBy =
   const left2 = h(doc, 'div');
   left2.appendChild(kv('The property', [
     ['Building SF', ok(f.bsf) ? int(f.bsf) : null], ['Land', ok(f.lot_sf) ? `${int(f.lot_sf)} SF (${(f.lot_sf / 43560).toFixed(2)} ac)` : null],
-    ['Units', ok(f.units) ? int(f.units) : null], ['Year built', f.year], ['Zoning', f.zoning], ['Occupancy', ok(f.occ) ? pct(f.occ, 1) : null],
+    ['Units', ok(f.units) ? int(f.units) : null], ['Year built', f.year], ['Zoning', f.zoning], ['Occupancy', ok(m.occ) ? `${pct(m.occ, 1)}${m.occSource === 'rent roll' ? ' (rent roll)' : ''}` : null],
     ['Tenant', f.tenant], ['Lease type', f.lease_type], ['Lease expiration', f.lease_exp], ['Term remaining', f.term_left],
     ['Rent increases', f.increases],
   ]));
   left2.appendChild(kv('Income', [
-    ['Gross income (EGI)', ok(f.gross) ? money0(f.gross) : null], ['Operating expenses', ok(f.opex) ? money0(f.opex) : null],
+    ['Gross potential rent', ok(f.gpr) ? money0(f.gpr) : null], ['Gross income (EGI)', ok(f.gross) ? money0(f.gross) : null], ['Operating expenses', ok(f.opex) ? money0(f.opex) : null],
     ['Expense ratio', ok(m.expenseRatio) ? pct(m.expenseRatio, 1) : null], ['Real estate taxes', ok(f.taxes) ? money0(f.taxes) : null],
     ['Pro forma NOI', ok(f.noi_pf) ? money0(f.noi_pf) : null],
     ['WALT (by income)', m.leases && ok(m.leases.waltIncome) ? yrs(m.leases.waltIncome) : null],
@@ -107,7 +107,7 @@ export function renderDealBrief(box, { deal, m, comps, photos = [], preparedBy =
   right2.appendChild(kv(`Financing: ${ok(L.ltv) ? pct(L.ltv, 0) : '—'} LTV, ${ok(L.rate) ? pct(L.rate) : '—'}, ${L.io ? 'interest only' : `${L.amort || '—'}-yr`}`, [
     ['Loan', ok(m.loan) ? money0(m.loan) : null], ['Annual debt service', ok(m.debtService) ? money0(m.debtService) : null],
     ['Debt yield', ok(m.debtYield) ? pct(m.debtYield) : null], ['Cash flow after debt', ok(m.cashFlow) ? money0(m.cashFlow) : null],
-    ['Equity with closing costs', ok(m.equity) ? money0(m.equity) : null], ['Break-even occupancy', ok(m.breakEven) ? pct(m.breakEven, 1) : null],
+    ['Equity with closing costs', ok(m.equity) ? money0(m.equity) : null], [m.breakEvenBasis === 'egi' ? 'Break-even, share of income' : 'Break-even occupancy', ok(m.breakEven) ? `${pct(m.breakEven, 1)}${m.breakEvenBasis === 'egi-occ' ? ' (est.)' : ''}` : null],
     ['Maximum loan', m.maxLoan ? `${money0(m.maxLoan.loan)} (${m.maxLoan.binding})` : null],
   ]));
   if (comps && comps.n) {

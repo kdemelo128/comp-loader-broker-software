@@ -23,13 +23,17 @@ export function debtService(loan, ratePct, amortYears, io = false) {
   return 12 * (loan * i) / (1 - (1 + i) ** -n);
 }
 
-/** Debt service per dollar of loan, a year: the loan constant. */
-export const loanConstant = (ratePct, amortYears, io = false) => debtService(1e6, ratePct, amortYears, io) / 1e6;
+/** Debt service per dollar of loan, a year: the loan constant. Null when the terms are incomplete. */
+export const loanConstant = (ratePct, amortYears, io = false) => {
+  const ds = debtService(1e6, ratePct, amortYears, io);
+  return ds === null ? null : ds / 1e6;
+};
 
 /** Balance left after `years` of payments on an amortizing loan. */
 export function balanceAfter(loan, ratePct, amortYears, years, io = false) {
-  if (!pos(loan) || !ok(ratePct)) return null;
+  if (!pos(loan) || !ok(ratePct) || ratePct < 0 || !ok(years) || years < 0) return null;
   if (io) return loan;
+  if (!pos(amortYears)) return null;
   const i = ratePct / 100 / 12;
   const n = amortYears * 12;
   const k = Math.min(n, Math.round(years * 12));
@@ -156,7 +160,10 @@ export function analyze(d, comps = null, today = new Date()) {
   m.taxPsf = div(d.taxes, d.bsf);
   m.age = pos(d.year) ? today.getFullYear() - d.year : null;
   m.leases = leaseStats(d.rentRoll, today);
-  m.termLeft = yearsLeft(d.term_left, today) ?? yearsLeft(d.lease_exp, today);
+  // a lease expiration date counts down from today; "9.3 years remaining" was true when the OM was printed
+  m.termLeft = yearsLeft(d.lease_exp, today) ?? yearsLeft(d.term_left, today);
+  // occupancy as the OM states it, else as the rent roll adds up
+  if (ok(d.occ) && d.occ >= 0 && d.occ <= 100) { m.occ = d.occ; m.occSource = 'om'; } else if (m.leases && ok(m.leases.occupancy)) { m.occ = m.leases.occupancy; m.occSource = 'rent roll'; } else { m.occ = null; m.occSource = null; }
 
   // financing as entered
   const L = d.loan || {};
@@ -168,8 +175,18 @@ export function analyze(d, comps = null, today = new Date()) {
   m.closing = pos(price) && ok(L.closing) ? price * L.closing / 100 : 0;
   m.equity = pos(price) ? price - (m.loan || 0) + m.closing : null;
   m.cashOnCash = m.cashFlow !== null && pos(m.equity) ? (m.cashFlow / m.equity) * 100 : null;
-  m.breakEven = pos(d.gross) && m.debtService !== null && ok(d.opex)
-    ? ((d.opex + m.debtService) / d.gross) * 100 : null;
+  // Break-even occupancy is expenses plus debt service over the income the
+  // property would earn fully let. With the OM's gross potential rent that is
+  // exact; with only effective income it is estimated by scaling EGI up from
+  // the occupancy it was earned at; with neither occupancy nor GPR it can only
+  // be stated as a share of current income, and is labelled so.
+  const cost = ok(d.opex) && m.debtService !== null ? d.opex + m.debtService : null;
+  m.breakEven = null;
+  m.breakEvenBasis = null;
+  if (cost !== null && pos(d.gpr)) { m.breakEven = (cost / d.gpr) * 100; m.breakEvenBasis = 'gpr'; } else if (cost !== null && pos(d.gross)) {
+    const ratio = (cost / d.gross) * 100;
+    if (pos(m.occ)) { m.breakEven = ratio * (m.occ / 100); m.breakEvenBasis = 'egi-occ'; } else { m.breakEven = ratio; m.breakEvenBasis = 'egi'; }
+  }
   m.maxLoan = sizeLoan({ price, noi, ltv: L.ltv, dscr: L.minDscr, dy: L.minDy, rate: L.rate, amort: L.amort, io: L.io });
 
   // a ladder of cap rates around the one in hand
@@ -187,7 +204,8 @@ export function analyze(d, comps = null, today = new Date()) {
     m.vsMedian = m.ppsf && comps.median ? (m.ppsf / comps.median - 1) * 100 : null;
     m.percentile = m.ppsf ? (comps.ppsfs.filter((x) => x <= m.ppsf).length / comps.ppsfs.length) * 100 : null;
     m.valueAtWeighted = pos(d.bsf) && comps.weighted ? d.bsf * comps.weighted : null;
-    m.valueAtMedianCap = noi !== null && comps.medianCap ? noi / (comps.medianCap / 100) : null;
+    m.valueAtMedianCap = noi !== null && noi > 0 && comps.medianCap ? noi / (comps.medianCap / 100) : null;
+    m.thinCaps = comps.capN > 0 && comps.capN < 3;
   }
 
   checksAndQuestions(d, m, comps);
@@ -205,11 +223,11 @@ function checksAndQuestions(d, m, comps) {
   const Q = m.questions;
 
   if (m.capCalc !== null && pos(d.cap) && Math.abs(m.capCalc - d.cap) >= 0.1) {
-    C.push({ level: 'warn', text: `The OM states a ${pct2(d.cap)} cap rate, but its NOI over its price is ${pct2(m.capCalc)}.` });
+    C.push({ level: 'warn', text: `The OM states a ${pct2(d.cap)} cap rate, but its NOI over its price is ${pct2(m.capCalc)}: ${Math.abs(m.capCalc - d.cap).toFixed(2)} points apart. Neither figure has been changed.` });
     Q.push('Which NOI is the stated cap rate on: in-place, Year 1 or pro forma? And is it before or after reserves?');
   }
   if (pos(d.price_psf) && m.ppsf && Math.abs(d.price_psf / m.ppsf - 1) > 0.02) {
-    C.push({ level: 'info', text: `The OM's $${d.price_psf.toFixed(2)}/SF implies ${usd(d.price / d.price_psf).slice(1)} SF, not the ${usd(d.bsf).slice(1)} SF used here.` });
+    C.push({ level: 'info', text: `The OM's $${d.price_psf.toFixed(2)}/SF implies ${usd(m.price / d.price_psf).slice(1)} SF, not the ${usd(d.bsf).slice(1)} SF used here.` });
     Q.push('Which square footage is the $/SF on: rentable, gross or the building\'s above-grade area?');
   }
   if (pos(d.price_unit) && m.perUnit && Math.abs(d.price_unit / m.perUnit - 1) > 0.02) {
@@ -254,6 +272,15 @@ function checksAndQuestions(d, m, comps) {
   if (pos(d.taxes) || pos(d.price)) Q.push('What is the current assessment, and does a sale at this price trigger a reassessment?');
   if (comps && comps.n && m.vsWeighted !== null && m.vsWeighted > 10) {
     Q.push(`Priced ${pct1(m.vsWeighted)} above the sold comps by $/SF: what justifies the premium?`);
+  }
+  if (m.thinCaps && m.valueAtMedianCap) {
+    C.push({ level: 'info', text: `Only ${comps.capN} sale comp${comps.capN === 1 ? ' reports' : 's report'} a cap rate, so the value at the comps' cap rate rests on ${comps.capN === 1 ? 'that one sale' : 'those two sales'}.` });
+  }
+  if (pos(d.gpr) && pos(d.gross) && d.gross > d.gpr * 1.15) {
+    C.push({ level: 'info', text: `Effective gross income (${usd(d.gross)}) is well above gross potential rent (${usd(d.gpr)}): expense reimbursements and other income, or a misread. Check both.` });
+  }
+  if (m.noi !== null && m.noi <= 0) {
+    C.push({ level: 'warn', text: 'NOI is zero or negative, so there is no cap rate, debt coverage or value at a cap rate to work out.' });
   }
   if (m.dscr !== null && m.dscr < 1.25) {
     C.push({ level: 'warn', text: `At these loan terms the debt-service coverage is ${m.dscr.toFixed(2)}x, below the 1.25x most lenders want.` });

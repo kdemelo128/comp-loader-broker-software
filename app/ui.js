@@ -24,9 +24,9 @@ import { renderKpis, renderRank, renderTime } from './glance.js';
 import { VERSION, compsCsv, renderCompSheet, fullAddress } from './exporters.js';
 import { compBasis } from './deal.js';
 import {
-  $, el, svg, IN_ARTIFACT, XLSX, parseNum, asPercent, int, dec, money2, pct, localDate, toast,
+  $, el, svg, IN_ARTIFACT, XLSX, parseNum, parsePct, int, dec, money2, pct, localDate, toast,
   openSheet, closeSheet, backdropCloses, actionSheet, getPdfjs, getXlsx, getFflate, idle,
-  isIOS, isStandalone, canShareFiles, deliver, deliveryError, copyText,
+  isIOS, isStandalone, canShareFiles, deliver, deliveryError, copyText, pdfProblem,
 } from './kit.js';
 import { initDeal, dealForWorkbook, currentDealName } from './dealui.js';
 import { initTools } from './toolsui.js';
@@ -266,8 +266,7 @@ function numInput(c, field, kind, label, onEdit) {
   i.value = show(c[field]);
   i.setAttribute('aria-label', label);
   i.addEventListener('change', () => {
-    let v = parseNum(i.value);
-    if (kind === 'pct') v = asPercent(v);
+    let v = kind === 'pct' ? parsePct(i.value) : parseNum(i.value);
     if (v !== null && v < 0) v = null;
     setField(c, field, v);
     i.value = show(v);
@@ -678,6 +677,7 @@ async function handleFiles(fileList) {
   // has one worker, so more than two in flight only queues inside it
   const items = pdfs.map((file) => ({ file, st: queueItem(file.name) }));
   let added = 0;
+  const failed = [];
   const results = new Array(items.length);
   let next = 0;
   const worker = async () => {
@@ -696,7 +696,8 @@ async function handleFiles(fileList) {
         const pw = err && err.name === 'PasswordException';
         st.textContent = pw ? 'password protected' : 'could not be read';
         st.classList.add('err');
-        st.title = String(err && err.message ? err.message : err);
+        st.title = pdfProblem(err, file);
+        failed.push(`${file.name} can’t be read: ${pdfProblem(err, file)}`);
       }
     }
   };
@@ -731,6 +732,8 @@ async function handleFiles(fileList) {
       toast(`Those files could not be parsed: ${err.message}`);
     }
   }
+  if (failed.length && !added) toast(failed.length === 1 ? failed[0] : `None of the ${failed.length} files could be read. ${failed[0]}`, null, 9000);
+  else if (failed.length) toast(`${added} report${added === 1 ? '' : 's'} read; ${failed.length} not: ${failed[0]}`, null, 9000);
   setTimeout(() => {
     if (state.busy) return;
     $('queue').textContent = '';
@@ -744,25 +747,63 @@ async function handleFiles(fileList) {
 /* ------------------------------------------------------------ saving work */
 
 let saveTimer = null;
+let savePending = false;
+let changedAt = 0;
+/* The report text can run to megabytes and lives in IndexedDB only; the edits,
+ * hand-entered comps and window are small, and are also mirrored to
+ * localStorage synchronously, because a page torn down mid-save (a reload, a
+ * phone closing the app) abandons an IndexedDB write still in flight. */
+const REC_KEY = 'comp-loader.session.unsaved';
 function scheduleSave() {
   touched = true;
+  savePending = true;
+  changedAt = Date.now();
+  try {
+    localStorage.setItem(REC_KEY, JSON.stringify({
+      savedAt: changedAt, docNames: state.docs.map((d) => d.name), edits: state.edits,
+      manual: state.manual.map(store.compToJSON), windowMonths: state.windowMonths,
+    }));
+  } catch { /* full or blocked: IndexedDB still gets it */ }
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    store.saveSession({
-      version: store.VERSION,
-      savedAt: Date.now(),
-      docs: state.docs,
-      edits: state.edits,
-      manual: state.manual.map(store.compToJSON),
-      windowMonths: state.windowMonths,
-    });
-  }, 400);
+  saveTimer = setTimeout(flushSession, 400);
 }
+function flushSession() {
+  clearTimeout(saveTimer);
+  if (!savePending) return;
+  savePending = false;
+  const at = changedAt;
+  store.saveSession({
+    version: store.VERSION,
+    savedAt: at,
+    docs: state.docs,
+    edits: state.edits,
+    manual: state.manual.map(store.compToJSON),
+    windowMonths: state.windowMonths,
+  }).then((ok) => {
+    if (!ok) return;
+    try {
+      const r = JSON.parse(localStorage.getItem(REC_KEY) || 'null');
+      if (r && r.savedAt <= at) localStorage.removeItem(REC_KEY);
+    } catch { /* fine */ }
+  });
+}
+// leaving the app (switching away on a phone, closing the tab) writes the last change now
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSession(); });
+window.addEventListener('pagehide', flushSession);
 
 let touched = false;     // set by any change made before the saved session comes back
 
 async function restoreSession() {
-  const s = await store.loadSession();
+  let s = await store.loadSession();
+  // replay edits that never reached IndexedDB, when they belong to the same reports
+  try {
+    const r = JSON.parse(localStorage.getItem(REC_KEY) || 'null');
+    const names = (x) => JSON.stringify((x || []).map((d) => d.name));
+    if (r && (!s || (r.savedAt || 0) > (s.savedAt || 0)) && JSON.stringify(r.docNames || []) === names(s && s.docs)) {
+      s = { ...(s || { docs: [] }), edits: r.edits || {}, manual: r.manual || [], windowMonths: r.windowMonths, savedAt: r.savedAt };
+      store.saveSession(s);
+    }
+  } catch { /* nothing to replay */ }
   if (!s || (!(s.docs || []).length && !(s.manual || []).length)) return;
   // reading storage is asynchronous: if a report was dropped or the example
   // loaded in the meantime, that work wins and the old session is left alone
@@ -1273,6 +1314,10 @@ $('comps-more').addEventListener('click', async () => {
     $('queue-card').hidden = true;
     recompute();
     renderAll();
+    // nothing pending may write the old set back, from IndexedDB or the localStorage mirror
+    clearTimeout(saveTimer);
+    savePending = false;
+    try { localStorage.removeItem(REC_KEY); } catch { /* fine */ }
     store.clearSession();
     window.scrollTo({ top: 0, behavior: 'smooth' });
     toast('All comps cleared.', { label: 'Undo', run: () => restoreSnapshot(snap) });
@@ -1359,6 +1404,14 @@ function registerWorker() {
   // the first install takes control of a page that had none: that is not an update
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('sw.js').then((reg) => {
+    // an app left open on a phone for days still hears about a new release:
+    // check when it comes back to the screen, at most once an hour
+    let checked = Date.now();
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible' || Date.now() - checked < 3600e3) return;
+      checked = Date.now();
+      reg.update().catch(() => {});
+    });
     reg.addEventListener('updatefound', () => {
       const w = reg.installing;
       if (!w) return;

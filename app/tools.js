@@ -16,8 +16,11 @@ export function quickValue({ price, noi, cap, bsf, units }) {
   let c = pos(cap) ? cap : null;
   let solved = null;
   if (p === null && n !== null && c) { p = n / (c / 100); solved = 'price'; } else if (n === null && p && c) { n = p * c / 100; solved = 'noi'; } else if (c === null && p && n !== null) { c = (n / p) * 100; solved = 'cap'; }
+  // all three typed: nothing is solved, and a cap rate that isn't NOI over price is said so, not overwritten
+  const capCalc = p && n !== null ? (n / p) * 100 : null;
+  const mismatch = solved === null && c !== null && capCalc !== null && Math.abs(capCalc - c) >= 0.01 ? capCalc - c : null;
   return {
-    price: p, noi: n, cap: c, solved,
+    price: p, noi: n, cap: c, solved, capCalc, mismatch,
     ppsf: p && pos(bsf) ? p / bsf : null,
     perUnit: p && pos(units) ? p / units : null,
     noiPsf: n !== null && pos(bsf) ? n / bsf : null,
@@ -43,7 +46,7 @@ export function loanTool({ price, noi, ltv, rate, amort, io, minDscr, minDy }) {
 
 /** What to offer, and what the seller walks away with. */
 export function offerTool({ ask, noi, targetCap, bsf, targetPpsf, price, commission, transfer, other, payoff }) {
-  const atCap = ok(noi) && pos(targetCap) ? noi / (targetCap / 100) : null;
+  const atCap = pos(noi) && pos(targetCap) ? noi / (targetCap / 100) : null;
   const atPpsf = pos(bsf) && pos(targetPpsf) ? bsf * targetPpsf : null;
   const p = pos(price) ? price : (atCap ?? atPpsf);
   const comm = pos(p) && ok(commission) ? p * commission / 100 : 0;

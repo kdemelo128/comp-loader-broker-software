@@ -7,7 +7,7 @@
  * comps already loaded, run through a loan, and turned into the questions
  * worth asking before leaving the building. Notes and photos from the visit
  * are kept with the deal, and the whole thing goes out as an Excel tab, a
- * one-page brief or a five-line text.
+ * deal brief or a five-line text.
  *
  * Deals are saved on the device (IndexedDB) after every change. */
 
@@ -16,14 +16,15 @@ import { analyze, compBasis } from './deal.js';
 import * as store from './store.js';
 import { renderDealBrief, dealSummaryText, placeLine } from './brief.js';
 import {
-  $, el, svg, IN_ARTIFACT, XLSX, parseNum, asPercent, int, dec, money0, money2, pct, signed, times, yrs, short, niceDate,
-  localDate, toast, actionSheet, getPdfjs, getXlsx, deliver, deliveryError, shareText, idle,
+  $, el, svg, IN_ARTIFACT, XLSX, parseNum, parsePct, int, dec, money0, money2, pct, signed, times, yrs, short, niceDate,
+  localDate, toast, actionSheet, getPdfjs, getXlsx, deliver, deliveryError, shareText, idle, pdfProblem,
 } from './kit.js';
 
 let api = null;
 let deal = null;          // the open deal
 let reading = null;       // { name, done, total } while an OM is being read
 let saveTimer = null;
+let pending = null;       // the deal whose latest change has not reached storage yet
 let photoUrls = [];
 
 const LOAN_KEY = 'comp-loader.loan.v1';
@@ -43,7 +44,7 @@ const SECTIONS = [
     ['year', 'Year built', 'year'], ['renovated', 'Renovated', 'year'], ['stories', 'Stories', 'int'], ['zoning', 'Zoning', 'text'], ['parking', 'Parking', 'text'],
   ]],
   ['Income and expenses', [
-    ['gross', 'Gross income (EGI)', 'money'], ['opex', 'Operating expenses', 'money'], ['taxes', 'Real estate taxes', 'money'],
+    ['gpr', 'Gross potential rent', 'money'], ['gross', 'Gross income (EGI)', 'money'], ['opex', 'Operating expenses', 'money'], ['taxes', 'Real estate taxes', 'money'],
   ]],
   ['Lease', [
     ['tenant', 'Tenant', 'text'], ['guarantor', 'Guarantor', 'text'], ['lease_type', 'Lease type', 'text'],
@@ -144,12 +145,65 @@ const hasFigures = () => deal && Object.values(deal.figures).some((v) => v !== n
 
 /* ---------------------------------------------------------------- saving */
 
-function touch() {
-  deal.updatedAt = Date.now();
+/* Saves are debounced, and each one is tied to the deal it belongs to: a
+ * change to one deal can never be written under another, and switching,
+ * closing or leaving the app writes the last change first rather than
+ * dropping it. */
+function touch(d = deal) {
+  if (!d) return;
+  d.updatedAt = Date.now();
+  queueSave(d);
+  if (d === deal) {
+    document.dispatchEvent(new CustomEvent('dealchange'));
+    badge();
+  }
+}
+function queueSave(d) {
+  if (pending && pending !== d) saveNow(pending);
+  pending = d;
+  writeRecovery(d);
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { store.saveDeal(deal); }, 400);
-  document.dispatchEvent(new CustomEvent('dealchange'));
-  badge();
+  saveTimer = setTimeout(flushDeal, 400);
+}
+function saveNow(d) {
+  const at = d.updatedAt;
+  return store.saveDeal(d).then((ok) => { if (ok) clearRecovery(d.id, at); return ok; });
+}
+/** Write the pending change now. Resolves when storage has it (or has refused it). */
+export function flushDeal() {
+  clearTimeout(saveTimer);
+  const d = pending;
+  pending = null;
+  return d ? saveNow(d) : Promise.resolve(true);
+}
+
+/* IndexedDB is asynchronous, and a browser tearing down a page (a reload, a
+ * phone closing the app) abandons a transaction still in flight. So every
+ * unsaved change is also mirrored, synchronously, to localStorage, without
+ * the photos, and replayed when that deal next opens if storage never got it. */
+const REC_KEY = 'comp-loader.deal.unsaved';
+function writeRecovery(d) {
+  try {
+    const { visit, ...rest } = d;
+    localStorage.setItem(REC_KEY, JSON.stringify({ ...rest, visit: { ...visit, photos: undefined } }));
+  } catch { /* storage full or blocked: IndexedDB still gets it */ }
+}
+function readRecovery() {
+  try { return JSON.parse(localStorage.getItem(REC_KEY) || 'null'); } catch { return null; }
+}
+function clearRecovery(id, at) {
+  const r = readRecovery();
+  if (r && r.id === id && (r.updatedAt || 0) <= at) { try { localStorage.removeItem(REC_KEY); } catch { /* fine */ } }
+}
+/** The deal as storage has it, with any change that never reached storage put back. */
+function recovered(id, stored) {
+  const r = readRecovery();
+  if (!r || r.id !== id || (stored && (r.updatedAt || 0) <= (stored.updatedAt || 0))) return { d: stored, replayed: false };
+  const photos = stored?.visit?.photos || [];
+  return { d: { ...(stored || {}), ...r, visit: { ...(r.visit || {}), photos } }, replayed: true };
+}
+function dropPending(d) {
+  if (pending === d) { clearTimeout(saveTimer); pending = null; }
 }
 function badge() {
   document.querySelectorAll('.tab[data-view="deal"] .badge').forEach((b) => {
@@ -159,7 +213,8 @@ function badge() {
   });
 }
 async function openDeal(id, { quiet = false } = {}) {
-  const d = await store.loadDeal(id);
+  await flushDeal();
+  const { d, replayed } = recovered(id, await store.loadDeal(id));
   if (!d) {
     if (!quiet) toast('That deal could not be opened.');
     try { localStorage.removeItem(CUR_KEY); } catch { /* fine */ }
@@ -167,11 +222,13 @@ async function openDeal(id, { quiet = false } = {}) {
   }
   deal = { ...newDeal(), ...d, visit: { ...newDeal().visit, ...(d.visit || {}) } };
   try { localStorage.setItem(CUR_KEY, deal.id); } catch { /* fine */ }
+  if (replayed) saveNow(deal);
   render();
   document.dispatchEvent(new CustomEvent('dealchange'));
   badge();
 }
 function closeDeal() {
+  flushDeal();
   deal = null;
   try { localStorage.removeItem(CUR_KEY); } catch { /* fine */ }
   render();
@@ -185,6 +242,7 @@ async function readOmFile(file) {
   if (!file) return;
   if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') { toast('An offering memorandum needs to be a PDF.'); return; }
   if (reading) { toast('Still reading the last OM.'); return; }
+  flushDeal();
   reading = { name: file.name, done: 0, total: 0 };
   render();
   let pages;
@@ -196,7 +254,7 @@ async function readOmFile(file) {
   } catch (err) {
     reading = null;
     render();
-    toast(err && err.name === 'PasswordException' ? 'That PDF is password protected. Ask for an unlocked copy.' : `That PDF could not be read: ${err.message || err}`);
+    toast(`${file.name} can’t be read: ${pdfProblem(err, file)}`, null, 8000);
     return;
   }
   const om = readOm(pages);
@@ -273,7 +331,9 @@ const button = (cls, text, fn, iconPaths) => {
   return b;
 };
 
+let renderSeq = 0;         // a newer render makes an older, still-loading one stand down
 function render() {
+  renderSeq += 1;
   for (const u of photoUrls) URL.revokeObjectURL(u);
   photoUrls = [];
   const r = root();
@@ -301,6 +361,7 @@ function renderReading(r) {
 }
 
 async function renderLanding(r) {
+  const seq = renderSeq;
   r.appendChild(viewHead('Deal', 'Read an offering memorandum on the spot: the key figures, checked against each other and against your comps, run through a loan, with the questions to ask before you leave.'));
   const stack = el('div', 'stack');
   const hero = el('div', 'hero drop');
@@ -312,7 +373,7 @@ async function renderLanding(r) {
   pick.htmlFor = 'om-file';
   pick.addEventListener('pointerdown', () => getPdfjs().catch(() => {}), { once: true });
   acts.appendChild(pick);
-  acts.appendChild(button('btn-lg', 'Enter figures by hand', () => { deal = newDeal(); try { localStorage.setItem(CUR_KEY, deal.id); } catch { /* fine */ } render(); touch(); }));
+  acts.appendChild(button('btn-lg', 'Enter figures by hand', () => { flushDeal(); deal = newDeal(); try { localStorage.setItem(CUR_KEY, deal.id); } catch { /* fine */ } render(); touch(); }));
   hero.appendChild(acts);
   hero.appendChild(Object.assign(el('div', 'trust'), { innerHTML: `${svg('<path d="M12 3l7 3v5c0 4.5-3 8.4-7 10-4-1.6-7-5.5-7-10V6z"/>', 14)}Read on this device. The OM is never uploaded.` }));
   stack.appendChild(hero);
@@ -325,7 +386,7 @@ async function renderLanding(r) {
     ['Against your comps', 'premium or discount to the sale comps on the Comps tab, and value at their $/SF and cap rate', '<path d="M5 19V11M10 19V6M15 19v-9M20 19V4"/>'],
     ['Financing and loan sizing', 'DSCR, debt yield, cash-on-cash and the largest loan it supports', '<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/>'],
     ['Questions to ask', 'written from the gaps in this OM, to tick off on the walk', '<path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>'],
-    ['Site-visit notes and photos', 'kept with the deal, and on the one-page brief', '<path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/>'],
+    ['Site-visit notes and photos', 'kept with the deal, and on the deal brief', '<path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/>'],
   ]) {
     const li = el('li');
     const ic = el('span', 'tool-icon');
@@ -341,7 +402,7 @@ async function renderLanding(r) {
   what.appendChild(ul);
 
   const deals = await store.listDeals();
-  if (root() !== r || deal || reading) return;          // something opened while the list loaded
+  if (seq !== renderSeq || root() !== r || deal || reading) return;   // something else drew while the list loaded
   if (deals.length) {
     const saved = card('Saved deals', el('span', 'count', `${deals.length}`));
     const list = el('div', 'list');
@@ -390,7 +451,8 @@ function renderDeal(r) {
   try { name.contentEditable = 'plaintext-only'; } catch { name.contentEditable = 'true'; }
   name.spellcheck = false;
   name.title = 'Tap to rename';
-  name.addEventListener('blur', () => { deal.name = name.textContent.trim(); touch(); });
+  const named = deal;
+  name.addEventListener('blur', () => { named.name = name.textContent.trim(); touch(named); });
   name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); name.blur(); } });
   t.appendChild(name);
   const where = [f.ptype, [f.city, f.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ');
@@ -430,7 +492,7 @@ function renderDeal(r) {
   const bottom = el('div', 'view-actions');
   bottom.style.cssText = 'justify-content:center;margin:6px 0 4px';
   bottom.appendChild(button('', 'Use as the comps subject', useAsSubject, '<path d="M5 12h14M13 6l6 6-6 6"/>'));
-  if (!IN_ARTIFACT) bottom.appendChild(button('', 'One-page brief', printBrief, '<path d="M7 9V3h10v6M7 17H5a2 2 0 01-2-2v-4a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2h-2M7 14h10v7H7z"/>'));
+  if (!IN_ARTIFACT) bottom.appendChild(button('', 'Deal brief', printBrief, '<path d="M7 9V3h10v6M7 17H5a2 2 0 01-2-2v-4a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2h-2M7 14h10v7H7z"/>'));
   bottom.appendChild(button('btn-gray', 'All deals', closeDeal, '<path d="M15 6l-6 6 6 6"/>'));
   stack.appendChild(bottom);
   r.appendChild(stack);
@@ -542,7 +604,7 @@ function renderDerived() {
     line('Cash flow after debt', money0(m.cashFlow));
     line('Equity, with closing', money0(m.equity));
     line('Cash-on-cash', pct(m.cashOnCash), true);
-    line('Break-even occupancy', pct(m.breakEven, 1), false, 'expenses plus debt service over gross income');
+    line(m.breakEvenBasis === 'egi' ? 'Break-even, share of current income' : 'Break-even occupancy', pct(m.breakEven, 1), false, BREAK_EVEN_WHY[m.breakEvenBasis] || 'needs expenses and gross income');
     if (m.maxLoan) line('Largest loan it supports', money0(m.maxLoan.loan), true, `limited by ${m.maxLoan.binding}${m.maxLoan.tests.DSCR ? ` · DSCR test ${short(m.maxLoan.tests.DSCR)}` : ''}${m.maxLoan.tests['Debt yield'] ? ` · debt-yield test ${short(m.maxLoan.tests['Debt yield'])}` : ''}`);
     fo.appendChild(res);
   }
@@ -577,6 +639,12 @@ function renderDerived() {
   renderRentRoll(m);
   renderQuestions(m);
 }
+
+const BREAK_EVEN_WHY = {
+  gpr: 'expenses plus debt service, over gross potential rent',
+  'egi-occ': 'expenses plus debt service over gross income, scaled to the occupancy it was earned at; add gross potential rent for the exact figure',
+  egi: 'expenses plus debt service over current gross income; add occupancy or gross potential rent to turn it into an occupancy',
+};
 
 /* ----------------------------------------------------------- figures card */
 
@@ -629,8 +697,7 @@ function figRow(key, label, kind) {
     let v;
     if (kind === 'text') v = inp.value.trim() || null;
     else {
-      v = parseNum(inp.value);
-      if (kind === 'pct') v = asPercent(v);
+      v = kind === 'pct' ? parsePct(inp.value) : parseNum(inp.value);
       if (kind === 'year' && v !== null && (v < 1600 || v > 2100)) v = null;
     }
     setFigure(key, v);
@@ -759,8 +826,9 @@ function financeCard() {
     i.value = ok(L[key]) ? String(L[key]) : '';
     i.placeholder = suffix || '';
     i.addEventListener('change', () => {
-      let v = parseNum(i.value);
-      if (['ltv', 'rate', 'closing', 'minDy'].includes(key)) v = asPercent(v);
+      // closing costs are often under 1%, so "0.5" there means half a percent
+      const v = key === 'closing' ? parsePct(i.value, { fraction: false })
+        : ['ltv', 'rate', 'minDy'].includes(key) ? parsePct(i.value) : parseNum(i.value);
       L[key] = v;
       i.value = ok(v) ? String(v) : '';
       rememberLoan(L);
@@ -966,11 +1034,13 @@ function renderPhotos(into = null) {
     x.innerHTML = svg('<path d="M6 6l12 12M18 6L6 18"/>', 13);
     x.setAttribute('aria-label', 'Delete this photo');
     x.addEventListener('click', () => {
-      const keep = deal.visit.photos;
-      deal.visit.photos = keep.filter((q) => q !== p);
-      touch();
+      const d = deal;
+      const keep = d.visit.photos;
+      d.visit.photos = keep.filter((q) => q !== p);
+      touch(d);
       renderPhotos();
-      toast('Photo deleted.', { label: 'Undo', run: () => { deal.visit.photos = keep; touch(); renderPhotos(); } });
+      // the undo belongs to this deal, even if another one is open by the time it is tapped
+      toast('Photo deleted.', { label: 'Undo', run: () => { d.visit.photos = keep; touch(d); if (deal === d) renderPhotos(); } });
     });
     d.appendChild(x);
     ph.appendChild(d);
@@ -994,17 +1064,34 @@ async function shrink(file) {
     c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
     bmp.close && bmp.close();
     return await new Promise((res) => c.toBlob((b) => res(b || file), 'image/jpeg', 0.82));
-  } catch { return file; }
+  } catch {
+    // a format this browser can't decode (HEIC outside Safari) can't be shown
+    // or printed either: keep only what an <img> can draw
+    return /^image\/(jpeg|png|webp|gif)$/i.test(file.type) ? file : null;
+  }
 }
 
 async function addPhotos(files) {
-  if (!deal) return;
+  // shrinking takes a moment per photo; the photos belong to the deal that was
+  // open when they were chosen, whatever is open by the time they are ready
+  const d = deal;
+  if (!d) return;
   const list = [...files].filter((f) => /^image\//.test(f.type) || /\.(jpe?g|png|heic|webp)$/i.test(f.name));
-  for (const f of list) deal.visit.photos.push({ id: `${Date.now()}${Math.random()}`, at: Date.now(), blob: await shrink(f) });
-  if (!deal.visit.at) deal.visit.at = Date.now();
-  touch();
-  renderPhotos();
-  if (list.length) toast(`${list.length} photo${list.length === 1 ? '' : 's'} added to the deal.`);
+  const skipped = files.length - list.length;
+  if (!list.length) { toast(skipped ? 'Those files are not photos.' : 'No photos were chosen.'); return; }
+  let added = 0;
+  for (const f of list) {
+    const blob = await shrink(f);
+    if (!blob) continue;
+    d.visit.photos.push({ id: `${Date.now()}${Math.random().toString(36).slice(2)}`, at: Date.now(), blob, name: f.name });
+    added += 1;
+  }
+  if (!d.visit.at) d.visit.at = Date.now();
+  touch(d);
+  if (deal === d) renderPhotos();
+  const where = deal === d ? 'the deal' : `${d.name || 'the earlier deal'}`;
+  const failed = list.length - added;
+  toast(`${added} photo${added === 1 ? '' : 's'} added to ${where}.${failed ? ` ${failed} could not be read (HEIC needs Safari; share as JPEG).` : ''}${skipped ? ` ${skipped} non-photo file${skipped === 1 ? '' : 's'} skipped.` : ''}`);
 }
 
 /* ---------------------------------------------------------------- actions */
@@ -1058,7 +1145,7 @@ function printBrief() {
 async function dealMenu() {
   const v = await actionSheet(deal.name || 'Deal', [
     { label: 'Copy summary', sub: 'five lines for a text or an email', value: 'copy', icon: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2"/>' },
-    ...(IN_ARTIFACT ? [] : [{ label: 'One-page brief', sub: 'print or save as PDF, with photos', value: 'brief', icon: '<path d="M7 9V3h10v6M7 17H5a2 2 0 01-2-2v-4a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2h-2M7 14h10v7H7z"/>' }]),
+    ...(IN_ARTIFACT ? [] : [{ label: 'Deal brief', sub: 'print or save as PDF, with photos', value: 'brief', icon: '<path d="M7 9V3h10v6M7 17H5a2 2 0 01-2-2v-4a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2h-2M7 14h10v7H7z"/>' }]),
     { label: 'Use as the comps subject', value: 'subject', icon: '<path d="M5 12h14M13 6l6 6-6 6"/>' },
     { label: 'Open in Maps', value: 'map', disabled: !deal.figures.address, icon: '<path d="M12 21s-7-6.1-7-11a7 7 0 1114 0c0 4.9-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>' },
     '-',
@@ -1078,7 +1165,10 @@ async function dealMenu() {
   else if (v === 'close') closeDeal();
   else if (v === 'delete') {
     const gone = deal;
+    dropPending(gone);
+    clearRecovery(gone.id, Infinity);
     await store.deleteDeal(gone.id);
+    deal = null;
     closeDeal();
     toast('Deal deleted.', { label: 'Undo', run: async () => { await store.saveDeal(gone); openDeal(gone.id); } });
   }
@@ -1088,6 +1178,11 @@ async function dealMenu() {
 
 export function initDeal(compsApi) {
   api = compsApi;
+  // a phone suspends a page it has hidden, and may never resume it: the last
+  // change goes to storage the moment the app leaves the screen
+  const flushNow = () => { flushDeal(); };
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushNow(); });
+  window.addEventListener('pagehide', flushNow);
   $('om-file').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; readOmFile(f); });
   $('photo-file').addEventListener('change', (e) => { const fs = [...e.target.files]; e.target.value = ''; addPhotos(fs); });
   document.addEventListener('omdrop', (e) => {
@@ -1100,6 +1195,14 @@ export function initDeal(compsApi) {
   render();
   let cur = null;
   try { cur = localStorage.getItem(CUR_KEY); } catch { cur = null; }
-  if (cur) openDeal(cur, { quiet: true }).catch(() => {});
+  replayRecovery().then(() => { if (cur) return openDeal(cur, { quiet: true }); return deal ? null : render(); }).catch(() => {});
+}
+
+/** A change the last session made but storage never received goes in now, before anything reads the deals. */
+async function replayRecovery() {
+  const r = readRecovery();
+  if (!r || !r.id) return;
+  const { d, replayed } = recovered(r.id, await store.loadDeal(r.id));
+  if (replayed && d) await saveNow({ ...newDeal(), ...d, visit: { ...newDeal().visit, ...(d.visit || {}) } });
 }
 

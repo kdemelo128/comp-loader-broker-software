@@ -4,7 +4,7 @@
 
 import { quickValue, loanTool, offerTool, netEffectiveRent, exchangeDates, waltTool } from './tools.js';
 import {
-  $, el, svg, parseNum, asPercent, int, money0, money2, pct, signed, times, yrs, niceDate, toast, copyText,
+  $, el, svg, parseNum, parsePct, int, money0, money2, pct, signed, times, yrs, niceDate, toast, copyText,
 } from './kit.js';
 
 let api = null;
@@ -30,6 +30,7 @@ const TOOLS = [
         ['Price', money0(r.price), r.solved === 'price', r.solved === 'price' ? 'NOI ÷ cap rate' : null],
         ['NOI', money0(r.noi), r.solved === 'noi', r.solved === 'noi' ? 'price × cap rate' : null],
         ['Cap rate', pct(r.cap), r.solved === 'cap', r.solved === 'cap' ? 'NOI ÷ price' : null],
+        ...(ok(r.mismatch) ? [['NOI ÷ price', pct(r.capCalc), true, `not the ${pct(r.cap)} typed: ${Math.abs(r.mismatch).toFixed(2)} points apart`]] : []),
         ['Price per SF', money2(r.ppsf)], ['Price per unit', money0(r.perUnit)], ['NOI per SF', money2(r.noiPsf)],
       ];
     },
@@ -59,8 +60,8 @@ const TOOLS = [
     icon: '<path d="M20 12V8H6a2 2 0 010-4h12v4M4 6v12a2 2 0 002 2h14v-4"/><path d="M18 12a2 2 0 000 4h4v-4z"/>',
     inputs: [['ask', 'Asking price', 'money', '4.5m'], ['noi', 'NOI', 'money', '280k'], ['targetCap', 'Target cap rate %', 'pct', '6.5'],
       ['bsf', 'Building SF', 'num', '9,000'], ['targetPpsf', 'Target $/SF', 'money', '475'],
-      ['price', 'Sale price for the net sheet', 'money', 'blank = price at target cap'], ['commission', 'Commission %', 'pct', '4'],
-      ['transfer', 'Seller’s transfer taxes %', 'pct', '1.45'], ['other', 'Other closing costs $', 'money', '25k'], ['payoff', 'Loan payoff', 'money', '1.8m']],
+      ['price', 'Sale price for the net sheet', 'money', 'blank = price at target cap'], ['commission', 'Commission %', 'pct0', '4'],
+      ['transfer', 'Seller’s transfer taxes %', 'pct0', '1.45'], ['other', 'Other closing costs $', 'money', '25k'], ['payoff', 'Loan payoff', 'money', '1.8m']],
     run: (v) => {
       const r = offerTool(v);
       return [
@@ -160,9 +161,11 @@ function render() {
 function readInput(kind, raw) {
   if (kind === 'date') return raw || null;
   if (kind === 'bool') return !!raw;
-  let v = parseNum(raw);
-  if (kind === 'pct') v = asPercent(v);
-  return v;
+  // 'pct0' is a rate where a value under 1% is ordinary (commission, transfer
+  // tax): "0.5" there is half a percent, never 50%
+  if (kind === 'pct') return parsePct(raw);
+  if (kind === 'pct0') return parsePct(raw, { fraction: false });
+  return parseNum(raw);
 }
 const showInput = (kind, v) => {
   if (v === null || v === undefined) return '';

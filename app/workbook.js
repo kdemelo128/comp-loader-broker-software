@@ -1249,8 +1249,10 @@ function dealTab(wb, deal, m, comps, meta) {
   input(11, 'Gross income (EGI)', 'gross', n(d.gross), MONEY);
   input(12, 'Operating expenses', 'opex', n(d.opex), MONEY);
   input(13, 'Real estate taxes', 'taxes', n(d.taxes), MONEY);
-  input(14, 'Occupancy', 'occ', pc(d.occ), OCC);
+  input(14, 'Occupancy', 'occ', pc(m.occ), OCC);
+  if (m.occSource === 'rent roll') label(ws, 'C14', 'from the rent roll', { color: GREY, size: 8 });
   input(15, 'Year built', 'year', n(d.year), '0');
+  input(16, 'Gross potential rent', 'gpr', n(d.gpr), MONEY);
 
   band(ws, 17, 6, 'PRICING');
   out(18, 'Cap rate on asking price', 'IFERROR(IF(OR(B5="",B6=""),"",B6/B5),"")', pc(m.capCalc), PCT2, { bold: true });
@@ -1279,8 +1281,10 @@ function dealTab(wb, deal, m, comps, meta) {
   out(37, 'Cash flow after debt service', 'IF(OR(B6="",B34=""),"",B6-B34)', m.cashFlow, MONEY);
   out(38, 'Equity, with closing costs', 'IF(B5="","",B5-N(B33)+B5*N(B32))', m.equity, MONEY);
   out(39, 'Cash-on-cash return', rate('B37', 'B38'), pc(m.cashOnCash), PCT2, { bold: true });
-  out(40, 'Break-even occupancy', 'IFERROR(IF(OR(B11="",B12="",B34=""),"",(B12+B34)/B11),"")', pc(m.breakEven), PCT1,
-    { note: 'expenses plus debt service, over gross income' });
+  // the same three bases as deal.js: over gross potential rent when the OM gives it,
+  // else gross income scaled to its occupancy, else a share of current income
+  out(40, 'Break-even occupancy', 'IFERROR(IF(OR(B12="",B34=""),"",IF(N(B16)>0,(B12+B34)/B16,IF(N(B11)<=0,"",IF(N(B14)>0,(B12+B34)/B11*B14,(B12+B34)/B11)))),"")', pc(m.breakEven), PCT1,
+    { note: 'expenses plus debt service over gross potential rent; without it, over gross income scaled by occupancy' });
 
   band(ws, 42, 6, 'LOAN SIZING — THE LARGEST LOAN THE PROPERTY SUPPORTS');
   lin(43, 'Minimum DSCR', n(L.minDscr), '0.00"x"');

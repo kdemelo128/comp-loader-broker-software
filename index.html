@@ -620,6 +620,9 @@ dialog.sheet[open] { animation: up .24s cubic-bezier(.2, .9, .3, 1); }
   .ps-kv td:last-child { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
   .ps-photos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6pt; margin-top: 6pt; }
   .ps-photos img { width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 4pt; }
+  /* a heading never sits alone at the foot of a page, and no row or item is split */
+  .ps-h2 { break-after: avoid; page-break-after: avoid; }
+  .ps-list li, .ps-kv tr, .ps-stat, .ps-photos { break-inside: avoid; page-break-inside: avoid; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
 @media (max-width: 760px) { .charts { grid-template-columns: minmax(0, 1fr); } }

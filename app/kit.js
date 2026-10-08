@@ -18,26 +18,40 @@ export const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml
 
 const ok = (n) => typeof n === 'number' && Number.isFinite(n);
 
-/** Numbers as brokers type them: "$5,200,000", "5.2m", "850k", "6.25%", "(12,000)". */
+/** Numbers as brokers type them: "$5,200,000", "5.2m", "5.2MM", "850k", "6.25%", "(12,000)". */
 export function parseNum(s) {
   if (s === null || s === undefined) return null;
   let t = String(s).trim().toLowerCase().replace(/[$,\s]/g, '').replace(/%$/, '');
   let neg = false;
   if (/^\(.*\)$/.test(t)) { neg = true; t = t.slice(1, -1); }
   if (t === '') return null;
-  const m = /^(-?\d*\.?\d+)([kmb])?$/.exec(t);
+  const m = /^(-?\d*\.?\d+)(k|mm|m|b)?$/.exec(t);
   if (!m) return null;
-  const v = Number(m[1]) * ({ k: 1e3, m: 1e6, b: 1e9 }[m[2]] || 1);
+  const v = Number(m[1]) * ({ k: 1e3, m: 1e6, mm: 1e6, b: 1e9 }[m[2]] || 1);
   return Number.isFinite(v) ? (neg ? -v : v) : null;
 }
 /** A rate typed as a fraction (0.065) means 6.5%. */
 export const asPercent = (v) => (v !== null && v > 0 && v < 1 ? Math.round(v * 1e6) / 1e4 : v);
 
+/**
+ * A percentage as typed. "6.25", "6.25%" and, where `fraction` is allowed,
+ * "0.0625" all mean 6.25%. A number written with a % sign is always taken as
+ * printed, and fields where a value under 1% is ordinary (closing costs,
+ * transfer tax, commission) pass `fraction: false`, so "0.5" stays 0.5%
+ * rather than becoming 50%.
+ */
+export function parsePct(raw, { fraction = true } = {}) {
+  const v = parseNum(raw);
+  if (v === null) return null;
+  if (!fraction || /%\s*\)?\s*$/.test(String(raw).trim())) return v;
+  return asPercent(v);
+}
+
 export const int = (n) => (ok(n) ? Math.round(n).toLocaleString('en-US') : '');
 export const dec = (n, d = 2) => (ok(n) ? String(Math.round(n * 10 ** d) / 10 ** d) : '');
 export const money0 = (n) => (ok(n) ? `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString('en-US')}` : '—');
 export const money2 = (n) => (ok(n)
-  ? `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—');
+  ? `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—');
 export const pct = (n, d = 2) => (ok(n) ? `${n.toFixed(d)}%` : '—');
 export const signed = (n, d = 1) => (ok(n) ? `${n > 0 ? '+' : ''}${n.toFixed(d)}%` : '—');
 export const times = (n) => (ok(n) ? `${n.toFixed(2)}x` : '—');
@@ -46,9 +60,10 @@ export const yrs = (n) => (ok(n) ? `${n.toFixed(1)} yrs` : '—');
 export const short = (n) => {
   if (!ok(n)) return '—';
   const a = Math.abs(n);
-  if (a >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
-  if (a >= 1e6) return `$${(n / 1e6).toFixed(a >= 1e8 ? 0 : 2)}M`;
-  if (a >= 1e4) return `$${Math.round(n / 1e3)}K`;
+  const sign = n < 0 ? '-' : '';
+  if (a >= 1e9) return `${sign}$${(a / 1e9).toFixed(2)}B`;
+  if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(a >= 1e8 ? 0 : 2)}M`;
+  if (a >= 1e4) return `${sign}$${Math.round(a / 1e3)}K`;
   return money0(n);
 };
 
@@ -220,6 +235,18 @@ export function deliveryError(err) {
   if (err && err.code === 'declined') toast('Cancelled.');
   else if (err && err.code === 'rate_limited') toast('A save prompt is already open.');
   else toast(`That did not work: ${err?.message || err}`);
+}
+
+/** What went wrong with a PDF, said so the person knows what to do next. */
+export function pdfProblem(err, file) {
+  const msg = String(err && err.message ? err.message : err || '');
+  if (err && err.name === 'PasswordException') return 'it is password protected. Ask for an unlocked copy.';
+  if ((file && file.size === 0) || /empty|zero bytes/i.test(msg)) return 'the file is empty: it probably did not finish downloading. Download it again.';
+  if ((err && err.name === 'InvalidPDFException') || /invalid pdf|pdf structure|missing pdf/i.test(msg)) {
+    return 'it is not a readable PDF: it may be damaged or only partly downloaded. Download it again, or export a fresh copy.';
+  }
+  if (/too old/.test(msg)) return `${msg}.`;
+  return `it could not be opened (${msg || 'unknown error'}). Try again, or save a fresh copy of the PDF.`;
 }
 
 /** Copy text, with the old-browser fallback. Resolves true when it worked. */
