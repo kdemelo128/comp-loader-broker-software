@@ -1,0 +1,24 @@
+import { phone, BASE } from './lib.mjs';
+const F = new URL('./files/', import.meta.url).pathname;
+const { browser, ctx, page, errors } = await phone();
+await page.goto(BASE, { waitUntil: 'load' });
+await page.waitForFunction(() => navigator.serviceWorker && navigator.serviceWorker.controller || false, null, { timeout: 15000 }).catch(() => {});
+const ctrl1 = await page.evaluate(() => !!navigator.serviceWorker.controller);
+console.log('controlled after first load:', ctrl1);
+if (!ctrl1) { await page.reload({ waitUntil: 'load' }); console.log('controlled after reload:', await page.evaluate(() => !!navigator.serviceWorker.controller)); }
+const keys = await page.evaluate(async () => { const k = await caches.keys(); const c = await caches.open(k[0]); return [k, (await c.keys()).length]; });
+console.log('caches', JSON.stringify(keys));
+console.log('toast on first visit', await page.locator('.toast').allTextContents());
+await ctx.setOffline(true);
+await page.reload({ waitUntil: 'load' });
+await page.waitForTimeout(800);
+console.log('offline: app shown', await page.locator('#shell').isVisible(), 'load-error', await page.locator('#load-error').isVisible());
+await page.click('.tab[data-view="deal"] >> visible=true');
+await page.setInputFiles('#om-file', F + 'om-netlease.pdf');
+await page.waitForSelector('#deal-tiles .tile', { timeout: 20000 }).catch(() => {});
+console.log('offline OM read tiles:', await page.locator('#deal-tiles .tile').count(), await page.locator('.toast').allTextContents());
+const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }).catch(() => null), page.click('#deal-root .view-head .btn-primary')]);
+console.log('offline excel download:', dl ? dl.suggestedFilename() : 'NONE', await page.locator('.toast').allTextContents());
+await ctx.setOffline(false);
+console.log('errors', errors.filter((e) => !/ERR_INTERNET_DISCONNECTED/.test(e)));
+await browser.close();

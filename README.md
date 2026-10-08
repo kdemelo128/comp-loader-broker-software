@@ -173,6 +173,14 @@ independently (debt service, balances, DSCR, debt yield, cash-on-cash, loan
 sizing, break-even occupancy, WALT, net effective rent, IRR, equity multiple,
 the price for a target IRR) and that junk inputs never produce NaN or Infinity.
 
+`tests/e2e/run.sh` drives the app in an iPhone-sized Chromium page: comps,
+a template, three OM layouts, bad files, the live what-if, photos and voice
+notes, two deals side by side, reloads mid-edit, offline use, and a full
+broker walk-through. It then recalculates every exported workbook in
+LibreOffice and checks each formula against the value stored beside it. It
+needs Playwright, Python (reportlab, Pillow, openpyxl) and LibreOffice, so it
+is not part of `npm test`.
+
 Each release bumps the version in `package.json`, `package-lock.json`,
 `app/exporters.js` and `sw.js` together (`npm test` fails otherwise). That is
 what makes every installed copy download the new release whole.
