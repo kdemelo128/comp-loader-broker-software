@@ -26,10 +26,11 @@ import { compBasis } from './deal.js';
 import {
   $, el, svg, IN_ARTIFACT, XLSX, parseNum, parsePct, int, dec, money2, pct, localDate, toast,
   openSheet, closeSheet, backdropCloses, actionSheet, getPdfjs, getXlsx, getFflate, idle,
-  isIOS, isStandalone, canShareFiles, deliver, deliveryError, copyText, pdfProblem,
+  isIOS, isStandalone, canShareFiles, deliver, deliveryError, printed, copyText, pdfProblem,
 } from './kit.js';
-import { initDeal, dealForWorkbook, currentDealName } from './dealui.js';
+import { initDeal, dealForWorkbook, currentDealName, openTemplates } from './dealui.js';
 import { initTools } from './toolsui.js';
+import { initHome } from './home.js';
 
 window.__compLoaderReady = true;
 
@@ -52,7 +53,7 @@ const monthsAgo = (c) => (c.date ? (Date.now() - new Date(c.date).getTime()) / 8
 
 /* ------------------------------------------------------------- the shell */
 
-const VIEWS = ['comps', 'deal', 'tools'];
+const VIEWS = ['home', 'comps', 'deal', 'tools'];
 let currentView = 'comps';
 function showView(name, { push = true } = {}) {
   if (!VIEWS.includes(name)) name = 'comps';
@@ -974,6 +975,7 @@ function printSheet() {
   const { sales, market } = includedSorted();
   const subject = readSubject();
   renderCompSheet($('print-sheet'), { sales, market, subject, label: setLabel(), preparedBy: subject.preparedBy || '' });
+  printed(`Comp sheet: ${setLabel() || 'comps'}`);
   window.print();
 }
 
@@ -1293,6 +1295,7 @@ $('comps-more').addEventListener('click', async () => {
     { label: 'CSV', sub: 'for a CRM or Google My Maps', value: 'csv', disabled: !n, icon: '<path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5M8 13h8M8 17h5"/>' },
     { label: 'Copy comp table', sub: 'to paste into an email', value: 'copy', disabled: !n, icon: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2"/>' },
     '-',
+    { label: 'Template library…', sub: 'your firm’s workbooks, mapped and filled for a deal', value: 'library', icon: '<path d="M4 5h16v14H4zM4 10h16M10 10v9"/>' },
     { label: 'Save project file', sub: 'the whole comp set, to reopen anywhere', value: 'save', disabled: !any, icon: '<path d="M5 3h11l3 3v13a2 2 0 01-2 2H7a2 2 0 01-2-2z"/><path d="M8 3v5h7M8 21v-6h8v6"/>' },
     { label: 'Open project file…', value: 'open', icon: '<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>' },
     '-',
@@ -1303,6 +1306,7 @@ $('comps-more').addEventListener('click', async () => {
   else if (v === 'csv') exportCsv();
   else if (v === 'copy') copyTable();
   else if (v === 'save') saveProject();
+  else if (v === 'library') openTemplates();
   else if (v === 'open') $('file').click();
   else if (v === 'reset') {
     const snap = snapshot();
@@ -1437,14 +1441,19 @@ document.querySelectorAll('.app-version').forEach((n) => { n.textContent = `Comp
 const compsApi = {
   basis: () => compBasis(state.sales.filter(included)),
   count: () => state.sales.filter(included).length,
+  // the included sale comps, for the Tools screen's comp set check
+  sales: () => state.sales.filter(included).map((c) => ({ price: c.price, bsf: c.bsf, cap: c.cap, date: c.date })),
   setSubject: setSubjectFromDeal,
   showView,
   sheetOpen,
   sheetClose,
   pdfPages,
+  // a restore writes straight to storage: any comp edit still pending goes first
+  flushComps: flushSession,
 };
 initDeal(compsApi);
 initTools(compsApi);
+initHome(compsApi);
 
 restoreSubject();
 renderAll();

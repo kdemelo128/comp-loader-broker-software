@@ -1,5 +1,101 @@
 # Changelog
 
+## 3.2.0 (on the development branch; not yet merged or deployed)
+
+The version (and so the offline cache name) is 3.2.0, so an installed copy
+fetches every new file whole once this reaches the published site.
+
+### New
+
+- **Rent roll workspace** (Deal → Rent roll). Leases as dated rent periods
+  with a lease engine behind them (`app/lease.js`): per-month, per-year and
+  per-SF rents, step increases, day-weighted proration, free rent and partial
+  abatements, recoveries (pro rata, base year, stop, fixed), percentage rent,
+  one-time items, renewal and re-leasing blended by probability, lease-up, and
+  a monthly and annual projection to NOI. Configurable columns, presets,
+  saved layouts, keyboard navigation, validation (overlaps, gaps, bad dates),
+  expirations, concentration, import from Excel or CSV, and Rent Roll, Lease
+  Schedule and Cash Flow tabs in the deal workbook. What if can use the
+  projection's NOI year by year.
+- **Template library.** Upload a firm's own .xlsx or .xlsm, map deal fields to
+  its cells (suggested from named ranges and labels, corrected on a
+  tap-to-map view), preview every cell before writing, and fill it in place:
+  formulas, formats, merges, named ranges, hidden sheets and macros kept, an
+  optional audit sheet of every value written and its source. Versions,
+  duplicate, export and import as one file.
+- **Tools: 23 new calculators**, 30 in all, in seven groups with search:
+  discounted cash flow (optionally on the rent roll's NOI), NOI bridge,
+  break-even occupancy, value sensitivity; amortization schedule, refinance
+  and cash-out, floating-rate stress with a rate cap, maturity and refinance
+  risk, financing costs; hold returns before and after sponsor fees, IRR
+  sensitivity, a distribution waterfall with IRR hurdles, commission and
+  splits; lease proposal comparison, renewal versus replacement, escalation
+  schedule, percentage rent, recoveries, absorption; a comp set check; and
+  residual land value, yield on cost and construction draws.
+- Every tool can **save named scenarios**, **export** to Excel or print, and
+  explain its formula; tools that use deal figures can **load them from the
+  open deal**. Loan sizing, the NOI bridge and hold returns can **send their
+  result to the deal**, after a confirmation listing each change from old to
+  new; figures are tagged as typed from that tool, and hold assumptions go to
+  the What if scenario, never the deal's figures.
+- The Deal screen is split into Overview, Rent roll, What if and Site visit.
+- **AI features, through an optional server** (`server/`, which holds the API
+  keys; the app holds only its address and an access token). Read documents
+  with AI: figures come back with their passages, which the app checks against
+  the document text before showing them, and nothing is applied until the
+  broker ticks it. Ask about this deal: answers from the deal's facts with
+  citations. Transcribe voice notes, correct the transcript, and make notes
+  (summary, decisions, action items, figures mentioned). Every send is
+  confirmed; with AI off nothing leaves the device.
+- **Home**: a dashboard with what needs attention, the pipeline by stage
+  (stage also on each deal's new Pipeline card, with its history), tasks by
+  due date, contacts linked to deals, recent activity, and every file saved
+  or page printed. A pipeline report exports to Excel or prints. Call-note
+  action items can become a deal's next steps. Nine stages (the firm can
+  rename or hide them) and key dates per deal, with the next 30 days on Home.
+  The deal brief includes call-note summaries, labelled as AI summaries.
+- **Backup and restore** of everything on the device in one file (deals with
+  photos and recordings, comps, templates, tasks, contacts, settings; never
+  the AI token). Restoring merges, newer copy winning, or replaces everything
+  after a second confirmation. Home shows storage use, whether the browser may
+  clear it, and the last backup, and reminds after 30 days.
+- **Reconciliation without AI** (`app/reconcile.js`): quoted passages checked
+  against page text, readings grouped by tolerance (never auto-picked), and
+  the rent roll checked against the OM's occupancy, SF, rent and units.
+
+### Fixed (accessibility and security)
+
+- Text contrast: the faint grey, the green, amber and teal now meet WCAG AA
+  (4.5:1) on every surface they sit on, light and dark.
+- Tap targets of at least 24 px (WCAG 2.2): page-source tags, chips,
+  checkboxes; sideways-scrolling tables can be reached and scrolled from the
+  keyboard; the file pickers have names; chart points have a role for their
+  labels; a date field shows a focus ring on its calendar button too.
+- A Content-Security-Policy forbids plugins, a re-pointed base URL and form
+  posts; the page sends no referrer.
+- The AI server limits each client to 20 AI requests a minute.
+
+### Tests
+
+- `tests/lease.test.js` (18), `tests/tplcells.test.js` (7) and
+  `tests/calc.test.js` (12) check the new maths against figures worked out by
+  hand or independently.
+- `tests/reconcile.test.js` (5) for quote checks and reconciliation;
+  `tests/pipeline.test.js` (6) for stages, key dates, task due dates and attention;
+  `tests/backup.test.js` (4) for the backup round trip and restore plans;
+  `server/test/server.test.mjs` (10) runs the server and the real Anthropic SDK
+  against a local stand-in for the API. No live model call is tested: that
+  needs a key.
+- Browser flows `rentroll-flow` (22 checks), `template-flow` (16),
+  `tools-flow` (28), `home-flow` (32), `backup-flow` (16: a wiped browser restored, photos byte
+  for byte) and `ai-flow` (26, against the real server code and
+  stand-in model and speech services), and the filled template recalculated
+  in LibreOffice.
+- `a11y-flow` (24 checks): axe-core's WCAG 2.0/2.1/2.2 A and AA rules on every
+  screen and the main sheets, light and dark, with no violations; every
+  control Tab reaches on Home shows a focus ring; 24 px targets; reflow at
+  320 px. Automated checks are a floor: no screen-reader session was run.
+
 ## 3.1.0
 
 A reliability release, found by testing every workflow in a phone-sized

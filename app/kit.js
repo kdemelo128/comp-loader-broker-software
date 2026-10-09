@@ -7,6 +7,8 @@ export const el = (tag, cls, text) => {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
   if (text !== undefined && text !== null) n.textContent = text;
+  // a sideways-scrolling table must be reachable from the keyboard (WCAG 2.1.1)
+  if (tag === 'div' && cls && /(^|\s)scroll(\s|$)/.test(cls)) n.tabIndex = 0;
   return n;
 };
 export const svg = (paths, size = 18, extra = '') => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${extra}>${paths}</svg>`;
@@ -198,7 +200,16 @@ export const canShareFiles = () => {
 /** Hand a file to the person: through the artifact's save channel when the page
  *  is published as one, through the share sheet where a download link is
  *  unreliable (an iPhone home-screen app), and as an ordinary download otherwise. */
-export async function deliver(filename, bytes, type, { share = false } = {}) {
+export async function deliver(filename, bytes, type, opts = {}) {
+  const r = await handOver(filename, bytes, type, opts);
+  // the Home screen keeps a list of what was produced, and for which deal
+  if (r === 'done') document.dispatchEvent(new CustomEvent('deliverable', { detail: { name: filename, kind: 'file' } }));
+  return r;
+}
+/** A print (deal brief, comp sheet, a tool's results) counts as a deliverable too. */
+export const printed = (name) => document.dispatchEvent(new CustomEvent('deliverable', { detail: { name, kind: 'print' } }));
+
+async function handOver(filename, bytes, type, { share = false } = {}) {
   const blob = bytes instanceof Blob ? bytes : new Blob([bytes], { type });
   if (IN_ARTIFACT) {
     const downloads = await window.claude.use('downloads').catch(() => null);

@@ -89,6 +89,7 @@ await page.waitForSelector('#deal-tiles .tile');
 await page.fill('#deal-q .add-q input', 'Any environmental reports?');
 await page.press('#deal-q .add-q input', 'Enter');
 await page.locator('#deal-q li', { hasText: '32.3% of rent' }).locator('input').check();
+await page.click('#tab-visit');
 await page.locator('button[aria-label="Roof: Issue"]').click();
 await page.fill('#visit-notes', 'Met the owner. Roof replaced 2019 per owner (reported).');
 await page.waitForTimeout(600);
@@ -127,8 +128,10 @@ check('a deleted deal stays deleted after reload', list.length === 1 && list[0].
 
 // ---- tools
 await page.click('.tab[data-view="tools"] >> visible=true');
+// a tool by the start of its title (a description can name another tool)
+const toolCard = (title) => page.locator('#tools-root .tool', { has: page.locator('h3', { hasText: new RegExp(`^${title}`) }) });
 const tool = async (title, vals) => {
-  await page.locator('#tools-root .tool', { hasText: title }).click();
+  await toolCard(title).click();
   for (const [id, v] of Object.entries(vals)) { const i = page.locator(`#sheet-body [id$="-${id}"]`); await i.fill(v); await i.press('Tab'); }
   await page.waitForTimeout(200);
   const out = await page.$$eval('#sheet-body .results li', (x) => x.map((l) => l.innerText.replace(/\n/g, ' ')));
@@ -147,7 +150,7 @@ o = await tool('1031 exchange clock', { closing: '2026-01-15' });
 check('1031 dates', o.some((l) => /Mar 1, 2026/.test(l)) && o.some((l) => /Jul 14, 2026/.test(l)), o.join(' | '));
 await page.reload({ waitUntil: 'load' });
 await page.click('.tab[data-view="tools"] >> visible=true');
-await page.locator('#tools-root .tool', { hasText: 'Loan sizing' }).click();
+await toolCard('Loan sizing').click();
 check('tool inputs remembered', (await page.inputValue('#sheet-body [id$="-price"]')).replace(/,/g, '') === '12500000');
 await page.click('#sheet-close');
 

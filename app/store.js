@@ -102,6 +102,23 @@ export async function kvSet(key, value) {
   } catch { return false; }
 }
 
+/** Every small value, for the backup. */
+export async function kvAll() {
+  try {
+    const keys = await tx('readonly', (s) => s.getAllKeys(), 'kv');
+    const vals = await tx('readonly', (s) => s.getAll(), 'kv');
+    return Object.fromEntries(keys.map((k, i) => [k, vals[i]]));
+  } catch { return {}; }
+}
+
+/** How much the browser lets this site keep, and whether it may evict it. */
+export async function storageInfo() {
+  const out = { usage: null, quota: null, persisted: null };
+  try { if (navigator.storage && navigator.storage.estimate) Object.assign(out, await navigator.storage.estimate()); } catch { /* fine */ }
+  try { if (navigator.storage && navigator.storage.persisted) out.persisted = await navigator.storage.persisted(); } catch { /* fine */ }
+  return out;
+}
+
 /** Ask the browser not to evict our data under storage pressure. A refusal is fine. */
 export async function askToPersist() {
   try { return navigator.storage && navigator.storage.persist ? await navigator.storage.persist() : false; } catch { return false; }

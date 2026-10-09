@@ -15,8 +15,16 @@ import { readOm } from './om.js';
 import { analyze, runScenario, scenarioAnswers } from './deal.js';
 import * as store from './store.js';
 import { renderDealBrief, dealSummaryText, placeLine } from './brief.js';
+import { fromOmRows, project, rentRollSummary } from './lease.js';
+import { emptyRentRoll, layoutFromPreset, presetFor, MARKET_UNIT, legacyRows } from './rentroll.js';
+import { renderRentRollWorkspace } from './rentrollui.js';
+import { openLibrary } from './libraryui.js';
+import { openAiSettings, readWithAi, openAssistant, transcribeNote, openTranscript } from './aiui.js';
+import { crossChecks } from './reconcile.js';
+import { renderDealCrm } from './dealcrm.js';
+import * as crm from './crm.js';
 import {
-  $, el, svg, IN_ARTIFACT, XLSX, parseNum, parsePct, int, dec, money0, money2, pct, signed, times, yrs, short, niceDate,
+  $, el, svg, IN_ARTIFACT, XLSX, printed, parseNum, parsePct, int, dec, money0, money2, pct, signed, times, yrs, short, niceDate,
   localDate, toast, actionSheet, getPdfjs, getXlsx, deliver, deliveryError, shareText, idle, pdfProblem,
 } from './kit.js';
 
@@ -60,6 +68,8 @@ const SECTIONS = [
 ];
 const KIND = Object.fromEntries(SECTIONS.flatMap(([, rows]) => rows.map(([k, , kind]) => [k, kind])));
 const LABEL = Object.fromEntries(SECTIONS.flatMap(([, rows]) => rows.map(([k, l]) => [k, l])));
+/** The deal's fields for AI reading and the assistant: key, label, kind. */
+const FIELD_LIST = SECTIONS.flatMap(([, rows]) => rows.map(([key, label, kind]) => ({ key, label, kind })));
 
 const VISIT = [
   ['roof', 'Roof'], ['hvac', 'HVAC'], ['facade', 'Facade and windows'], ['interior', 'Interior and common areas'],
@@ -155,15 +165,21 @@ function visitLines() {
   }
   if (v.notes.trim()) lines.push(...v.notes.trim().split(/\n+/).map((x) => `Note, as written: ${x}`));
   const n = (v.audio || []).length;
-  if (n) lines.push(`${n} voice note${n === 1 ? '' : 's'} recorded on the visit (kept with the deal; not transcribed)`);
+  const tr = (v.audio || []).filter((a) => a.transcript).length;
+  if (n) lines.push(`${n} voice note${n === 1 ? '' : 's'} recorded on the visit (kept with the deal${tr ? `; ${tr} transcribed, check against the recording` : '; not transcribed'})`);
+  // call notes are labelled for what they are: an AI summary of a transcript
+  for (const a of v.audio || []) {
+    if (a.notes && a.notes.summary) lines.push(`AI summary of “${a.name}” (from its transcript${a.transcript && a.transcript.edited ? ', corrected by hand' : ''}; not checked word for word): ${a.notes.summary}`);
+  }
   return lines;
 }
 
 /** Each saved scenario, and the unsaved one if it differs from the deal, as a line of text. */
 function scenarioLines(m) {
   const line = (name, over) => {
-    const r = runScenario(figuresFor(deal), m, over);
+    const r = runScenario(figuresFor(deal), m, over, { noiSeries: over.noiBasis === 'rentroll' ? rentRollSeries(Number.isFinite(over.hold) ? over.hold : 5) : null });
     const changed = Object.entries(over).map(([k, v]) => {
+      if (k === 'noiBasis') return v === 'rentroll' ? 'NOI from the rent roll' : null;
       const spec = SCN.find((x) => x[0] === k);
       return spec ? `${spec[1].replace(/, % change| %|, years/g, '').toLowerCase()} ${scnShow(spec[2], v)}` : null;
     }).filter(Boolean).join(', ');
@@ -185,10 +201,44 @@ export function dealForWorkbook(basis) {
 function workbookDeal(m) {
   return {
     name: `${deal.example ? 'FICTIONAL SAMPLE — ' : ''}${deal.name || deal.figures.address}`, source: deal.source, readAt: deal.readAt,
-    figures: { ...deal.figures, rentRoll: deal.rentRoll }, loan: deal.loan, sources: deal.sources,
+    figures: { ...deal.figures, rentRoll: deal.rentRoll }, loan: deal.loan, sources: deal.sources, rr: deal.rr, example: !!deal.example,
     questions: activeQuestions(m), visitLines: visitLines(), scenarioLines: scenarioLines(m),
   };
 }
+/** Every saved deal, with the copy in memory where a deal is open (it may be newer than storage). */
+export async function listAllDeals() {
+  const stored = await store.listDeals();
+  return stored.filter((d) => !deleted.has(d.id)).map((d) => opened.get(d.id) || d);
+}
+/** Change a deal that may not be open (its stage, from Home), through the same copy the Deal screen uses. */
+export async function updateDeal(id, fn) {
+  let d = opened.get(id);
+  if (!d) {
+    const r = recovered(id, await store.loadDeal(id));
+    d = r.d;
+    if (!d) return null;
+    opened.set(id, d);
+  }
+  fn(d);
+  touch(d);
+  if (d === deal) render();
+  return d;
+}
+/**
+ * Before a restore writes to storage: save the open deal, then forget every
+ * copy in memory and every unsaved-edit mirror, so nothing stale is written
+ * back over the restored data. The page reloads afterwards.
+ */
+export async function prepareForRestore() {
+  await flushDeal();
+  clearTimeout(saveTimer);
+  pending = null;
+  opened.clear();
+  deal = null;
+  try { for (const k of [CUR_KEY, REC_KEY, 'comp-loader.session.unsaved']) localStorage.removeItem(k); } catch { /* fine */ }
+}
+export async function showDeal(id) { await openDeal(id); api.showView('deal'); }
+export const currentDealId = () => (deal ? deal.id : null);
 export const currentDealName = () => (deal && hasFigures() ? (deal.name || deal.figures.address || 'Untitled deal') : null);
 const hasFigures = () => deal && Object.values(deal.figures).some((v) => v !== null && v !== undefined && v !== '');
 
@@ -400,6 +450,7 @@ function render() {
   r.textContent = '';
   if (reading) return renderReading(r);
   if (!deal) return renderLanding(r);
+  if (ensureRentRoll(deal)) touch();
   renderDeal(r);
 }
 
@@ -531,34 +582,118 @@ function renderDeal(r) {
   head.appendChild(tiles);
   stack.appendChild(head);
 
+  // the deal's sections, one at a time: a tab bar rather than one endless page
+  const tabs = el('div', 'seg');
+  tabs.setAttribute('role', 'tablist');
+  tabs.setAttribute('aria-label', 'Deal sections');
+  const panes = {};
+  for (const [key, label] of PANES) {
+    const b = el('button', null, label);
+    b.type = 'button';
+    b.id = `tab-${key}`;
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-controls', `pane-${key}`);
+    b.addEventListener('click', () => showPane(key));
+    b.addEventListener('keydown', (e) => {
+      const i = PANES.findIndex(([k]) => k === key);
+      const to = e.key === 'ArrowRight' ? PANES[(i + 1) % PANES.length] : e.key === 'ArrowLeft' ? PANES[(i - 1 + PANES.length) % PANES.length] : null;
+      if (to) { e.preventDefault(); showPane(to[0]); $(`tab-${to[0]}`).focus(); }
+    });
+    tabs.appendChild(b);
+    const p = el('div', 'pane stack');
+    p.id = `pane-${key}`;
+    p.setAttribute('role', 'tabpanel');
+    p.setAttribute('aria-labelledby', b.id);
+    panes[key] = p;
+  }
+  stack.appendChild(tabs);
+
   const checks = el('section', 'card');
   checks.id = 'deal-checks';
-  stack.appendChild(checks);
+  panes.overview.appendChild(checks);
   const comps = el('section', 'card');
   comps.id = 'deal-comps';
-  stack.appendChild(comps);
-
-  stack.appendChild(figuresCard());
-  stack.appendChild(financeCard());
-  stack.appendChild(scenarioCard());
+  panes.overview.appendChild(comps);
+  panes.overview.appendChild(figuresCard());
+  panes.overview.appendChild(financeCard());
   const ladder = el('section', 'card');
   ladder.id = 'deal-ladder';
-  stack.appendChild(ladder);
+  panes.overview.appendChild(ladder);
   const rr = el('section', 'card');
   rr.id = 'deal-rr';
-  stack.appendChild(rr);
+  panes.overview.appendChild(rr);
   const qs = el('section', 'card');
   qs.id = 'deal-q';
-  stack.appendChild(qs);
-  stack.appendChild(visitCard());
+  panes.overview.appendChild(qs);
+  const cr = el('section', 'card');
+  cr.id = 'deal-crm';
+  panes.overview.appendChild(cr);
+  const d0 = deal;
+  renderDealCrm(cr, d0, { touch: () => touch(d0), api });
+  const rrw = el('section', 'card rr-card');
+  rrw.id = 'deal-rentroll';
+  panes.rentroll.appendChild(rrw);
+  panes.whatif.appendChild(scenarioCard());
+  panes.visit.appendChild(visitCard());
+  for (const p of Object.values(panes)) stack.appendChild(p);
 
   const bottom = el('div', 'view-actions');
   bottom.style.cssText = 'justify-content:center;margin:6px 0 4px';
   bottom.appendChild(button('', 'Use as the comps subject', useAsSubject, '<path d="M5 12h14M13 6l6 6-6 6"/>'));
+  bottom.appendChild(button('', 'Fill my Excel template', openTemplates, '<path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5M9 13l2 2 4-4"/>'));
   if (!IN_ARTIFACT) bottom.appendChild(button('', 'Deal brief', printBrief, '<path d="M7 9V3h10v6M7 17H5a2 2 0 01-2-2v-4a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2h-2M7 14h10v7H7z"/>'));
   bottom.appendChild(button('btn-gray', 'All deals', closeDeal, '<path d="M15 6l-6 6 6 6"/>'));
   stack.appendChild(bottom);
   r.appendChild(stack);
+  renderDerived();
+  showPane(pane, { focus: false });
+}
+
+const PANES = [['overview', 'Overview'], ['rentroll', 'Rent roll'], ['whatif', 'What if'], ['visit', 'Site visit']];
+let pane = 'overview';
+function showPane(key, { focus = true } = {}) {
+  if (!PANES.some(([k]) => k === key)) key = 'overview';
+  pane = key;
+  for (const [k] of PANES) {
+    const p = $(`pane-${k}`); const t = $(`tab-${k}`);
+    if (!p || !t) continue;
+    p.hidden = k !== key;
+    t.setAttribute('aria-selected', String(k === key));
+    t.tabIndex = k === key ? 0 : -1;
+  }
+  if (key === 'rentroll') drawRentRoll();
+  if (focus) { const t = $(`tab-${key}`); if (t) t.scrollIntoView({ block: 'nearest' }); }
+}
+
+/* --------------------------------------------------------------- rent roll */
+
+/** A deal from before the rent roll existed gets one: the OM's table as documented periods. */
+function ensureRentRoll(d) {
+  if (d.rr) return false;
+  const asOf = localDate();
+  const bsf = d.figures && Number.isFinite(d.figures.bsf) ? d.figures.bsf : null;
+  const preset = presetFor(d.figures && d.figures.ptype);
+  if (d.rentRoll && d.rentRoll.length) {
+    d.rr = fromOmRows(d.rentRoll, { asOf, page: d.rentRollPage, buildingSf: bsf });
+    d.rr.columns = layoutFromPreset(preset);
+    d.rr.preset = preset;
+    d.rr.settings.marketUnit = MARKET_UNIT[preset] || 'psf_year';
+  } else d.rr = emptyRentRoll(d.figures && d.figures.ptype, asOf, bsf);
+  if (d.figures && Number.isFinite(d.figures.opex)) d.rr.settings.opex = d.figures.opex;
+  d.schema = 2;
+  return true;
+}
+
+function drawRentRoll() {
+  const box = $('deal-rentroll');
+  if (!box || !deal) return;
+  renderRentRollWorkspace(box, deal, api, rentRollChanged);
+}
+
+/** Any rent roll edit: the flat rows the analysis reads follow, the deal saves, the analysis redraws. */
+function rentRollChanged() {
+  deal.rentRoll = legacyRows(deal.rr);
+  touch();
   renderDerived();
 }
 
@@ -804,6 +939,13 @@ function sourceTag(key) {
     return t;
   }
   if (!s) return el('span', 'src none', '');
+  if (s.ai && !s.hand) {
+    const b = el('button', `src ai${s.verified ? '' : ' unchecked'}`, `AI${s.page ? ` p.${s.page}` : ''}`);
+    b.type = 'button';
+    b.setAttribute('aria-label', `${LABEL[key]}: read by AI, where it came from`);
+    b.addEventListener('click', () => showSource(key));
+    return b;
+  }
   if (s.hand && !s.page) return el('span', 'src hand', 'typed');
   if (!s.page && !s.hand) {
     const t = el('span', 'src low', 'guess');
@@ -823,6 +965,7 @@ function sourceTag(key) {
 function showSource(key) {
   const s = deal.sources[key];
   const kind = KIND[key];
+  if (s.ai) { showAiSource(key); return; }
   const body = api.sheetOpen({ eyebrow: 'From the OM', title: LABEL[key], sub: deal.source || '' });
   const conf = { high: 'Printed in a summary and repeated in the OM, or read from a clearly labelled line.', medium: 'Read from a labelled line. Worth a glance.', low: 'A weaker match: check it against the page.' }[s.confidence] || '';
   const sec = el('section');
@@ -830,6 +973,12 @@ function showSource(key) {
   sec.appendChild(el('div', 'snippet', s.line || ''));
   if (conf) sec.appendChild(el('p', 'hint-sm', conf)).style.marginTop = '8px';
   body.appendChild(sec);
+  if (s.confirmed && s.confirmed.length) {
+    const sc = el('section');
+    sc.appendChild(el('h3', null, 'Also confirmed by'));
+    for (const c of s.confirmed) sc.appendChild(el('p', 'hint-sm', `${c.by}: ${c.doc || ''}${c.page ? ` p.${c.page}` : ''}${c.verified ? ' (passage checked)' : ''} — “${c.line || ''}”`));
+    body.appendChild(sc);
+  }
   if (s.hand) {
     const sec2 = el('section');
     sec2.appendChild(el('h3', null, 'Changed by hand'));
@@ -848,7 +997,7 @@ function showSource(key) {
       const b = el('button', 'li');
       b.type = 'button';
       const m = el('div', 'li-main');
-      m.appendChild(el('div', 'li-title', `${show(kind, a.value)} · page ${a.page}`));
+      m.appendChild(el('div', 'li-title', `${show(kind, a.value)}${a.page ? ` · page ${a.page}` : ''}${a.ai ? ' · read by AI' : ''}`));
       m.appendChild(el('div', 'li-sub', a.line));
       b.appendChild(m);
       b.appendChild(el('span', 'chip chip-accent', 'Use'));
@@ -868,9 +1017,13 @@ function pick(key, value, from) {
     s.orig = value;
     s.page = from.page;
     s.line = from.line;
+    s.ai = !!from.ai;
+    s.doc = from.doc;
+    s.verified = from.verified;
   }
   deal.figures[key] = value;
-  s.hand = false;
+  // an earlier figure that was typed by hand goes back to being typed
+  s.hand = !from.page && !from.ai && from.line === 'typed by hand';
   touch();
   api.sheetClose();
   render();
@@ -946,7 +1099,7 @@ const SCN = [
   ['rate', 'Interest rate %', 'pct'], ['ltv', 'Loan to value %', 'pct'],
   ['exitCap', 'Exit cap rate %', 'pct'], ['hold', 'Hold, years', 'int'], ['growth', 'NOI growth a year %', 'delta'], ['saleCost', 'Sale costs %', 'pct0'],
 ];
-const HOLD_KEYS = ['exitCap', 'hold', 'growth', 'saleCost'];
+const HOLD_KEYS = ['exitCap', 'hold', 'growth', 'saleCost', 'noiBasis'];
 const scnShow = (kind, v) => {
   if (!ok(v)) return '';
   if (kind === 'money') return money0(v);
@@ -972,6 +1125,17 @@ function scenarioCard() {
   h.appendChild(el('h2', null, 'Live deal: what if'));
   h.appendChild(el('span', 'count', 'changes here never alter the deal unless you save them to it'));
   c.appendChild(h);
+  // where the hold-period NOI comes from
+  const basis = el('div', 'scn-basis');
+  const bl = el('label', null, 'NOI over the hold');
+  bl.htmlFor = 'scn-noiBasis';
+  const bs = el('select', 'compact');
+  bs.id = 'scn-noiBasis';
+  for (const [v, l] of [['om', 'The deal’s NOI, growing at the rate below'], ['rentroll', 'The rent roll’s projection, year by year']]) { const o = el('option', null, l); o.value = v; bs.appendChild(o); }
+  bs.value = deal.live.noiBasis || 'om';
+  bs.addEventListener('change', () => { if (bs.value === 'om') delete deal.live.noiBasis; else deal.live.noiBasis = bs.value; touch(); renderDerived(); });
+  basis.append(bl, bs);
+  c.appendChild(basis);
   const g = el('div', 'grid-form');
   g.id = 'scn-inputs';
   c.appendChild(g);
@@ -998,10 +1162,20 @@ function scenarioCard() {
   return c;
 }
 
+/** The rent roll's NOI for each year of the hold and the year after, or null. */
+function rentRollSeries(hold) {
+  const rr = deal.rr;
+  if (!rr || !rr.leases.length || !Number.isFinite(rr.settings.opex)) return null;
+  const years = Math.max(2, Math.round(Number.isFinite(hold) ? hold : 5) + 1);
+  return project(rr, { years }).annual.map((y) => y.noi);
+}
+
 function renderScenario(m) {
   const g = $('scn-inputs');
   if (!g) return;
-  const run = runScenario(figuresFor(deal), m, deal.live);
+  const hold = Number.isFinite(deal.live.hold) ? deal.live.hold : 5;
+  const ctx = { noiSeries: deal.live.noiBasis === 'rentroll' ? rentRollSeries(hold) : null };
+  const run = runScenario(figuresFor(deal), m, deal.live, ctx);
   const base = run.base;
   // inputs: drawn once, then only their state changes, so the keyboard stays put
   if (!g.children.length) {
@@ -1041,7 +1215,7 @@ function renderScenario(m) {
 
   // the Deal column uses the deal's figures with the same hold assumptions
   const holdOnly = Object.fromEntries(Object.entries(deal.live).filter(([k]) => HOLD_KEYS.includes(k)));
-  const dealRun = runScenario(figuresFor(deal), m, holdOnly);
+  const dealRun = runScenario(figuresFor(deal), m, holdOnly, ctx);
   const box = $('scn-out');
   box.textContent = '';
   const t = el('table', 'mini scn');
@@ -1076,13 +1250,13 @@ function renderScenario(m) {
   wrap.appendChild(t);
   box.appendChild(wrap);
   const s = B.inputs;
-  const p = el('p', 'hint-sm', `Returns: ${s.hold}-year hold, NOI growing ${dec(s.growth, 2)}% a year, sold at a ${ok(s.exitCap) ? pct(s.exitCap) : '—'} cap on the following year's NOI, less ${dec(s.saleCost, 2)}% sale costs and the loan balance. All scenario assumptions: change them above.`);
+  const p = el('p', 'hint-sm', `Returns: ${s.hold}-year hold, ${B.series ? 'NOI year by year from the rent roll projection' : `NOI growing ${dec(s.growth, 2)}% a year`}, sold at a ${ok(s.exitCap) ? pct(s.exitCap) : '—'} cap on the following year's NOI, less ${dec(s.saleCost, 2)}% sale costs and the loan balance. All scenario assumptions: change them above.`);
   p.style.marginTop = '8px';
   box.appendChild(p);
 
   // answers to the questions a buyer asks, on the scenario's terms
   const tg = deal.targets;
-  const a = scenarioAnswers(figuresFor(deal), m, deal.live, { targetCap: tg.cap ?? (ok(s.exitCap) ? Math.round((m.cap ?? s.exitCap) * 4 + 1) / 4 : null), targetIrr: tg.irr, capForValue: tg.value ?? s.exitCap });
+  const a = scenarioAnswers(figuresFor(deal), m, deal.live, { targetCap: tg.cap ?? (ok(s.exitCap) ? Math.round((m.cap ?? s.exitCap) * 4 + 1) / 4 : null), targetIrr: tg.irr, capForValue: tg.value ?? s.exitCap }, ctx);
   const ab = $('scn-answers');
   ab.textContent = '';
   ab.appendChild(el('div', 'sec-label', 'Answers, on the scenario’s terms'));
@@ -1124,7 +1298,7 @@ function renderSavedScenarios(m) {
   const list = el('div', 'list');
   list.style.cssText = 'margin:0 16px 14px;background:var(--surface-2);border-radius:13px';
   for (const sc of deal.scenarios) {
-    const r = runScenario(figuresFor(deal), m, sc.over);
+    const r = runScenario(figuresFor(deal), m, sc.over, { noiSeries: sc.over.noiBasis === 'rentroll' ? rentRollSeries(Number.isFinite(sc.over.hold) ? sc.over.hold : 5) : null });
     const row = el('div', 'li');
     const main = el('div', 'li-main');
     main.appendChild(el('div', 'li-title', sc.name));
@@ -1195,44 +1369,51 @@ function saveToDeal() {
 
 function renderRentRoll(m) {
   const box = $('deal-rr');
+  if (!box) return;
   box.textContent = '';
-  const rows = deal.rentRoll || [];
-  box.hidden = !rows.length;
-  if (!rows.length) return;
+  const rr = deal.rr;
+  const n = rr ? rr.leases.length : 0;
   const h = el('div', 'card-head');
   h.appendChild(el('h2', null, 'Rent roll'));
-  h.appendChild(el('span', 'count', `${rows.length} row${rows.length === 1 ? '' : 's'}${deal.rentRollPage ? ` · page ${deal.rentRollPage}` : ''}`));
+  h.appendChild(el('span', 'count', n ? `${n} unit${n === 1 ? '' : 's'}${deal.rentRollPage ? ` · read from OM page ${deal.rentRollPage}` : ''}` : 'none yet'));
   box.appendChild(h);
-  const L = m.leases;
-  if (L) {
+  if (n) {
+    const sum = rentRollSummary(rr, rr.settings.asOf);
     const t = el('div', 'tiles');
-    const add = (k, v, s, cls) => { const x = el('div', `tile${cls ? ` ${cls}` : ''}`); x.appendChild(el('div', 'k', k)); x.appendChild(el('div', 'v', v)); if (s) x.appendChild(el('div', 's', s)); t.appendChild(x); };
-    add('WALT', yrs(L.waltIncome), ok(L.waltSf) ? `${yrs(L.waltSf)} by SF` : 'by income');
-    add('Occupancy', pct(L.occupancy, 1), L.vacantSf ? `${int(L.vacantSf)} SF vacant` : null, ok(L.occupancy) && L.occupancy < 85 ? 'warn' : '');
-    add('Rolling in 24 mo', pct(L.roll24Pct, 0), ok(L.roll12Pct) ? `${pct(L.roll12Pct, 0)} in 12` : null, L.roll24Pct >= 25 ? 'warn' : '');
-    add('Average rent', ok(L.avgRentPsf) ? `${money2(L.avgRentPsf)}/SF` : '—', `${money0(L.rent)} a year`);
+    const add = (k, v, s2, cls) => { const x = el('div', `tile${cls ? ` ${cls}` : ''}`); x.appendChild(el('div', 'k', k)); x.appendChild(el('div', 'v', v)); if (s2) x.appendChild(el('div', 's', s2)); t.appendChild(x); };
+    add('In-place rent', short(sum.annualRent), `as of ${rr.settings.asOf}`);
+    add('Occupancy', pct(sum.occupancy, 1), sum.totalSf ? `${int(sum.leasedSf)} SF leased` : null, ok(sum.occupancy) && sum.occupancy < 85 ? 'warn' : '');
+    add('WALT', yrs(sum.waltIncome), 'by income');
+    const soon = sum.expirations.filter((e) => typeof e.year === 'number' && e.year <= new Date().getFullYear() + 1).reduce((x, e) => x + (e.rentPct || 0), 0);
+    add('Expiring by next year-end', pct(soon, 0), 'of rent', soon >= 25 ? 'warn' : '');
     box.appendChild(t);
+    // the rent roll against the OM's own figures (reconcile.js: arithmetic, no AI)
+    const issues = crossChecks(deal.figures, sum);
+    if (issues.length) {
+      const ul = el('ul', 'rr-checks');
+      ul.id = 'deal-rr-checks';
+      for (const i of issues) ul.appendChild(el('li', i.level === 'warn' ? 'warn-text' : null, i.text));
+      box.appendChild(ul);
+    }
+    // the OM's own gross income against what the rent roll adds up to
+    const P = project(rr, { years: 1 }).annual[0];
+    if (Number.isFinite(deal.figures.gross) && P && P.egi) {
+      const gap = (P.egi / deal.figures.gross - 1) * 100;
+      if (Math.abs(gap) > 5) {
+        const p = el('p', 'hint-sm', `The rent roll projects ${money0(P.egi)} of effective gross income over the next twelve months; the OM states ${money0(deal.figures.gross)} (${gap > 0 ? '+' : ''}${gap.toFixed(1)}%). Check which leases, recoveries or other income explain it.`);
+        p.style.padding = '0 16px 10px';
+        box.appendChild(p);
+      }
+    }
+  } else {
+    const p = el('p', 'hint');
+    p.style.padding = '0 16px 6px';
+    p.textContent = 'No rent roll yet. Add units by hand, import one from Excel or CSV, or read an OM that prints one.';
+    box.appendChild(p);
   }
-  const t = el('table', 'mini');
-  const tr0 = el('tr');
-  for (const x of ['Tenant', 'SF', 'Annual rent', '$/SF', 'Expires']) tr0.appendChild(el('th', null, x));
-  t.appendChild(tr0);
-  for (const r of rows) {
-    const tr = el('tr');
-    tr.appendChild(el('td', null, [r.suite, r.tenant].filter(Boolean).join(' · ')));
-    tr.appendChild(el('td', null, ok(r.sf) ? int(r.sf) : '—'));
-    tr.appendChild(el('td', null, r.vacant ? 'vacant' : money0(r.annual)));
-    tr.appendChild(el('td', null, ok(r.psf) ? money2(r.psf) : '—'));
-    tr.appendChild(el('td', null, r.mtm ? 'MTM' : r.end ? new Date(r.end).toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—'));
-    t.appendChild(tr);
-  }
-  const wrap = el('div', 'scroll');
-  wrap.style.paddingBottom = '6px';
-  wrap.appendChild(t);
-  box.appendChild(wrap);
-  const p = el('p', 'hint-sm', 'Read from the OM’s table: check it against the leases. The Excel download has it as a Rent Roll tab with live WALT.');
-  p.style.padding = '4px 16px 14px';
-  box.appendChild(p);
+  const b = button('btn-sm', n ? 'Open the rent roll' : 'Start a rent roll', () => showPane('rentroll'));
+  b.style.margin = '0 16px 16px';
+  box.appendChild(b);
 }
 
 /* --------------------------------------------------------------- questions */
@@ -1407,11 +1588,16 @@ function renderAudio(into = null) {
       toast('Voice note deleted.', { label: 'Undo', run: () => { d.visit.audio = keep; touch(d); if (deal === d) renderAudio(); } });
     });
     row.appendChild(x);
+    const acts = el('div', 'voice-acts');
+    if (a.transcript) {
+      acts.appendChild(button('btn-sm btn-gray', a.transcript.reviewed ? 'Transcript' : 'Transcript (not yet checked)', () => openTranscript(aiHost(), a)));
+    } else acts.appendChild(button('btn-sm btn-gray', 'Transcribe…', () => transcribeNote(aiHost(), a)));
+    row.appendChild(acts);
     box.appendChild(row);
   }
   box.appendChild(el('p', 'hint-sm', v.audio.length
-    ? 'Kept on this device with the deal. Not transcribed: that would need a speech service, and nothing here leaves the device.'
-    : 'Record what the owner or manager says, or add a Voice Memos file. Kept with the deal; not transcribed.'));
+    ? 'Kept on this device with the deal. Transcribe sends a recording to your firm’s AI server only when you ask (AI settings, in the deal’s ⋯ menu).'
+    : 'Record what the owner or manager says, or add a Voice Memos file. Kept with the deal on this device.'));
 }
 
 const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -1566,6 +1752,138 @@ async function addPhotos(files) {
 
 /* ---------------------------------------------------------------- actions */
 
+/* ------------------------------------------------------ firm templates */
+
+/** Everything a template can draw on for this deal: figures, analysis, rent roll, scenario. */
+function templateContext(d) {
+  const comps = api.count() ? api.basis() : null;
+  const m = analyze(figuresFor(d), comps);
+  const rr = d.rr && d.rr.leases.length ? d.rr : null;
+  let preparedBy = '';
+  try { preparedBy = (JSON.parse(localStorage.getItem('comp-loader.subject.v1') || '{}') || {}).preparedBy || ''; } catch { /* fine */ }
+  const hold = Number.isFinite((d.live || {}).hold) ? d.live.hold : 5;
+  const series = (d.live || {}).noiBasis === 'rentroll' && rr && Number.isFinite(rr.settings.opex) ? project(rr, { years: hold + 1 }).annual.map((y) => y.noi) : null;
+  return {
+    deal: d, m, rrSum: rr ? rentRollSummary(rr, rr.settings.asOf) : null, rrProj: rr && Number.isFinite(rr.settings.opex) ? project(rr) : null,
+    scenario: runScenario(figuresFor(d), m, d.live || {}, { noiSeries: series }), preparedBy, today: new Date(),
+  };
+}
+/** The open deal for the Tools screen: its figures, analysis, rent roll and scenario, or null. */
+export function dealForTools() {
+  if (!deal || !hasFigures()) return null;
+  const ctx = templateContext(deal);
+  return { name: deal.name || deal.figures.address || 'Untitled deal', figures: { ...deal.figures }, loan: { ...deal.loan }, live: { ...(deal.live || {}) }, m: ctx.m, rrSum: ctx.rrSum, rrProj: ctx.rrProj, scenario: ctx.scenario };
+}
+
+/**
+ * The one way a tool's result reaches the deal: called only after the person
+ * confirmed. Figures written are tagged as typed (with the tool named), loan
+ * terms replace the deal's, and hold assumptions go to the What-if scenario,
+ * never to the deal's own figures.
+ */
+export function applyFromTools({ figures = {}, loan = {}, live = {} }, toolTitle) {
+  if (!deal) return false;
+  for (const [k, v] of Object.entries(figures)) {
+    if (v === null || v === undefined || (typeof v === 'number' && !Number.isFinite(v))) continue;
+    deal.figures[k] = v;
+    const s = deal.sources[k];
+    if (s) { s.hand = s.orig !== v; s.tool = toolTitle; } else deal.sources[k] = { hand: true, tool: toolTitle };
+  }
+  for (const [k, v] of Object.entries(loan)) if (v !== null && v !== undefined) deal.loan[k] = v;
+  deal.live = { ...(deal.live || {}), ...Object.fromEntries(Object.entries(live).filter(([, v]) => v !== null && v !== undefined)) };
+  touch();
+  render();
+  return true;
+}
+
+/* ------------------------------------------------------------------- AI */
+
+/** What the AI screens need from the open deal. */
+function aiHost() {
+  const d = deal;
+  return {
+    api, fields: FIELD_LIST, deal: () => d,
+    touch: () => touch(d),
+    apply: (entries) => { if (deal === d) applyReviewed(entries); },
+    addTasks: async (items, from) => { for (const a of items) await crm.addTask({ title: a.task + (a.owner ? ` (${a.owner})` : ''), due: /^\d{4}-\d{2}-\d{2}$/.test(a.due || '') ? a.due : null, note: a.due && !/^\d{4}-\d{2}-\d{2}$/.test(a.due) ? `said: by ${a.due}` : '', dealId: d.id, source: from }); },
+    context: () => {
+      const ctx = templateContext(d);
+      return { m: ctx.m, scenario: ctx.scenario, rrSum: ctx.rrSum, comps: api.count() ? api.basis() : null, issues: ctx.rrSum ? crossChecks(d.figures, ctx.rrSum) : [] };
+    },
+  };
+}
+
+/**
+ * Figures the broker accepted from an AI reading. The figure the deal had
+ * stays as an alternative reading, so it is one tap to go back.
+ */
+function applyReviewed(entries) {
+  for (const { key, value, source } of entries) {
+    if (!(key in KIND) || value === null || value === undefined) continue;
+    const before = deal.figures[key];
+    const s = deal.sources[key];
+    // the same figure the OM reader already found: keep its source, note the confirmation
+    if (s && !s.hand && !s.ai && s.page && (before === value || (ok(before) && ok(value) && Math.abs(before - value) < 1e-9))) {
+      s.confirmed = [...(s.confirmed || []), { by: source.via === 'voice note' ? 'a call' : 'AI reading', doc: source.doc, page: source.page, line: source.line, verified: source.verified }];
+      continue;
+    }
+    const alts = [];
+    if (before !== null && before !== undefined && before !== '' && before !== value) {
+      alts.push(s && !s.hand ? { value: s.orig ?? before, page: s.page || null, line: s.line || '', ai: !!s.ai, doc: s.doc, verified: s.verified } : { value: before, page: null, line: 'typed by hand', ai: false });
+    }
+    deal.figures[key] = value;
+    deal.sources[key] = { ...source, orig: value, hand: false, alts: [...alts, ...((s && s.alts) || []).filter((a) => a.value !== value)] };
+    if (key === 'address' && !deal.name) deal.name = value;
+  }
+  touch();
+  render();
+}
+
+function showAiSource(key) {
+  const s = deal.sources[key];
+  const body = api.sheetOpen({ eyebrow: s.via === 'voice note' ? 'Said on a call' : 'Read by AI', title: LABEL[key], sub: `${s.doc || ''}${s.page ? `, page ${s.page}` : ''}` });
+  const sec = el('section');
+  sec.appendChild(el('h3', null, s.verified ? 'The passage, checked against the document' : 'The passage (not found word for word: check it)'));
+  sec.appendChild(el('div', 'snippet', s.line || ''));
+  sec.appendChild(el('p', 'hint-sm', `${s.model ? `Read by ${s.model}. ` : ''}Accepted by you from the AI review; AI reading can still be wrong.`)).style.marginTop = '8px';
+  body.appendChild(sec);
+  if (s.alts && s.alts.length) {
+    const sec3 = el('section');
+    sec3.appendChild(el('h3', null, 'Earlier readings'));
+    const ul = el('div', 'list');
+    ul.style.cssText = 'background:var(--surface-2);border-radius:13px';
+    for (const a of s.alts) {
+      const b = el('button', 'li');
+      b.type = 'button';
+      const m = el('div', 'li-main');
+      m.appendChild(el('div', 'li-title', `${show(KIND[key], a.value)}${a.page ? ` · page ${a.page}` : ''}${a.ai ? ' · read by AI' : ''}`));
+      m.appendChild(el('div', 'li-sub', a.line || ''));
+      b.appendChild(m);
+      b.appendChild(el('span', 'chip chip-accent', 'Use'));
+      b.addEventListener('click', () => pick(key, a.value, a));
+      ul.appendChild(b);
+    }
+    sec3.appendChild(ul);
+    body.appendChild(sec3);
+  }
+}
+
+function chooseForAi() {
+  const fi = el('input');
+  fi.type = 'file';
+  fi.multiple = true;
+  fi.accept = '.pdf,.txt,.csv,.md,application/pdf,text/plain,text/csv';
+  fi.id = 'ai-files';
+  fi.hidden = true;
+  fi.addEventListener('change', () => { const files = [...fi.files]; fi.remove(); readWithAi(aiHost(), files); });
+  document.body.appendChild(fi);
+  fi.click();
+}
+
+export function openTemplates() {
+  return openLibrary(api, { getDeal: () => (deal && hasFigures() ? deal : null), ctxFor: templateContext });
+}
+
 function useAsSubject() {
   api.setSubject(deal.figures);
   api.showView('comps');
@@ -1602,6 +1920,7 @@ async function shareSummary() {
 }
 
 function printBrief() {
+  printed(`Deal brief: ${deal.name || 'deal'}`);
   const { m, comps } = metrics();
   const urls = deal.visit.photos.map((p) => { const u = URL.createObjectURL(p.blob); photoUrls.push(u); return u; });
   let preparedBy = '';
@@ -1616,7 +1935,12 @@ async function dealMenu() {
   const v = await actionSheet(deal.name || 'Deal', [
     { label: 'Copy summary', sub: 'five lines for a text or an email', value: 'copy', icon: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2"/>' },
     ...(IN_ARTIFACT ? [] : [{ label: 'Deal brief', sub: 'print or save as PDF, with photos', value: 'brief', icon: '<path d="M7 9V3h10v6M7 17H5a2 2 0 01-2-2v-4a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2h-2M7 14h10v7H7z"/>' }]),
+    { label: 'Fill my Excel template…', sub: 'your firm’s underwriting or rent roll workbook', value: 'template', icon: '<path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/>' },
     { label: 'Use as the comps subject', value: 'subject', icon: '<path d="M5 12h14M13 6l6 6-6 6"/>' },
+    '-',
+    { label: 'Read documents with AI…', sub: 'OM, rent roll, T-12 or lease: figures to check, page by page', value: 'ai-read', icon: '<path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8z"/><path d="M5 17l.9 2.1L8 20l-2.1.9L5 23l-.9-2.1L2 20l2.1-.9z"/>' },
+    { label: 'Ask about this deal…', sub: 'answers from this deal’s figures, with sources', value: 'ai-ask', icon: '<path d="M21 12a8 8 0 01-11.6 7.1L4 21l1.9-5.4A8 8 0 1121 12z"/>' },
+    { label: 'AI settings…', value: 'ai-settings', icon: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/>' },
     { label: 'Open in Maps', value: 'map', disabled: !deal.figures.address, icon: '<path d="M12 21s-7-6.1-7-11a7 7 0 1114 0c0 4.9-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>' },
     '-',
     { label: 'Scan another OM…', value: 'new', icon: '<path d="M12 5v14M5 12h14"/>' },
@@ -1630,6 +1954,10 @@ async function dealMenu() {
     toast((await copyText(dealSummaryText(deal, m, comps))) ? 'Summary copied.' : 'The browser blocked copying here.');
   } else if (v === 'brief') printBrief();
   else if (v === 'subject') useAsSubject();
+  else if (v === 'template') openTemplates();
+  else if (v === 'ai-read') chooseForAi();
+  else if (v === 'ai-ask') openAssistant(aiHost());
+  else if (v === 'ai-settings') openAiSettings(api);
   else if (v === 'map') window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(placeLine(deal.figures))}`, '_blank', 'noopener');
   else if (v === 'new') $('om-file').click();
   else if (v === 'close') closeDeal();
@@ -1656,6 +1984,8 @@ export function initDeal(compsApi) {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushNow(); });
   window.addEventListener('pagehide', flushNow);
   $('om-file').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; readOmFile(f); });
+  // tasks or contacts changed (here or on Home): the open deal's pipeline card follows
+  document.addEventListener('crmchange', () => { const box = $('deal-crm'); const d = deal; if (box && d) renderDealCrm(box, d, { touch: () => touch(d), api }); });
   $('photo-file').addEventListener('change', (e) => { const fs = [...e.target.files]; e.target.value = ''; addPhotos(fs); });
   document.addEventListener('omdrop', (e) => {
     const f = e.detail;

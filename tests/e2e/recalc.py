@@ -33,8 +33,9 @@ for ws in forms.worksheets:
                 lv = cell.getValue() if t == 'VALUE' or (t == 'FORMULA' and cell.FormulaResultType2 == 1) else cell.getString()
                 if isinstance(cv, (int, float)) and isinstance(lv, (int, float)):
                     if abs(cv - lv) > 1e-6 * max(1, abs(lv)): mism.append(f"{ws.title}!{c.coordinate} cached {cv} recalc {lv} {c.value[:60]}")
-                elif cv is None:
-                    # no stored value (a firm template's own formulas): Excel works it out on opening
+                elif cv is None and lv not in ('', 0, 0.0):
+                    # a value but none stored (a firm template's own formulas): Excel works it out on
+                    # opening. Workbooks the app builds itself should have none of these.
                     uncached += 1
 doc.close(True); proc.terminate()
 print(f"sheets={len(forms.worksheets)} formulas={nform} errors={len(errs)} mismatches={len(mism)} no-stored-value={uncached}")

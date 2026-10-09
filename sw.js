@@ -19,7 +19,7 @@
  * it holds offline always belong to the same release, never a mix of the old
  * and the new. The old cache is dropped on activate. The test suite also
  * checks this list against the files on disk. */
-const VERSION = '3.1.0';
+const VERSION = '3.2.0';
 const CACHE = `comp-loader-${VERSION}`;
 const ASSETS = [
   './',
@@ -46,6 +46,25 @@ const ASSETS = [
   'app/tools.js',
   'app/toolsui.js',
   'app/template.js',
+  'app/lease.js',
+  'app/rentroll.js',
+  'app/rentrollui.js',
+  'app/rrbook.js',
+  'app/calc.js',
+  'app/toolsdefs.js',
+  'app/reconcile.js',
+  'app/ai.js',
+  'app/aifacts.js',
+  'app/aiui.js',
+  'app/pipeline.js',
+  'app/crm.js',
+  'app/dealcrm.js',
+  'app/home.js',
+  'app/backup.js',
+  'app/backupui.js',
+  'app/dealfields.js',
+  'app/library.js',
+  'app/libraryui.js',
   'vendor/pdf-4.7.76-legacy.min.js',
   'vendor/pdf-4.7.76-legacy.worker.min.js',
   'vendor/exceljs-4.4.0.min.js',

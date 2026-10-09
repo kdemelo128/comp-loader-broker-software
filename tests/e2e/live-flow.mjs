@@ -9,6 +9,8 @@ const table = () => page.$$eval('#scn-out table tr', (t) => t.map((r) => [...r.c
 const row = async (label) => (await table()).find((r) => r[0].startsWith(label));
 await page.goto(BASE + '#deal', { waitUntil: 'load' });
 await page.setInputFiles('#om-file', F + 'om-multifamily.pdf');
+await page.waitForSelector('#tab-whatif');
+await page.click('#tab-whatif');
 await page.waitForSelector('#scn-out table');
 let r = await row('Price');
 check('deal and scenario start equal', r[1] === '$12,500,000' && r[2] === '$12,500,000', r.join(' | '));
@@ -38,6 +40,8 @@ check('answers shown', ans.length === 4 && ans.some((a) => /levered IRR/.test(a)
 await page.locator('#deal-live button', { hasText: 'Save scenario' }).click();
 await page.waitForTimeout(600);
 await page.reload({ waitUntil: 'load' });
+await page.waitForSelector('#tab-whatif');
+await page.click('#tab-whatif');
 await page.waitForSelector('#scn-out table');
 check('saved scenario persists', (await page.locator('#scn-saved .li-title', { hasText: 'Lower price' }).count()) === 1);
 check('live changes persist', (await page.inputValue('#scn-price')) === '$12,000,000');

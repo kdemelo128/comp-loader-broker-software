@@ -1,7 +1,11 @@
 # Comp Loader
 
 A broker's field kit that runs in the browser and installs on an iPhone like an
-app. Three tabs:
+app. Four tabs:
+
+- **Home** is the dashboard: what needs attention, the deal pipeline by stage,
+  tasks, contacts, recent activity and what was produced, and a pipeline report
+  to export or print.
 
 - **Comps** turns CoStar comp reports into a checked comp set and an Excel
   workbook (the built-in one, or **your own template**, filled in place).
@@ -9,13 +13,16 @@ app. Three tabs:
   page each came from, what doesn't add up, where it sits against your comps, a
   loan run, a **live what-if** with hold-period returns, the questions to ask,
   and site-visit notes, photos and voice notes.
-- **Tools** holds the calculators a deal needs between meetings: quick value,
-  loan sizing, offer and seller net, net effective rent, 1031 deadlines, WALT
-  and a converter.
+- **Tools** holds 30 calculators for valuation, debt, returns and fees,
+  leasing, comps and development (DCF, amortization, refinance, floating-rate
+  stress, sensitivity grids, a distribution waterfall, commission splits,
+  lease comparisons, residual land value and more). A tool can load the open
+  deal's figures and, after you confirm each change, send its result back.
 
 Everything is read on the device. PDFs and workbooks are never uploaded, the
 page makes no request to any other site, and once it has loaded it works with
-no connection at all.
+no connection at all. The optional AI features are the exception, and only
+when a firm runs its own AI server and a broker turns them on (see below).
 
 © 2026 Kyle Alexander De Melo. MIT License.
 
@@ -80,6 +87,9 @@ download). In a few seconds:
   notes are kept as audio with the deal; they are **not transcribed**, because
   that needs a speech service and nothing here leaves the device.
 
+The Deal screen has four sections: **Overview**, **Rent roll**, **What if** and
+**Site visit**.
+
 Then: **Excel** (a Deal Analysis tab and a Rent Roll tab, every result a live
 formula), **Share** (a five-line summary), **Deal brief** (print or save as
 PDF, with photos and any scenarios, labelled as assumptions), or **Use as the
@@ -89,6 +99,132 @@ comps subject**. Deals are saved on the device; **All deals** lists them, and
 An OM that is a scan, with no text in it, can't be read: enter the figures by
 hand and everything else works the same. OMs have no standard layout, so check
 the figures against the page tags before relying on them.
+
+## Home: pipeline, tasks and contacts
+
+- **Pipeline**: every deal by stage (Prospect, Listing, Underwriting,
+  Marketing, Offer / LOI, Under contract, Due diligence, Closed, Lost or
+  passed) with its asking price and cap rate. **Stages** renames them to the
+  firm's words or hides unused ones. Change a deal's stage on Home or on the
+  deal's own **Pipeline** card; each change is logged.
+- **Key dates** on each deal (LOI response, due diligence, financing
+  contingency, deposit going hard, closing, lease expiration, loan maturity):
+  the next 30 days are listed on Home, and anything within a week or past is
+  in Needs attention. **Report** gives the pipeline, tasks and contacts as an Excel
+  workbook (figures as numbers) or a printable page.
+- **Tasks**: due today, overdue, the next seven days, later; each can belong
+  to a deal. A deal's next steps are on its Overview. Action items from call
+  notes can be added in one tap. Done and delete both have Undo.
+- **Contacts**: name, company, role, phone and email (tap to call or write),
+  notes, and the deals they are part of. Search by name, company or role.
+- **Needs attention**: key dates within a week, overdue tasks, active deals
+  with no next step, deals untouched for three weeks, and no recent backup.
+- **Activity**: stage changes, tasks, contacts, and every file saved or page
+  printed (with the deal it was for, when made from the Deal tab).
+
+All of it is kept on the device with the deals.
+
+### Your data: backup and restore
+
+Everything lives in this browser on this device, so **Your data** (bottom of
+Home) makes one backup file of all of it: every deal with its photos and
+recordings, the comp set, the template library, tasks, contacts, activity,
+saved Tools scenarios and settings. Home reminds you when there has been no
+backup for 30 days. **Restore from a backup** shows what it will do first:
+
+- **Merge** (the default) adds what this device lacks and takes a newer copy
+  of anything changed since; nothing newer here is lost.
+- **Replace everything** makes the device match the backup, after a second
+  confirmation.
+
+The AI access token is never written into a backup (a backup is a file that
+gets copied and sent), and a restore never replaces the one on the device.
+The backup holds confidential deal information: keep it somewhere safe.
+
+## Rent roll
+
+The **Rent roll** section holds each lease as dated rent periods, not one rent
+figure, so an irregular schedule is entered as the lease reads.
+
+- **The grid** shows one row per unit with the columns you choose: show, hide,
+  rename, widen and reorder them, add your own fields, start from a preset for
+  the property type, and save a layout to reuse. Arrows, Enter and Escape move
+  around it as in a spreadsheet; search, sort and filter by status.
+- **The lease schedule** (tap a row's schedule button) has a timeline, the rent
+  periods (per month, per year, per SF a year or a month), a step builder for %
+  or $ increases on any interval, free rent and partial abatements, one-time
+  charges and credits, expense recoveries (pro rata, base year, expense stop,
+  fixed), percentage rent, and renewal terms. It checks for overlaps, gaps,
+  bad dates and per-SF rent with no SF.
+- **Outputs**: expirations by year, tenant concentration, and a month-by-month
+  projection to NOI, with renewals and re-leasing blended by probability and
+  general vacancy netted against the vacancy already modelled. Periods taken
+  from documents are kept apart from projected ones; with no market rent set,
+  re-leasing assumes the last contract rent and says so.
+- **Import** from Excel or CSV with a column-matching step; export to Excel or
+  CSV. The deal workbook carries Rent Roll, Lease Schedule and Cash Flow tabs.
+- **What if** can take NOI year by year from this projection.
+
+## Template library
+
+**Fill my Excel template** (Deal menu and Deal screen; also under the Comps ⋯
+menu as Template library) keeps your firm's own workbooks on the device and
+fills them from any deal.
+
+1. Upload an .xlsx or .xlsm. Comp Loader lists its sheets, named ranges and
+   anything that needs a warning (macros, external links, pivot tables,
+   connections, protection). .xls and .xlsb are refused with what to do.
+2. It suggests which cell takes which deal figure (a named range, or the cell
+   beside or under a label naming it), with its reason; correct it on a
+   tap-to-map view of the sheet. Rent roll tables are found by their headings.
+3. Before anything is written, a preview lists every cell: its value now, the
+   new value, where that comes from (OM page, typed, calculated, rent roll,
+   scenario) and how many formulas read it. Formula cells and the inside of
+   merged ranges are never written.
+4. The filled copy keeps formats, formulas, merges, named ranges, hidden sheets
+   and macros (an .xlsm stays an .xlsm, its macros byte for byte). An optional
+   **Comp Loader Audit** sheet lists every cell written and its source.
+
+Templates have categories, versions (replace the file, restore an older one),
+duplicate and delete, and export as one file to send to a colleague, who
+imports it on their device. There is no shared server: that is how a firm
+template travels.
+
+## Tools
+
+Thirty calculators in seven groups. Results update as you type, and every
+figure comes from the tested functions in `app/calc.js`, `app/deal.js`,
+`app/lease.js` and `app/tools.js`.
+
+| Group | Tools |
+|---|---|
+| Valuation | Quick value, offer and seller net, discounted cash flow (optionally on the rent roll's projected NOI), NOI bridge, break-even occupancy, value sensitivity (NOI × cap rate) |
+| Debt and financing | Loan sizing, amortization schedule with interest-only, refinance and cash-out, floating-rate stress with a rate cap, maturity and refinance risk, financing costs |
+| Returns and fees | Hold returns before and after sponsor fees, IRR sensitivity (price × exit cap), distribution waterfall with IRR hurdles, commission and splits |
+| Leasing | Net effective rent, compare three proposals, renewal versus replacement, escalation schedule, percentage rent, expense recoveries, lease-up and absorption, WALT |
+| Comps and market | Comp set check: count, recency, spread and a value range from the sale comps on the Comps tab |
+| Development | Residual land value, yield on cost, construction draws with capitalized interest |
+| Conversions and dates | 1031 exchange deadlines, the converter |
+
+In each tool:
+
+- **Load from deal** fills the inputs from the open deal; the deal is not
+  changed.
+- **Send to deal** (loan sizing, NOI bridge, hold returns) shows exactly what
+  will change, old value to new, and writes only when you confirm. Figures
+  written are tagged as typed, from that tool; hold assumptions go to the What
+  if scenario, never to the deal's own figures.
+- **Scenarios** saves named sets of inputs per tool (load, rename, duplicate,
+  delete), kept on the device.
+- **Export** copies the results as text, builds an Excel workbook (inputs as
+  numbers, results as the values shown, tables), or prints.
+- **How it is worked out** gives the formula, and warnings flag inputs that
+  don't hang together (an exit cap far above the discount rate, hurdles that
+  don't rise, a refinance that can't repay the old loan).
+
+The waterfall's rules are stated in the tool: capital in pro rata, cash out pro
+rata until the investors reach the first hurdle (compounded yearly), then the
+sponsor's promote off the top in each band; no catch-up and no clawback.
 
 ## On a phone
 
@@ -165,16 +301,29 @@ python3 -m http.server 8080      # then open http://localhost:8080
 
 ```sh
 npm ci        # the packages the tests use
-npm test      # parser, OM reader, deal maths, known-answer finance, tools, template, workbook, exports, repository
+npm test      # parser, OM reader, deal maths, known-answer finance, lease engine, tools, templates, workbook, exports, repository
 ```
+
+`tests/lease.test.js` checks the lease engine against schedules worked out by
+hand (proration, steps, abatements, recoveries, percentage rent, rollover,
+vacancy). `tests/calc.test.js` checks the Tools calculators (DCF, amortization,
+refinance, waterfall, commission, renewal versus replacement, residual land,
+draws and the rest) against figures worked out independently.
+`tests/tplcells.test.js` checks template mapping, the preview and filling.
 
 `tests/finance.test.js` checks the deal arithmetic against figures worked out
 independently (debt service, balances, DSCR, debt yield, cash-on-cash, loan
 sizing, break-even occupancy, WALT, net effective rent, IRR, equity multiple,
 the price for a target IRR) and that junk inputs never produce NaN or Infinity.
 
+`tests/e2e/a11y-flow.mjs` runs axe-core's WCAG 2.0/2.1/2.2 A and AA rules on
+every screen, light and dark, and checks keyboard focus, 24 px targets and
+reflow at 320 px. It is part of `run.sh`.
+
 `tests/e2e/run.sh` drives the app in an iPhone-sized Chromium page: comps,
-a template, three OM layouts, bad files, the live what-if, photos and voice
+a template, three OM layouts, bad files, the rent roll workspace, the template
+library, the Tools screen, the AI features (against stand-in services), Home,
+the live what-if, photos and voice
 notes, two deals side by side, reloads mid-edit, offline use, and a full
 broker walk-through. It then recalculates every exported workbook in
 LibreOffice and checks each formula against the value stored beside it. It
@@ -197,9 +346,29 @@ app/dealui.js         the Deal screen
 app/om.js             reading figures and the rent roll out of an OM
 app/deal.js           deal maths, checks and questions
 app/brief.js          the one-page deal brief and the text summary
+app/lease.js          the lease engine: dated rent periods, projection, validation
+app/rentroll.js       rent roll columns, presets and layouts
+app/rentrollui.js     the rent roll workspace and lease schedule
+app/rrbook.js         Rent Roll, Lease Schedule and Cash Flow workbook tabs
 app/toolsui.js        the Tools screen
-app/tools.js          the calculators
+app/toolsdefs.js      the Tools calculators' inputs and results
+app/tools.js          the first calculators
+app/calc.js           the Tools maths: DCF, debt, returns, waterfall, leasing, development
 app/template.js       filling your own Excel template in place
+app/dealfields.js     the deal fields a template can take, with their sources
+app/library.js        the template library on the device
+app/home.js           the Home screen and the pipeline report
+app/pipeline.js       stages, task due dates, what needs attention (pure)
+app/crm.js            tasks, contacts and the activity log on the device
+app/backup.js         the backup file: encoding, reading, the restore plan (pure)
+app/backupui.js       Your data: storage, backup, restore
+app/dealcrm.js        a deal's Pipeline card: stage, next steps, people
+app/reconcile.js      checking quoted passages, grouping readings, rent roll against the OM
+app/ai.js             talking to the AI server
+app/aifacts.js        the deal as numbered facts for the assistant
+app/aiui.js           AI settings, document review, the assistant, transcripts and notes
+server/               the optional AI server (see server/README.md)
+app/libraryui.js      the template library, mapping and preview screens
 app/costar.js         CoStar parsing and the comp-set rules
 app/layout.js         rebuilds column-preserving text from positioned glyphs
 app/pdftext.js        pdf.js to page text
@@ -218,6 +387,10 @@ vendor/, fonts/       bundled dependencies (see VENDOR.md)
 
 ## How it was checked
 
+`docs/ACCEPTANCE.md` lists every requirement of the 3.2 work with its status
+(implemented and tested, incompletely tested, partial, blocked, not
+implemented) and what was and was not tested.
+
 - **Against the Python loader** it was ported from, over 47 CoStar reports in
   seven comp sets; 3.0's parser output is identical to 2.1's.
 - **Every XML part of every workbook validates** against the ISO/IEC 29500
@@ -234,28 +407,74 @@ vendor/, fonts/       bundled dependencies (see VENDOR.md)
 ## Limits
 
 - Scanned PDFs with no text layer can't be read (that needs OCR; see below).
-- Voice notes are stored, not transcribed.
-- Hold-period returns are a simple annual model: NOI grows at one rate, the
-  sale is priced on the following year's NOI, no capital reserves, no tax.
+- Voice notes are transcribed only through the AI server, when set up.
+- Hold-period returns, the DCF and the waterfall are annual models with
+  end-of-year cash flows and no tax. NOI grows at one rate unless the rent roll
+  projection is used; the sale is priced on the following year's NOI.
+- The waterfall has no catch-up or clawback; the commission tool uses the
+  rates you enter, not a schedule of its own.
+- The comp set check has no distances: CoStar comps here carry no coordinates.
 - OM layouts vary without limit; the reader shows its sources so you can check it.
 - CoStar lease reports are not parsed; the Lease Comps tab is filled by hand.
 - Zoning covers the District of Columbia table and Montgomery County zone names.
 - Needs iOS 16.4 or later, or a current Chrome, Edge, Firefox or Safari.
 
-## What would need a server
+## AI features (optional, need a server)
 
-The app is a static site: no keys, no backend, nothing leaves the device.
-Three things people ask for need more than that:
+The app itself sends nothing anywhere. Three features need a language or
+speech model, and so a server that holds the API keys: `server/` in this
+repository (see `server/README.md`). With it running, a broker turns AI on
+under **AI settings** (Deal → ⋯) with the server's address and an access
+token from the firm. Each send is confirmed first.
 
-- **Transcribing voice notes** and **AI reading of an OM** need a speech or
-  language-model API. Its key must never sit in this page's JavaScript (anyone
-  could copy it from a public GitHub Pages site). It would need a small server
-  or serverless function that holds the key, receives the audio or text with
-  the broker's consent, and returns the result, and the app would have to say
-  plainly that the file leaves the device.
-- **Scanned OMs** need OCR. Tesseract compiled to WebAssembly can run on the
-  device (several MB to download, slow on a phone); a hosted OCR service would
-  be faster but, again, sends the document off the device.
+- **Read documents with AI** (Deal → ⋯): an OM, rent roll, operating
+  statement or lease, as PDF or text. Every figure comes back with the passage
+  it was read from, and the app checks that passage against the document's
+  own text before showing it: *passage checked*, *found on another page*,
+  *figure not in the passage*, or *passage not in the document* (which can't be
+  applied). Documents that disagree are shown side by side. Nothing changes
+  until the broker ticks figures and taps Apply; a figure the deal already had
+  from the OM keeps its source, with the AI reading noted as a confirmation,
+  and a replaced figure stays one tap away as an earlier reading. Applied
+  figures are tagged *AI p.N*.
+- **Ask about this deal**: answers from the deal's own figures, rent roll,
+  scenario and comps, sent as numbered facts with their sources; each answer
+  lists the facts it used and says what the deal doesn't contain. Answers that
+  cite a fact that doesn't exist are flagged.
+- **Transcribe** a voice note (Site visit): the transcript comes back with
+  timings to check against the recording and correct, then **Make notes**
+  gives a summary, decisions, action items, questions to confirm, and figures
+  mentioned, each with the words that support it. Figures said aloud start
+  unticked and are marked approximate or hearsay where the speaker was.
+
+The rent roll is also checked against the OM without any AI (occupancy,
+total SF, rent against gross potential rent, unit count), on the Overview's
+rent roll card.
+
+**Scanned OMs** with no text layer still can't be read by the app itself. AI
+reading accepts them (the model reads the page images), but its passages
+can't be checked against a text layer, so they show as unchecked.
+
+## Security and privacy
+
+- **On the device.** Deals, comps, templates, tasks and contacts are kept in
+  this browser's storage on this device. Nothing is uploaded unless the AI
+  features are on and a send is confirmed. A backup file holds all of it:
+  treat it like the OMs it came from.
+- **No secrets in the page.** The app holds no API key. AI keys live only on
+  the firm's AI server (`server/`), which checks an access token and the
+  calling site, limits each client to 20 AI requests a minute, never passes
+  upstream error bodies on, and logs no documents, questions or answers. The
+  access token is kept on the device and never written into a backup.
+- **What the page may do.** A Content-Security-Policy forbids plugins, a
+  changed base URL and form posts; no referrer is sent. User text is always
+  set as text, never as HTML. GitHub Pages cannot send headers, so the policy
+  does not restrict scripts; a host that can should add
+  `script-src 'self'` plus the hashes of the three small inline start-up
+  scripts in `index.html`, and `frame-ancestors 'none'`.
+- **Dependencies.** The app bundles its libraries in `vendor/` (see
+  VENDOR.md); the AI server has one, the official Anthropic SDK. `npm audit`
+  reports no known vulnerabilities in either.
 
 ## Licence
 

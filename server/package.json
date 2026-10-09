@@ -1,0 +1,19 @@
+{
+  "name": "comp-loader-ai-server",
+  "version": "1.0.0",
+  "description": "Holds the API keys for Comp Loader's AI features: document extraction, the deal assistant, transcription and meeting notes.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.133.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

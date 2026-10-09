@@ -56,6 +56,8 @@ function hideTip() { if (tipEl) tipEl.hidden = true; }
 
 function hover(node, rows) {
   node.setAttribute('tabindex', '0');
+  // a focusable shape that names one data point: an image, to assistive tech
+  node.setAttribute('role', 'img');
   node.setAttribute('aria-label', rows.map(([k, v]) => `${k} ${v}`).join(', '));
   node.addEventListener('pointerenter', (e) => tip(rows, e.clientX, e.clientY));
   node.addEventListener('pointermove', (e) => tip(rows, e.clientX, e.clientY));

@@ -1,29 +1,39 @@
 /* toolsui.js -- the Tools screen: the calculators a broker reaches for between
  * meetings, each in a sheet that works one-handed. Inputs are remembered on
- * the device, results update as you type, and every result copies as text. */
+ * the device, results update as you type, and every result copies as text.
+ *
+ * A tool can also fill its inputs from the open deal, save named scenarios,
+ * export to Excel or print, and, after a confirmation that lists exactly what
+ * changes, send its result back to the deal. Nothing reaches the deal
+ * without that confirmation. */
 
 import { quickValue, loanTool, offerTool, netEffectiveRent, exchangeDates, waltTool } from './tools.js';
+import { MORE_TOOLS, GROUPS } from './toolsdefs.js';
+import { dealForTools, applyFromTools } from './dealui.js';
+import { kvGet, kvSet } from './store.js';
 import {
-  $, el, svg, parseNum, parsePct, int, money0, money2, pct, signed, times, yrs, niceDate, toast, copyText,
+  $, el, svg, parseNum, parsePct, int, money0, money2, pct, signed, times, yrs, niceDate, toast, copyText, actionSheet, getXlsx, deliver, printed, XLSX, localDate,
 } from './kit.js';
 
 let api = null;
 const MEM = 'comp-loader.tools.v1';
+const SAVED = 'tools.scenarios';
 let memory = {};
 try { memory = JSON.parse(localStorage.getItem(MEM) || '{}') || {}; } catch { memory = {}; }
 const remember = () => { try { localStorage.setItem(MEM, JSON.stringify(memory)); } catch { /* fine */ } };
 
 const ok = (x) => typeof x === 'number' && Number.isFinite(x);
 
-/* Each tool: inputs (id, label, kind, placeholder) and a function from the
- * values to result lines [label, value, strong?, why?]. */
+/* The first seven tools. Each: inputs (id, label, kind, placeholder) and a
+ * function from the values to result lines [label, value, strong?, why?]. */
 const TOOLS = [
   {
-    id: 'value', title: 'Quick value', color: '#2350D8',
+    id: 'value', group: 'Valuation', title: 'Quick value', color: '#2350D8',
     desc: 'Any two of price, NOI and cap rate give the third.',
     icon: '<path d="M4 19h16M7 15l3-4 3 2 4-6"/>',
     inputs: [['price', 'Price', 'money', '4.5m'], ['noi', 'NOI', 'money', '280k'], ['cap', 'Cap rate %', 'pct', '6.25'],
       ['bsf', 'Building SF', 'num', 'optional'], ['units', 'Units', 'num', 'optional']],
+    fromDeal: (d) => ({ price: d.m.price, noi: d.m.noi, cap: null, bsf: d.figures.bsf, units: d.figures.units }),
     run: (v) => {
       const r = quickValue(v);
       return [
@@ -36,12 +46,14 @@ const TOOLS = [
     },
   },
   {
-    id: 'loan', title: 'Loan sizing', color: '#0E8A7D',
+    id: 'loan', group: 'Debt and financing', title: 'Loan sizing', color: '#0E8A7D',
     desc: 'The largest loan by LTV, DSCR and debt yield, and which test binds.',
     icon: '<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/>',
     inputs: [['price', 'Purchase price', 'money', '4.5m'], ['noi', 'NOI', 'money', '280k'], ['ltv', 'Max LTV %', 'pct', '65'],
       ['rate', 'Interest rate %', 'pct', '6.75'], ['amort', 'Amortization, years', 'num', '30'], ['io', 'Interest only', 'bool'],
       ['minDscr', 'Minimum DSCR', 'num', '1.25'], ['minDy', 'Minimum debt yield %', 'pct', '8']],
+    fromDeal: (d) => ({ price: d.m.price, noi: d.m.noi, ltv: d.loan.ltv, rate: d.loan.rate, amort: d.loan.amort, io: d.loan.io, minDscr: d.loan.minDscr, minDy: d.loan.minDy }),
+    toDeal: (v) => ({ loan: { ltv: v.ltv, rate: v.rate, amort: v.amort, io: !!v.io, minDscr: v.minDscr, minDy: v.minDy }, summary: `loan terms: ${pct(v.ltv, 1)} LTV, ${pct(v.rate)} rate, ${ok(v.amort) ? `${v.amort}-year amortization` : 'amortization unchanged'}${v.io ? ', interest only' : ''}, lender tests ${times(v.minDscr)} DSCR and ${pct(v.minDy, 1)} debt yield` }),
     run: (v) => {
       const r = loanTool(v);
       if (!r.sized) return [['Enter a price or NOI, and the lender’s tests', '—']];
@@ -55,13 +67,14 @@ const TOOLS = [
     },
   },
   {
-    id: 'offer', title: 'Offer and seller net', color: '#C2410C',
+    id: 'offer', group: 'Valuation', title: 'Offer and seller net', color: '#C2410C',
     desc: 'Price at a target cap or $/SF, and what the seller nets.',
     icon: '<path d="M20 12V8H6a2 2 0 010-4h12v4M4 6v12a2 2 0 002 2h14v-4"/><path d="M18 12a2 2 0 000 4h4v-4z"/>',
     inputs: [['ask', 'Asking price', 'money', '4.5m'], ['noi', 'NOI', 'money', '280k'], ['targetCap', 'Target cap rate %', 'pct', '6.5'],
       ['bsf', 'Building SF', 'num', '9,000'], ['targetPpsf', 'Target $/SF', 'money', '475'],
       ['price', 'Sale price for the net sheet', 'money', 'blank = price at target cap'], ['commission', 'Commission %', 'pct0', '4'],
       ['transfer', 'Seller’s transfer taxes %', 'pct0', '1.45'], ['other', 'Other closing costs $', 'money', '25k'], ['payoff', 'Loan payoff', 'money', '1.8m']],
+    fromDeal: (d) => ({ ask: d.m.price, noi: d.m.noi, bsf: d.figures.bsf }),
     run: (v) => {
       const r = offerTool(v);
       return [
@@ -75,7 +88,7 @@ const TOOLS = [
     note: 'Transfer and recordation tax rates and who pays them vary by jurisdiction and contract: enter the seller’s share for this deal.',
   },
   {
-    id: 'ner', title: 'Net effective rent', color: '#7C3AED',
+    id: 'ner', group: 'Leasing', title: 'Net effective rent', color: '#7C3AED',
     desc: 'A lease’s real rent after free rent, TI and commissions.',
     icon: '<path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1M14 9h1M9 13h1M14 13h1M9 17h6"/>',
     inputs: [['rent', 'Starting rent $/SF/yr', 'money', '42'], ['sf', 'Square feet', 'num', '2,500'], ['months', 'Term, months', 'num', '120'],
@@ -93,7 +106,7 @@ const TOOLS = [
     },
   },
   {
-    id: 'x1031', title: '1031 exchange clock', color: '#B45309',
+    id: 'x1031', group: 'Conversions and dates', title: '1031 exchange clock', color: '#B45309',
     desc: 'The 45-day identification and 180-day closing deadlines.',
     icon: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/>',
     inputs: [['closing', 'Relinquished property closed on', 'date']],
@@ -109,13 +122,13 @@ const TOOLS = [
     note: 'Day counts are calendar days from the closing, weekends and holidays included. Confirm with the qualified intermediary and a tax adviser.',
   },
   {
-    id: 'walt', title: 'WALT and rollover', color: '#0369A1',
+    id: 'walt', group: 'Leasing', title: 'WALT and rollover', color: '#0369A1',
     desc: 'Weighted average lease term and rent rolling, from a quick rent roll.',
     icon: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
     rows: true,
   },
   {
-    id: 'convert', title: 'Converter', color: '#475569',
+    id: 'convert', group: 'Conversions and dates', title: 'Converter', color: '#475569',
     desc: 'Acres and SF, FAR to buildable, rent per month and per year.',
     icon: '<path d="M7 7h11l-3-3M17 17H6l3 3"/>',
     inputs: [['acres', 'Acres', 'num', '0.5'], ['sf', 'Land SF', 'num', '21,780'], ['far', 'FAR', 'num', '3.0'],
@@ -131,120 +144,467 @@ const TOOLS = [
       ];
     },
   },
+  ...MORE_TOOLS,
 ];
+export const TOOL_IDS = TOOLS.map((t) => t.id);
 
+/** A tool's run gives either lines or { lines, tables, warnings }. */
+const normal = (r) => (Array.isArray(r) ? { lines: r, tables: [], warnings: [] } : { lines: r.lines || [], tables: r.tables || [], warnings: r.warnings || [], data: r.data });
+
+/* ------------------------------------------------------------- the list */
+
+let query = '';
 function render() {
   const root = $('tools-root');
   root.textContent = '';
   const head = el('div', 'view-head');
   head.appendChild(el('h1', null, 'Tools'));
-  head.appendChild(el('p', null, 'Quick calculators for between meetings. Figures you type are remembered on this device.'));
+  head.appendChild(el('p', null, `${TOOLS.length} calculators for valuation, debt, returns, leasing and development. Figures you type are remembered on this device; tools marked “deal” can load the open deal’s figures.`));
   root.appendChild(head);
-  const grid = el('div', 'tool-grid');
-  for (const t of TOOLS) {
-    const b = el('button', 'tool');
-    b.type = 'button';
-    const ic = el('span', 'tool-icon');
-    ic.style.background = t.color;
-    ic.innerHTML = svg(t.icon, 22);
-    b.appendChild(ic);
-    const tx = el('span');
-    tx.appendChild(el('h3', null, t.title));
-    tx.appendChild(el('p', null, t.desc));
-    b.appendChild(tx);
-    b.addEventListener('click', () => open(t));
-    grid.appendChild(b);
-  }
-  root.appendChild(grid);
+  const search = el('input', 'tool-search');
+  search.type = 'search';
+  search.id = 'tool-search';
+  search.placeholder = 'Search tools';
+  search.setAttribute('aria-label', 'Search tools');
+  search.autocomplete = 'off';
+  search.value = query;
+  root.appendChild(search);
+  const list = el('div');
+  root.appendChild(list);
+  const draw = () => {
+    list.textContent = '';
+    const q = query.trim().toLowerCase();
+    const match = (t) => !q || `${t.title} ${t.desc} ${t.group}`.toLowerCase().includes(q);
+    let shown = 0;
+    for (const g of GROUPS) {
+      const ts = TOOLS.filter((t) => t.group === g && match(t));
+      if (!ts.length) continue;
+      shown += ts.length;
+      list.appendChild(el('h2', 'tool-group', g));
+      const grid = el('div', 'tool-grid');
+      for (const t of ts) grid.appendChild(card(t));
+      list.appendChild(grid);
+    }
+    if (!shown) list.appendChild(el('p', 'hint-sm', `No tool matches “${query}”.`));
+  };
+  search.addEventListener('input', () => { query = search.value; draw(); });
+  draw();
 }
 
+function card(t) {
+  const b = el('button', 'tool');
+  b.type = 'button';
+  b.dataset.tool = t.id;
+  const ic = el('span', 'tool-icon');
+  ic.style.background = t.color;
+  ic.innerHTML = svg(t.icon, 22);
+  b.appendChild(ic);
+  const tx = el('span');
+  const h = el('h3', null, t.title);
+  if (t.fromDeal) h.appendChild(el('span', 'tool-tag', 'deal'));
+  tx.appendChild(h);
+  tx.appendChild(el('p', null, t.desc));
+  b.appendChild(tx);
+  b.addEventListener('click', () => open(t));
+  return b;
+}
+
+/* --------------------------------------------------------------- inputs */
+
 function readInput(kind, raw) {
-  if (kind === 'date') return raw || null;
+  if (kind === 'date' || kind === 'select') return raw || null;
   if (kind === 'bool') return !!raw;
   // 'pct0' is a rate where a value under 1% is ordinary (commission, transfer
   // tax): "0.5" there is half a percent, never 50%
   if (kind === 'pct') return parsePct(raw);
   if (kind === 'pct0') return parsePct(raw, { fraction: false });
+  if (kind === 'list') {
+    const xs = String(raw || '').split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean).map(parseNum);
+    return xs.length ? xs : null;
+  }
   return parseNum(raw);
 }
+const showNum = (v) => (Math.abs(v) >= 1000 ? int(v) : String(Math.round(v * 1e6) / 1e6));
 const showInput = (kind, v) => {
   if (v === null || v === undefined) return '';
-  if (kind === 'money' || kind === 'num') return Math.abs(v) >= 1000 ? int(v) : String(v);
+  if (kind === 'list') return Array.isArray(v) ? v.map((x) => (ok(x) ? showNum(x) : '?')).join(', ') : '';
+  if ((kind === 'money' || kind === 'num' || kind === 'int') && ok(v)) return showNum(v);
+  if (kind === 'money2' && ok(v)) return String(Math.round(v * 100) / 100);
+  if ((kind === 'pct' || kind === 'pct0') && ok(v)) return String(Math.round(v * 1e6) / 1e6);
   return String(v);
 };
+/** What an input holds, as a person would read it (for the export, the print and the confirm). */
+const inputText = (kind, v) => {
+  if (v === null || v === undefined || v === '') return '';
+  if (kind === 'bool') return v ? 'Yes' : 'No';
+  if (kind === 'money' || kind === 'money2') return ok(v) ? money2(v).replace(/\.00$/, '') : '';
+  if (kind === 'pct' || kind === 'pct0') return ok(v) ? `${showInput(kind, v)}%` : '';
+  return showInput(kind, v);
+};
+
+function inputField(t, [id, label, kind, ph, help], mem) {
+  const f = el('div', 'field');
+  let i;
+  if (kind === 'bool') {
+    const sw = el('label', 'switch');
+    i = el('input');
+    i.type = 'checkbox';
+    i.id = `tool-${t.id}-${id}`;
+    i.checked = !!mem[id];
+    i.setAttribute('aria-label', label);
+    sw.appendChild(i);
+    f.append(el('span', 'lbl', label), sw);
+  } else if (kind === 'select') {
+    const lab = el('label', null, label);
+    i = el('select');
+    i.id = `tool-${t.id}-${id}`;
+    lab.htmlFor = i.id;
+    for (const [value, text] of ph) { const o = el('option', null, text); o.value = value; i.appendChild(o); }
+    i.value = mem[id] || ph[0][0];
+    f.append(lab, i);
+  } else {
+    const lab = el('label', null, label);
+    i = el('input', kind === 'date' ? null : 'n');
+    i.id = `tool-${t.id}-${id}`;
+    lab.htmlFor = i.id;
+    if (kind === 'date') i.type = 'date'; else i.inputMode = kind === 'list' ? 'text' : 'decimal';
+    i.placeholder = ph || '';
+    i.autocomplete = 'off';
+    i.value = kind === 'date' ? (mem[id] || '') : showInput(kind, mem[id]);
+    f.append(lab, i);
+  }
+  if (kind === 'list') f.classList.add('wide');
+  if (help) f.appendChild(el('span', 'hint-sm', help));
+  return [f, i];
+}
+
+/* ------------------------------------------------------------ the sheet */
 
 function open(t) {
   if (t.rows) { openWalt(t); return; }
   const mem = (memory[t.id] ||= {});
-  const copy = el('button', 'btn', 'Copy results');
-  copy.type = 'button';
+  const d = dealForTools();
+  const ctx = { deal: d, sales: api.sales };
   const clear = el('button', 'btn btn-gray', 'Clear');
   clear.type = 'button';
-  const body = api.sheetOpen({ eyebrow: 'Tools', title: t.title, sub: t.desc, foot: [clear, copy] });
+  const more = el('button', 'btn btn-gray', 'Export');
+  more.type = 'button';
+  more.id = 'tool-export';
+  const foot = [clear, more];
+  let send = null;
+  if (t.toDeal) {
+    send = el('button', 'btn', 'Send to deal');
+    send.type = 'button';
+    send.id = 'tool-send';
+    send.disabled = !d;
+    send.title = d ? `Write this result to ${d.name}` : 'Open a deal on the Deal tab first';
+    foot.push(send);
+  } else {
+    const copy = el('button', 'btn', 'Copy results');
+    copy.type = 'button';
+    copy.addEventListener('click', () => doCopy());
+    foot.push(copy);
+  }
+  const body = api.sheetOpen({ eyebrow: `Tools · ${t.group}`, title: t.title, sub: t.desc, foot });
+
+  // the deal and saved-scenario bar
+  const bar = el('div', 'tool-bar');
+  if (t.fromDeal) {
+    const load = el('button', 'btn btn-sm btn-gray', d ? `Load from ${d.name}` : 'Load from deal');
+    load.type = 'button';
+    load.id = 'tool-load-deal';
+    load.disabled = !d;
+    if (!d) load.title = 'Open a deal on the Deal tab first';
+    load.addEventListener('click', () => loadFromDeal());
+    bar.appendChild(load);
+  }
+  const scn = el('button', 'btn btn-sm btn-gray', 'Scenarios');
+  scn.type = 'button';
+  scn.id = 'tool-scenarios';
+  scn.addEventListener('click', () => scenarios());
+  bar.appendChild(scn);
+  body.appendChild(bar);
+
   const form = el('div', 'grid-form');
   form.style.padding = '0';
   const inputs = {};
-  for (const [id, label, kind, ph] of t.inputs) {
-    const f = el('div', 'field');
-    const lab = el('label', null, label);
-    let i;
-    if (kind === 'bool') {
-      const sw = el('label', 'switch');
-      i = el('input');
-      i.type = 'checkbox';
-      i.checked = !!mem[id];
-      i.setAttribute('aria-label', label);
-      sw.appendChild(i);
-      f.append(el('span', 'lbl', label), sw);
-    } else {
-      i = el('input', kind === 'date' ? null : 'n');
-      i.id = `tool-${t.id}-${id}`;
-      lab.htmlFor = i.id;
-      if (kind === 'date') i.type = 'date'; else i.inputMode = 'decimal';
-      i.placeholder = ph || '';
-      i.autocomplete = 'off';
-      i.value = kind === 'date' ? (mem[id] || '') : showInput(kind, mem[id]);
-      f.append(lab, i);
-    }
-    inputs[id] = [i, kind];
+  for (const spec of t.inputs) {
+    const [f, i] = inputField(t, spec, mem);
+    inputs[spec[0]] = [i, spec[2], spec[1]];
     form.appendChild(f);
   }
   body.appendChild(form);
+  const warn = el('div', 'tool-warn');
+  warn.setAttribute('role', 'status');
+  body.appendChild(warn);
   const res = el('ul', 'results');
+  res.setAttribute('aria-live', 'polite');
   body.appendChild(res);
+  const tables = el('div', 'tool-tables');
+  body.appendChild(tables);
+  if (t.explain) {
+    const how = el('details', 'tool-how');
+    how.appendChild(el('summary', null, 'How it is worked out'));
+    how.appendChild(el('p', null, t.explain));
+    body.appendChild(how);
+  }
   if (t.note) body.appendChild(el('p', 'hint-sm', t.note));
+
   const values = () => Object.fromEntries(Object.entries(inputs).map(([id, [i, kind]]) => [id, readInput(kind, kind === 'bool' ? i.checked : i.value)]));
-  let lines = [];
+  const setValues = (v) => {
+    for (const [id, [i, kind]] of Object.entries(inputs)) {
+      if (!(id in v)) continue;
+      if (kind === 'bool') i.checked = !!v[id];
+      else if (kind === 'select') i.value = v[id] || i.options[0].value;
+      else i.value = kind === 'date' ? (v[id] || '') : showInput(kind, v[id]);
+    }
+  };
+  let out = { lines: [], tables: [], warnings: [] };
+  let current = {};
   const update = () => {
-    const v = values();
-    Object.assign(mem, v);
+    current = values();
+    Object.assign(mem, current);
     remember();
-    lines = t.run(v);
+    try {
+      out = normal(t.run(current, ctx));
+    } catch (e) {
+      console.error(e);
+      out = { lines: [['This tool could not work that out', '—']], tables: [], warnings: ['Check the figures entered.'] };
+    }
     res.textContent = '';
-    for (const [k, val, strong, why] of lines) {
+    for (const [k, val, strong, why] of out.lines) {
       const li = el('li', strong ? 'strong' : null);
       const s = el('span', null, k);
       if (why) s.appendChild(el('span', 'why', why));
       li.append(s, el('b', null, val));
       res.appendChild(li);
     }
+    warn.textContent = '';
+    for (const w of out.warnings) warn.appendChild(el('p', 'warn-text', w));
+    tables.textContent = '';
+    for (const tb of out.tables) tables.appendChild(drawTable(tb));
+    if (send) send.disabled = !d || !t.toDeal(current, out);
   };
   for (const [i, kind] of Object.values(inputs)) {
-    i.addEventListener('input', update);
-    if (kind !== 'date' && kind !== 'bool') i.addEventListener('change', () => { const v = readInput(kind, i.value); i.value = showInput(kind, v); });
+    i.addEventListener(kind === 'select' ? 'change' : 'input', update);
+    if (!['date', 'bool', 'select'].includes(kind)) i.addEventListener('change', () => { const v = readInput(kind, i.value); if (v !== null) i.value = showInput(kind, v); });
   }
   update();
-  copy.addEventListener('click', async () => {
-    const text = [t.title, ...lines.filter(([, v]) => v && v !== '—').map(([k, v]) => `${k}: ${v}`)].join('\n');
+
+  function loadFromDeal() {
+    const v = t.fromDeal(d) || {};
+    const got = Object.fromEntries(Object.entries(v).filter(([k, x]) => k in inputs && x !== null && x !== undefined && !(typeof x === 'number' && !Number.isFinite(x))));
+    // a field the deal leaves blank on purpose (the cap in Quick value, so it is solved for) is cleared
+    for (const [k, x] of Object.entries(v)) if (x === null && k in inputs) got[k] = null;
+    const n = Object.values(got).filter((x) => x !== null).length;
+    if (!n) { toast(`${d.name} has none of these figures yet.`); return; }
+    setValues(got);
+    update();
+    toast(`Filled ${n} field${n === 1 ? '' : 's'} from ${d.name}. The deal is unchanged.`);
+  }
+
+  async function doCopy() {
+    const text = [t.title, ...out.lines.filter(([, v]) => v && v !== '—').map(([k, v]) => `${k}: ${v}`)].join('\n');
     toast((await copyText(text)) ? 'Results copied.' : 'The browser blocked copying here.');
+  }
+
+  more.addEventListener('click', async () => {
+    const pick = await actionSheet(t.title, [
+      { label: 'Copy results', sub: 'As text, to paste in an email', value: 'copy' },
+      { label: 'Excel workbook', sub: 'Inputs, results and tables, as values', value: 'xlsx' },
+      { label: 'Print or save as PDF', value: 'print' },
+    ]);
+    if (pick === 'copy') doCopy();
+    else if (pick === 'xlsx') exportXlsx(t, current, out, d).catch((e) => { console.error(e); toast('The workbook could not be built here.'); });
+    else if (pick === 'print') printTool(t, current, out, d);
   });
+
   clear.addEventListener('click', () => {
-    for (const [i, kind] of Object.values(inputs)) { if (kind === 'bool') i.checked = false; else i.value = ''; }
+    for (const [i, kind] of Object.values(inputs)) {
+      if (kind === 'bool') i.checked = false; else if (kind === 'select') i.value = i.options[0].value; else i.value = '';
+    }
     update();
   });
+
+  if (send) send.addEventListener('click', async () => {
+    const w = t.toDeal(current, out);
+    if (!w || !d) return;
+    const live = dealForTools();
+    const changes = describeChanges(w, live);
+    if (!changes.length) { toast('The deal already has these figures.'); return; }
+    const pick = await actionSheet(`Write to ${live.name}?`, [
+      { label: 'Write these to the deal', sub: `${w.summary}. Changes: ${changes.join('; ')}.`, value: 'yes', primary: true },
+    ]);
+    if (pick !== 'yes') return;
+    applyFromTools(w, t.title);
+    toast(`Written to ${live.name}. ${w.figures ? 'The figures are marked as typed, from this tool.' : ''}`.trim());
+  });
+
+  async function scenarios() {
+    const all = (await kvGet(SAVED)) || {};
+    const list = all[t.id] || [];
+    const items = [{ label: 'Save these inputs as…', sub: 'A named scenario for this tool, kept on this device', value: { act: 'save' }, primary: true }];
+    if (list.length) items.push('-');
+    for (const s of list) items.push({ label: s.name, sub: `Saved ${niceDate(s.at)}`, value: { act: 'pick', s } });
+    const pick = await actionSheet(`${t.title}: scenarios`, items);
+    if (!pick) return;
+    if (pick.act === 'save') {
+      const name = (window.prompt('Name this scenario', `${t.title} ${list.length + 1}`) || '').trim();
+      if (!name) return;
+      list.push({ id: `s${Date.now().toString(36)}`, name, at: Date.now(), values: { ...current } });
+      all[t.id] = list;
+      toast((await kvSet(SAVED, all)) ? `Saved “${name}”.` : 'This device would not save it (storage is full or blocked).');
+      return;
+    }
+    const s = pick.s;
+    const act = await actionSheet(s.name, [
+      { label: 'Load', sub: 'Replace the inputs with this scenario', value: 'load', primary: true },
+      { label: 'Rename', value: 'rename' }, { label: 'Duplicate', value: 'dup' }, { label: 'Delete', value: 'del', danger: true },
+    ]);
+    if (act === 'load') { setValues(s.values); update(); toast(`Loaded “${s.name}”.`); return; }
+    if (act === 'rename') {
+      const name = (window.prompt('Rename the scenario', s.name) || '').trim();
+      if (!name) return;
+      s.name = name;
+    } else if (act === 'dup') list.push({ ...s, id: `s${Date.now().toString(36)}`, name: `${s.name} (copy)`, at: Date.now(), values: { ...s.values } });
+    else if (act === 'del') list.splice(list.indexOf(s), 1);
+    else return;
+    all[t.id] = list;
+    toast((await kvSet(SAVED, all)) ? { rename: 'Renamed.', dup: 'Duplicated.', del: `Deleted “${s.name}”.` }[act] : 'This device would not save that change.');
+  }
+
   const first = Object.values(inputs)[0][0];
   if (first && window.matchMedia('(min-width: 720px)').matches) first.focus();
 }
+
+function drawTable({ title, head, rows, mark }) {
+  const box = el('div', 'tool-table');
+  if (title) box.appendChild(el('h3', 'tool-table-title', title));
+  const wrap = el('div', 'scroll');
+  const tb = el('table', 'mini proj');
+  const hr = el('tr');
+  for (const h of head) hr.appendChild(el('th', null, String(h)));
+  const thead = el('thead');
+  thead.appendChild(hr);
+  tb.appendChild(thead);
+  const tbody = el('tbody');
+  rows.forEach((r, i) => {
+    const tr = el('tr');
+    r.forEach((c, j) => {
+      const td = el('td', j ? 'r' : null, c === null || c === undefined ? '—' : String(c));
+      if (mark && mark[i] && mark[i][j]) td.classList.add('hit');
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  tb.appendChild(tbody);
+  wrap.appendChild(tb);
+  box.appendChild(wrap);
+  return box;
+}
+
+const FIGURE_LABELS = { gpr: 'Gross potential rent', gross: 'Effective gross income', opex: 'Operating expenses', noi: 'NOI', price: 'Price' };
+const LOAN_LABELS = { ltv: 'LTV', rate: 'Rate', amort: 'Amortization', io: 'Interest only', minDscr: 'Minimum DSCR', minDy: 'Minimum debt yield' };
+const LIVE_LABELS = { hold: 'Hold (scenario)', growth: 'NOI growth (scenario)', exitCap: 'Exit cap (scenario)', saleCost: 'Sale costs (scenario)' };
+const fmtAny = (k, v) => {
+  if (v === null || v === undefined || v === '') return 'blank';
+  if (typeof v === 'boolean') return v ? 'yes' : 'no';
+  if (['gpr', 'gross', 'opex', 'noi', 'price'].includes(k)) return money0(v);
+  if (['ltv', 'rate', 'minDy', 'growth', 'exitCap', 'saleCost'].includes(k)) return pct(v, 2);
+  if (k === 'minDscr') return times(v);
+  return String(v);
+};
+/** Each value the write would change, "label: old → new". Unchanged ones are left out. */
+function describeChanges(w, d) {
+  const out = [];
+  const add = (labels, now, k, v) => {
+    if (v === null || v === undefined || (typeof v === 'number' && !Number.isFinite(v))) return;
+    const was = now[k];
+    if (was === v || (ok(was) && ok(v) && Math.abs(was - v) < 1e-9)) return;
+    out.push(`${labels[k] || k}: ${fmtAny(k, was)} → ${fmtAny(k, v)}`);
+  };
+  for (const [k, v] of Object.entries(w.figures || {})) add(FIGURE_LABELS, d.figures, k, v);
+  for (const [k, v] of Object.entries(w.loan || {})) add(LOAN_LABELS, d.loan, k, v);
+  for (const [k, v] of Object.entries(w.live || {})) add(LIVE_LABELS, d.live, k, v);
+  return out;
+}
+
+/* --------------------------------------------------------------- export */
+
+async function exportXlsx(t, v, out, d) {
+  const { ExcelJS } = await getXlsx();
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Comp Loader';
+  const ws = wb.addWorksheet(t.title.slice(0, 31).replace(/[\\/?*[\]:]/g, ' '));
+  ws.columns = [{ width: 44 }, { width: 22 }, { width: 22 }, { width: 22 }, { width: 22 }, { width: 22 }, { width: 22 }];
+  const bold = { bold: true };
+  ws.addRow([t.title]).font = { bold: true, size: 14 };
+  ws.addRow([`Comp Loader Tools · ${localDate()}${d ? ` · deal: ${d.name}` : ''}`]);
+  ws.addRow([]);
+  ws.addRow(['Inputs']).font = bold;
+  for (const [id, label, kind] of t.inputs) {
+    const x = v[id];
+    if (x === null || x === undefined || x === '') continue;
+    // numbers stay numbers so the sheet can be built on; percents as typed (6.5 means 6.5%)
+    ws.addRow([label, kind === 'bool' ? (x ? 'Yes' : 'No') : Array.isArray(x) ? x.join(', ') : (kind === 'select' ? (t.inputs.find((s) => s[0] === id)[3].find((o) => o[0] === x) || [x, x])[1] : x)]);
+  }
+  ws.addRow([]);
+  ws.addRow(['Results']).font = bold;
+  for (const [k, val, , why] of out.lines) ws.addRow([k, val, why || '']);
+  for (const w of out.warnings) ws.addRow(['Check', w]);
+  for (const tb of out.tables) {
+    ws.addRow([]);
+    ws.addRow([tb.title || '']).font = bold;
+    ws.addRow(tb.head.map(String)).font = bold;
+    for (const r of tb.rows) ws.addRow(r.map((c) => (c === null || c === undefined ? '' : c)));
+  }
+  if (t.explain) { ws.addRow([]); ws.addRow(['How it is worked out', t.explain]); }
+  ws.addRow([]);
+  ws.addRow(['Results are the values shown on screen when exported; they do not recalculate in Excel.']);
+  const bytes = new Uint8Array(await wb.xlsx.writeBuffer());
+  await deliver(`${t.title.replace(/[^\w]+/g, '-').replace(/-+$/, '')}-${localDate()}.xlsx`, bytes, XLSX);
+}
+
+function printTool(t, v, out, d) {
+  const box = $('print-sheet');
+  box.textContent = '';
+  box.className = 'print-sheet portrait';
+  const head = el('div', 'ps-head');
+  const left = el('div');
+  left.append(el('div', 'ps-eyebrow', `Tools · ${t.group}`), el('div', 'ps-title', t.title), el('div', 'ps-sub', t.desc));
+  head.append(left, el('div', 'ps-meta', `${niceDate(new Date())}${d ? `\n${d.name}` : ''}`));
+  box.appendChild(head);
+  const cols = el('div', 'ps-cols');
+  const kv = (title, rows) => {
+    const sec = el('div');
+    sec.appendChild(el('div', 'ps-h2', title));
+    const tb = el('table', 'ps-kv');
+    for (const [k, val] of rows) { const tr = el('tr'); tr.append(el('td', null, k), el('td', null, val)); tb.appendChild(tr); }
+    sec.appendChild(tb);
+    return sec;
+  };
+  cols.append(
+    kv('Inputs', t.inputs.map(([id, label, kind]) => [label, inputText(kind, v[id])]).filter(([, x]) => x)),
+    kv('Results', out.lines.map(([k, val, , why]) => [why ? `${k} (${why})` : k, val])),
+  );
+  box.appendChild(cols);
+  if (out.warnings.length) { box.appendChild(el('div', 'ps-h2', 'Check')); const ul = el('ul', 'ps-list'); for (const w of out.warnings) ul.appendChild(el('li', null, w)); box.appendChild(ul); }
+  for (const tb of out.tables) {
+    box.appendChild(el('div', 'ps-h2', tb.title || ''));
+    const table = el('table', 'ps-table');
+    const tr = el('tr');
+    for (const h of tb.head) tr.appendChild(el('th', null, String(h)));
+    table.appendChild(tr);
+    for (const r of tb.rows) { const row = el('tr'); r.forEach((c, j) => row.appendChild(el('td', j ? 'r' : null, c === null || c === undefined ? '—' : String(c)))); table.appendChild(row); }
+    box.appendChild(table);
+  }
+  if (t.explain) box.appendChild(el('p', 'ps-foot', `How it is worked out: ${t.explain}`));
+  if (t.note) box.appendChild(el('p', 'ps-foot', t.note));
+  printed(`${t.title} (Tools)`);
+  window.print();
+}
+
+/* ------------------------------------------------------------------ WALT */
 
 function openWalt(t) {
   const mem = (memory.walt ||= { rows: [{}, {}, {}] });
@@ -252,7 +612,7 @@ function openWalt(t) {
   add.type = 'button';
   const copy = el('button', 'btn', 'Copy results');
   copy.type = 'button';
-  const body = api.sheetOpen({ eyebrow: 'Tools', title: t.title, sub: 'One row per lease. Rent is the annual total; write Vacant as the tenant for empty space.', foot: [add, copy] });
+  const body = api.sheetOpen({ eyebrow: `Tools · ${t.group}`, title: t.title, sub: 'One row per lease. Rent is the annual total; write Vacant as the tenant for empty space.', foot: [add, copy] });
   const wrap = el('div', 'scroll');
   const table = el('table', 'rows-edit');
   wrap.appendChild(table);
