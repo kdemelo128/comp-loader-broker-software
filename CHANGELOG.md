@@ -47,6 +47,16 @@ this work is released, so installed copies fetch the new files whole.
   citations. Transcribe voice notes, correct the transcript, and make notes
   (summary, decisions, action items, figures mentioned). Every send is
   confirmed; with AI off nothing leaves the device.
+- **Home**: a dashboard with what needs attention, the pipeline by stage
+  (stage also on each deal's new Pipeline card, with its history), tasks by
+  due date, contacts linked to deals, recent activity, and every file saved
+  or page printed. A pipeline report exports to Excel or prints. Call-note
+  action items can become a deal's next steps.
+- **Backup and restore** of everything on the device in one file (deals with
+  photos and recordings, comps, templates, tasks, contacts, settings; never
+  the AI token). Restoring merges, newer copy winning, or replaces everything
+  after a second confirmation. Home shows storage use, whether the browser may
+  clear it, and the last backup, and reminds after 30 days.
 - **Reconciliation without AI** (`app/reconcile.js`): quoted passages checked
   against page text, readings grouped by tolerance (never auto-picked), and
   the rent roll checked against the OM's occupancy, SF, rent and units.
@@ -57,11 +67,14 @@ this work is released, so installed copies fetch the new files whole.
   `tests/calc.test.js` (12) check the new maths against figures worked out by
   hand or independently.
 - `tests/reconcile.test.js` (5) for quote checks and reconciliation;
+  `tests/pipeline.test.js` (4) for stages, task due dates and attention;
+  `tests/backup.test.js` (4) for the backup round trip and restore plans;
   `server/test/server.test.mjs` (10) runs the server and the real Anthropic SDK
   against a local stand-in for the API. No live model call is tested: that
   needs a key.
 - Browser flows `rentroll-flow` (22 checks), `template-flow` (16),
-  `tools-flow` (28) and `ai-flow` (25, against the real server code and
+  `tools-flow` (28), `home-flow` (28), `backup-flow` (16: a wiped browser restored, photos byte
+  for byte) and `ai-flow` (26, against the real server code and
   stand-in model and speech services), and the filled template recalculated
   in LibreOffice.
 

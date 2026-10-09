@@ -140,6 +140,8 @@ const notes = (await page.locator('#sheet-body').innerText()).replace(/\s+/g, ' 
 check('notes: summary, action item, question', /Send the T-12 — Seller, by Friday/.test(notes) && /Is 95% leased or occupied/.test(notes), notes.slice(0, 200));
 const occ = page.locator('#sheet-body .ai-row').first();
 check('a figure said aloud starts unticked and is marked approximate', !(await occ.locator('input').isChecked()) && /approximate/.test(await occ.innerText()) && /In the transcript/.test(await occ.innerText()));
+await page.click('#ai-notes-tasks');
+await page.waitForTimeout(400);
 await occ.locator('input').check();
 await page.click('#ai-notes-apply');
 await page.waitForTimeout(400);
@@ -161,6 +163,7 @@ const scan = await page.$$eval('#sheet-body .ai-row', (rows) => rows.map((r) => 
 check('a scan: every passage marked as not checkable, none ticked, still choosable', scan.length === 5 && scan.every((x) => /Can’t be checked \(scan\)/.test(x.t) && !x.c && !x.d), JSON.stringify(scan.map((x) => [x.c, x.d])));
 await page.locator('#sheet-foot button', { hasText: 'Discard' }).click();
 await page.waitForTimeout(200);
+check('call action items became the deal’s next steps', /Send the T-12 \(Seller\)/.test(await page.textContent('#deal-crm')) && /from call notes/.test(await page.textContent('#deal-crm')));
 const txt = await page.locator('#app').innerText();
 check('no NaN/undefined/Infinity', !/\b(NaN|undefined|Infinity)\b/.test(txt));
 for (const [st, n, d] of R) console.log(st, '|', n, d ? `| ${d}` : '');

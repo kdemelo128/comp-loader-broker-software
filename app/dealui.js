@@ -21,8 +21,10 @@ import { renderRentRollWorkspace } from './rentrollui.js';
 import { openLibrary } from './libraryui.js';
 import { openAiSettings, readWithAi, openAssistant, transcribeNote, openTranscript } from './aiui.js';
 import { crossChecks } from './reconcile.js';
+import { renderDealCrm } from './dealcrm.js';
+import * as crm from './crm.js';
 import {
-  $, el, svg, IN_ARTIFACT, XLSX, parseNum, parsePct, int, dec, money0, money2, pct, signed, times, yrs, short, niceDate,
+  $, el, svg, IN_ARTIFACT, XLSX, printed, parseNum, parsePct, int, dec, money0, money2, pct, signed, times, yrs, short, niceDate,
   localDate, toast, actionSheet, getPdfjs, getXlsx, deliver, deliveryError, shareText, idle, pdfProblem,
 } from './kit.js';
 
@@ -199,6 +201,40 @@ function workbookDeal(m) {
     questions: activeQuestions(m), visitLines: visitLines(), scenarioLines: scenarioLines(m),
   };
 }
+/** Every saved deal, with the copy in memory where a deal is open (it may be newer than storage). */
+export async function listAllDeals() {
+  const stored = await store.listDeals();
+  return stored.filter((d) => !deleted.has(d.id)).map((d) => opened.get(d.id) || d);
+}
+/** Change a deal that may not be open (its stage, from Home), through the same copy the Deal screen uses. */
+export async function updateDeal(id, fn) {
+  let d = opened.get(id);
+  if (!d) {
+    const r = recovered(id, await store.loadDeal(id));
+    d = r.d;
+    if (!d) return null;
+    opened.set(id, d);
+  }
+  fn(d);
+  touch(d);
+  if (d === deal) render();
+  return d;
+}
+/**
+ * Before a restore writes to storage: save the open deal, then forget every
+ * copy in memory and every unsaved-edit mirror, so nothing stale is written
+ * back over the restored data. The page reloads afterwards.
+ */
+export async function prepareForRestore() {
+  await flushDeal();
+  clearTimeout(saveTimer);
+  pending = null;
+  opened.clear();
+  deal = null;
+  try { for (const k of [CUR_KEY, REC_KEY, 'comp-loader.session.unsaved']) localStorage.removeItem(k); } catch { /* fine */ }
+}
+export async function showDeal(id) { await openDeal(id); api.showView('deal'); }
+export const currentDealId = () => (deal ? deal.id : null);
 export const currentDealName = () => (deal && hasFigures() ? (deal.name || deal.figures.address || 'Untitled deal') : null);
 const hasFigures = () => deal && Object.values(deal.figures).some((v) => v !== null && v !== undefined && v !== '');
 
@@ -585,6 +621,11 @@ function renderDeal(r) {
   const qs = el('section', 'card');
   qs.id = 'deal-q';
   panes.overview.appendChild(qs);
+  const cr = el('section', 'card');
+  cr.id = 'deal-crm';
+  panes.overview.appendChild(cr);
+  const d0 = deal;
+  renderDealCrm(cr, d0, { touch: () => touch(d0), api });
   const rrw = el('section', 'card rr-card');
   rrw.id = 'deal-rentroll';
   panes.rentroll.appendChild(rrw);
@@ -1760,6 +1801,7 @@ function aiHost() {
     api, fields: FIELD_LIST, deal: () => d,
     touch: () => touch(d),
     apply: (entries) => { if (deal === d) applyReviewed(entries); },
+    addTasks: async (items, from) => { for (const a of items) await crm.addTask({ title: a.task + (a.owner ? ` (${a.owner})` : ''), due: /^\d{4}-\d{2}-\d{2}$/.test(a.due || '') ? a.due : null, note: a.due && !/^\d{4}-\d{2}-\d{2}$/.test(a.due) ? `said: by ${a.due}` : '', dealId: d.id, source: from }); },
     context: () => {
       const ctx = templateContext(d);
       return { m: ctx.m, scenario: ctx.scenario, rrSum: ctx.rrSum, comps: api.count() ? api.basis() : null, issues: ctx.rrSum ? crossChecks(d.figures, ctx.rrSum) : [] };
@@ -1874,6 +1916,7 @@ async function shareSummary() {
 }
 
 function printBrief() {
+  printed(`Deal brief: ${deal.name || 'deal'}`);
   const { m, comps } = metrics();
   const urls = deal.visit.photos.map((p) => { const u = URL.createObjectURL(p.blob); photoUrls.push(u); return u; });
   let preparedBy = '';
@@ -1937,6 +1980,8 @@ export function initDeal(compsApi) {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushNow(); });
   window.addEventListener('pagehide', flushNow);
   $('om-file').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; readOmFile(f); });
+  // tasks or contacts changed (here or on Home): the open deal's pipeline card follows
+  document.addEventListener('crmchange', () => { const box = $('deal-crm'); const d = deal; if (box && d) renderDealCrm(box, d, { touch: () => touch(d), api }); });
   $('photo-file').addEventListener('change', (e) => { const fs = [...e.target.files]; e.target.value = ''; addPhotos(fs); });
   document.addEventListener('omdrop', (e) => {
     const f = e.detail;

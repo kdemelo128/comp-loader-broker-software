@@ -411,6 +411,15 @@ export function openNotes(h, note) {
   sec('Decisions', n.decisions);
   sec('Action items', n.actionItems, (a) => `${a.task}${a.owner ? ` — ${a.owner}` : ''}${a.due ? `, by ${a.due}` : ''}`);
   sec('To confirm', n.questions);
+  if (n.actionItems && n.actionItems.length && h.addTasks) {
+    const tb = btn('btn-gray btn-sm', `Add ${n.actionItems.length} action item${n.actionItems.length === 1 ? '' : 's'} to the deal’s next steps`);
+    tb.id = 'ai-notes-tasks';
+    tb.addEventListener('click', async () => {
+      tb.disabled = true;
+      try { await h.addTasks(n.actionItems, `call notes, ${note.name}`); toast('Added to the deal’s next steps.'); } catch (e) { toast(e.message); tb.disabled = false; }
+    });
+    body.appendChild(tb);
+  }
   const picks = [];
   if (facts.length) {
     const s = el('section');

@@ -198,7 +198,16 @@ export const canShareFiles = () => {
 /** Hand a file to the person: through the artifact's save channel when the page
  *  is published as one, through the share sheet where a download link is
  *  unreliable (an iPhone home-screen app), and as an ordinary download otherwise. */
-export async function deliver(filename, bytes, type, { share = false } = {}) {
+export async function deliver(filename, bytes, type, opts = {}) {
+  const r = await handOver(filename, bytes, type, opts);
+  // the Home screen keeps a list of what was produced, and for which deal
+  if (r === 'done') document.dispatchEvent(new CustomEvent('deliverable', { detail: { name: filename, kind: 'file' } }));
+  return r;
+}
+/** A print (deal brief, comp sheet, a tool's results) counts as a deliverable too. */
+export const printed = (name) => document.dispatchEvent(new CustomEvent('deliverable', { detail: { name, kind: 'print' } }));
+
+async function handOver(filename, bytes, type, { share = false } = {}) {
   const blob = bytes instanceof Blob ? bytes : new Blob([bytes], { type });
   if (IN_ARTIFACT) {
     const downloads = await window.claude.use('downloads').catch(() => null);

@@ -12,7 +12,7 @@ import { MORE_TOOLS, GROUPS } from './toolsdefs.js';
 import { dealForTools, applyFromTools } from './dealui.js';
 import { kvGet, kvSet } from './store.js';
 import {
-  $, el, svg, parseNum, parsePct, int, money0, money2, pct, signed, times, yrs, niceDate, toast, copyText, actionSheet, getXlsx, deliver, XLSX, localDate,
+  $, el, svg, parseNum, parsePct, int, money0, money2, pct, signed, times, yrs, niceDate, toast, copyText, actionSheet, getXlsx, deliver, printed, XLSX, localDate,
 } from './kit.js';
 
 let api = null;
@@ -600,6 +600,7 @@ function printTool(t, v, out, d) {
   }
   if (t.explain) box.appendChild(el('p', 'ps-foot', `How it is worked out: ${t.explain}`));
   if (t.note) box.appendChild(el('p', 'ps-foot', t.note));
+  printed(`${t.title} (Tools)`);
   window.print();
 }
 

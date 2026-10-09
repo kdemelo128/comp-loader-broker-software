@@ -26,10 +26,11 @@ import { compBasis } from './deal.js';
 import {
   $, el, svg, IN_ARTIFACT, XLSX, parseNum, parsePct, int, dec, money2, pct, localDate, toast,
   openSheet, closeSheet, backdropCloses, actionSheet, getPdfjs, getXlsx, getFflate, idle,
-  isIOS, isStandalone, canShareFiles, deliver, deliveryError, copyText, pdfProblem,
+  isIOS, isStandalone, canShareFiles, deliver, deliveryError, printed, copyText, pdfProblem,
 } from './kit.js';
 import { initDeal, dealForWorkbook, currentDealName, openTemplates } from './dealui.js';
 import { initTools } from './toolsui.js';
+import { initHome } from './home.js';
 
 window.__compLoaderReady = true;
 
@@ -52,7 +53,7 @@ const monthsAgo = (c) => (c.date ? (Date.now() - new Date(c.date).getTime()) / 8
 
 /* ------------------------------------------------------------- the shell */
 
-const VIEWS = ['comps', 'deal', 'tools'];
+const VIEWS = ['home', 'comps', 'deal', 'tools'];
 let currentView = 'comps';
 function showView(name, { push = true } = {}) {
   if (!VIEWS.includes(name)) name = 'comps';
@@ -974,6 +975,7 @@ function printSheet() {
   const { sales, market } = includedSorted();
   const subject = readSubject();
   renderCompSheet($('print-sheet'), { sales, market, subject, label: setLabel(), preparedBy: subject.preparedBy || '' });
+  printed(`Comp sheet: ${setLabel() || 'comps'}`);
   window.print();
 }
 
@@ -1446,9 +1448,12 @@ const compsApi = {
   sheetOpen,
   sheetClose,
   pdfPages,
+  // a restore writes straight to storage: any comp edit still pending goes first
+  flushComps: flushSession,
 };
 initDeal(compsApi);
 initTools(compsApi);
+initHome(compsApi);
 
 restoreSubject();
 renderAll();

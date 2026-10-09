@@ -1,7 +1,11 @@
 # Comp Loader
 
 A broker's field kit that runs in the browser and installs on an iPhone like an
-app. Three tabs:
+app. Four tabs:
+
+- **Home** is the dashboard: what needs attention, the deal pipeline by stage,
+  tasks, contacts, recent activity and what was produced, and a pipeline report
+  to export or print.
 
 - **Comps** turns CoStar comp reports into a checked comp set and an Excel
   workbook (the built-in one, or **your own template**, filled in place).
@@ -95,6 +99,42 @@ comps subject**. Deals are saved on the device; **All deals** lists them, and
 An OM that is a scan, with no text in it, can't be read: enter the figures by
 hand and everything else works the same. OMs have no standard layout, so check
 the figures against the page tags before relying on them.
+
+## Home: pipeline, tasks and contacts
+
+- **Pipeline**: every deal by stage (Prospect, Underwriting, Offer / LOI, Under
+  contract, Closed, Passed) with its asking price and cap rate. Change a
+  deal's stage on Home or on the deal's own **Pipeline** card; each change is
+  logged. **Report** gives the pipeline, tasks and contacts as an Excel
+  workbook (figures as numbers) or a printable page.
+- **Tasks**: due today, overdue, the next seven days, later; each can belong
+  to a deal. A deal's next steps are on its Overview. Action items from call
+  notes can be added in one tap. Done and delete both have Undo.
+- **Contacts**: name, company, role, phone and email (tap to call or write),
+  notes, and the deals they are part of. Search by name, company or role.
+- **Needs attention**: overdue tasks, active deals with no next step, and
+  deals untouched for three weeks.
+- **Activity**: stage changes, tasks, contacts, and every file saved or page
+  printed (with the deal it was for, when made from the Deal tab).
+
+All of it is kept on the device with the deals.
+
+### Your data: backup and restore
+
+Everything lives in this browser on this device, so **Your data** (bottom of
+Home) makes one backup file of all of it: every deal with its photos and
+recordings, the comp set, the template library, tasks, contacts, activity,
+saved Tools scenarios and settings. Home reminds you when there has been no
+backup for 30 days. **Restore from a backup** shows what it will do first:
+
+- **Merge** (the default) adds what this device lacks and takes a newer copy
+  of anything changed since; nothing newer here is lost.
+- **Replace everything** makes the device match the backup, after a second
+  confirmation.
+
+The AI access token is never written into a backup (a backup is a file that
+gets copied and sent), and a restore never replaces the one on the device.
+The backup holds confidential deal information: keep it somewhere safe.
 
 ## Rent roll
 
@@ -273,7 +313,8 @@ the price for a target IRR) and that junk inputs never produce NaN or Infinity.
 
 `tests/e2e/run.sh` drives the app in an iPhone-sized Chromium page: comps,
 a template, three OM layouts, bad files, the rent roll workspace, the template
-library, the Tools screen, the live what-if, photos and voice
+library, the Tools screen, the AI features (against stand-in services), Home,
+the live what-if, photos and voice
 notes, two deals side by side, reloads mid-edit, offline use, and a full
 broker walk-through. It then recalculates every exported workbook in
 LibreOffice and checks each formula against the value stored beside it. It
@@ -307,6 +348,12 @@ app/calc.js           the Tools maths: DCF, debt, returns, waterfall, leasing, d
 app/template.js       filling your own Excel template in place
 app/dealfields.js     the deal fields a template can take, with their sources
 app/library.js        the template library on the device
+app/home.js           the Home screen and the pipeline report
+app/pipeline.js       stages, task due dates, what needs attention (pure)
+app/crm.js            tasks, contacts and the activity log on the device
+app/backup.js         the backup file: encoding, reading, the restore plan (pure)
+app/backupui.js       Your data: storage, backup, restore
+app/dealcrm.js        a deal's Pipeline card: stage, next steps, people
 app/reconcile.js      checking quoted passages, grouping readings, rent roll against the OM
 app/ai.js             talking to the AI server
 app/aifacts.js        the deal as numbered facts for the assistant
