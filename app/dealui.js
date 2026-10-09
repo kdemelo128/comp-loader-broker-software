@@ -18,6 +18,7 @@ import { renderDealBrief, dealSummaryText, placeLine } from './brief.js';
 import { fromOmRows, project, rentRollSummary } from './lease.js';
 import { emptyRentRoll, layoutFromPreset, presetFor, MARKET_UNIT, legacyRows } from './rentroll.js';
 import { renderRentRollWorkspace } from './rentrollui.js';
+import { openLibrary } from './libraryui.js';
 import {
   $, el, svg, IN_ARTIFACT, XLSX, parseNum, parsePct, int, dec, money0, money2, pct, signed, times, yrs, short, niceDate,
   localDate, toast, actionSheet, getPdfjs, getXlsx, deliver, deliveryError, shareText, idle, pdfProblem,
@@ -589,6 +590,7 @@ function renderDeal(r) {
   const bottom = el('div', 'view-actions');
   bottom.style.cssText = 'justify-content:center;margin:6px 0 4px';
   bottom.appendChild(button('', 'Use as the comps subject', useAsSubject, '<path d="M5 12h14M13 6l6 6-6 6"/>'));
+  bottom.appendChild(button('', 'Fill my Excel template', openTemplates, '<path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5M9 13l2 2 4-4"/>'));
   if (!IN_ARTIFACT) bottom.appendChild(button('', 'Deal brief', printBrief, '<path d="M7 9V3h10v6M7 17H5a2 2 0 01-2-2v-4a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2h-2M7 14h10v7H7z"/>'));
   bottom.appendChild(button('btn-gray', 'All deals', closeDeal, '<path d="M15 6l-6 6 6 6"/>'));
   stack.appendChild(bottom);
@@ -1669,6 +1671,26 @@ async function addPhotos(files) {
 
 /* ---------------------------------------------------------------- actions */
 
+/* ------------------------------------------------------ firm templates */
+
+/** Everything a template can draw on for this deal: figures, analysis, rent roll, scenario. */
+function templateContext(d) {
+  const comps = api.count() ? api.basis() : null;
+  const m = analyze(figuresFor(d), comps);
+  const rr = d.rr && d.rr.leases.length ? d.rr : null;
+  let preparedBy = '';
+  try { preparedBy = (JSON.parse(localStorage.getItem('comp-loader.subject.v1') || '{}') || {}).preparedBy || ''; } catch { /* fine */ }
+  const hold = Number.isFinite((d.live || {}).hold) ? d.live.hold : 5;
+  const series = (d.live || {}).noiBasis === 'rentroll' && rr && Number.isFinite(rr.settings.opex) ? project(rr, { years: hold + 1 }).annual.map((y) => y.noi) : null;
+  return {
+    deal: d, m, rrSum: rr ? rentRollSummary(rr, rr.settings.asOf) : null, rrProj: rr && Number.isFinite(rr.settings.opex) ? project(rr) : null,
+    scenario: runScenario(figuresFor(d), m, d.live || {}, { noiSeries: series }), preparedBy, today: new Date(),
+  };
+}
+export function openTemplates() {
+  return openLibrary(api, { getDeal: () => (deal && hasFigures() ? deal : null), ctxFor: templateContext });
+}
+
 function useAsSubject() {
   api.setSubject(deal.figures);
   api.showView('comps');
@@ -1719,6 +1741,7 @@ async function dealMenu() {
   const v = await actionSheet(deal.name || 'Deal', [
     { label: 'Copy summary', sub: 'five lines for a text or an email', value: 'copy', icon: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2"/>' },
     ...(IN_ARTIFACT ? [] : [{ label: 'Deal brief', sub: 'print or save as PDF, with photos', value: 'brief', icon: '<path d="M7 9V3h10v6M7 17H5a2 2 0 01-2-2v-4a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2h-2M7 14h10v7H7z"/>' }]),
+    { label: 'Fill my Excel template…', sub: 'your firm’s underwriting or rent roll workbook', value: 'template', icon: '<path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/>' },
     { label: 'Use as the comps subject', value: 'subject', icon: '<path d="M5 12h14M13 6l6 6-6 6"/>' },
     { label: 'Open in Maps', value: 'map', disabled: !deal.figures.address, icon: '<path d="M12 21s-7-6.1-7-11a7 7 0 1114 0c0 4.9-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>' },
     '-',
@@ -1733,6 +1756,7 @@ async function dealMenu() {
     toast((await copyText(dealSummaryText(deal, m, comps))) ? 'Summary copied.' : 'The browser blocked copying here.');
   } else if (v === 'brief') printBrief();
   else if (v === 'subject') useAsSubject();
+  else if (v === 'template') openTemplates();
   else if (v === 'map') window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(placeLine(deal.figures))}`, '_blank', 'noopener');
   else if (v === 'new') $('om-file').click();
   else if (v === 'close') closeDeal();

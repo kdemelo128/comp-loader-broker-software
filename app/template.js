@@ -532,3 +532,404 @@ export function fillTemplate(fflate, bytes, plan, { sales, market }, xml) {
   }
   return { bytes: pkg.bytes(), report };
 }
+
+/* ======================================================= cell-level templates
+ *
+ * Beyond comp tables: an underwriting model, a rent roll format or an IC
+ * report takes single figures in particular cells ("Purchase Price" in B14)
+ * and tables of leases. The same rule holds -- the file is edited in place,
+ * cell by cell, and nothing else in it changes -- with more care, because
+ * these workbooks are full of formulas:
+ *   - a cell holding a formula is never overwritten;
+ *   - a cell inside a merged range (other than its top-left) is never written,
+ *     because Excel would not show it;
+ *   - every write is listed before it happens, with what the cell holds now
+ *     and how many formulas read it;
+ *   - macros, pivot tables, external links and other parts this module does
+ *     not understand are left byte for byte, and named in a warning. */
+
+const ref = (col, row) => `${colName(col)}${row}`;
+const unquote = (s) => (s.startsWith("'") ? s.slice(1, -1).replace(/''/g, "'") : s);
+
+/** What a workbook contains that a broker should know before it is filled. */
+function workbookFeatures(pkg) {
+  const names = Object.keys(pkg.files);
+  const has = (re) => names.some((n) => re.test(n));
+  const wb = pkg.doc('xl/workbook.xml');
+  const f = {
+    macros: has(/vbaProject\.bin$/i),
+    externalLinks: has(/^xl\/externalLinks\//),
+    pivots: has(/^xl\/pivotTables\//) || has(/^xl\/pivotCache\//),
+    charts: has(/^xl\/charts\/chart\d*\.xml$/),
+    tables: has(/^xl\/tables\//),
+    comments: has(/^xl\/comments\d*\.xml$/) || has(/^xl\/threadedComments\//),
+    images: has(/^xl\/media\//),
+    connections: has(/^xl\/connections\.xml$/),
+    slicers: has(/^xl\/slicers?\//) || has(/^xl\/slicerCaches\//),
+    // an empty <workbookProtection/> (openpyxl writes one) locks nothing; lockStructure is what stops a sheet being added
+    workbookProtected: [...wb.getElementsByTagNameNS(MAIN, 'workbookProtection')].some((x) => /^(1|true)$/i.test(x.getAttribute('lockStructure') || '')),
+    protectedSheets: [],
+  };
+  const warnings = [];
+  if (f.macros) warnings.push({ level: 'warn', text: 'The workbook has macros. They are kept exactly as they are (not run, not checked); save the result as .xlsm, and Excel will ask before enabling them.' });
+  if (f.externalLinks) warnings.push({ level: 'warn', text: 'It links to other workbooks. The links are kept; their values update only when Excel can reach those files.' });
+  if (f.pivots) warnings.push({ level: 'warn', text: 'It has pivot tables. They are kept, but they show the old data until you refresh them in Excel (Data → Refresh All).' });
+  if (f.connections) warnings.push({ level: 'info', text: 'It has data connections. They are kept and are not refreshed.' });
+  if (f.slicers) warnings.push({ level: 'info', text: 'It has slicers. They are kept as they are.' });
+  if (f.workbookProtected) warnings.push({ level: 'info', text: 'The workbook structure is protected. Cells can still be filled; no sheet is added.' });
+  return { features: f, warnings };
+}
+
+/** Merged ranges on a sheet: [{ a: {col,row}, b: {col,row} }]. */
+function mergesOf(doc) {
+  return [...doc.getElementsByTagNameNS(MAIN, 'mergeCell')].map((m) => {
+    const [x, y] = (m.getAttribute('ref') || '').split(':');
+    return { a: splitRef(x || ''), b: splitRef(y || x || '') };
+  }).filter((m) => m.a && m.b);
+}
+const inMerge = (merges, col, row) => merges.find((m) => col >= m.a.col && col <= m.b.col && row >= m.a.row && row <= m.b.row) || null;
+
+/** Every formula in the workbook, with the sheet it sits on, for dependency counts. */
+function allFormulas(pkg, sheets) {
+  const out = [];
+  for (const s of sheets) {
+    const doc = pkg.doc(s.path);
+    for (const f of doc.getElementsByTagNameNS(MAIN, 'f')) {
+      const t = f.textContent || '';
+      if (t) out.push({ sheet: s.name, text: t });
+    }
+  }
+  const wb = pkg.doc('xl/workbook.xml');
+  for (const d of wb.getElementsByTagNameNS(MAIN, 'definedName')) out.push({ sheet: null, text: d.textContent || '', name: d.getAttribute('name') });
+  return out;
+}
+
+const REF_RE = /((?:'(?:[^']|'')+'|[A-Za-z_][\w.]*)!)?\$?([A-Z]{1,3})\$?(\d+)(?::\$?([A-Z]{1,3})\$?(\d+))?(?![\w(!])/g;
+/** How many formulas (and named ranges) read a cell, directly or through a range. */
+export function dependents(formulas, sheet, col, row) {
+  let n = 0;
+  const names = [];
+  for (const f of formulas) {
+    const text = f.text.replace(/"(?:[^"]|"")*"/g, '');
+    REF_RE.lastIndex = 0;
+    let m;
+    let hit = false;
+    while ((m = REF_RE.exec(text))) {
+      const before = text[m.index - 1];
+      if (before && /[\w.]/.test(before)) continue;
+      const sh = m[1] ? unquote(m[1].slice(0, -1)) : f.sheet;
+      if (sh !== sheet) continue;
+      const c1 = colNum(m[2]); const r1 = Number(m[3]);
+      const c2 = m[4] ? colNum(m[4]) : c1; const r2 = m[5] ? Number(m[5]) : r1;
+      if (col >= Math.min(c1, c2) && col <= Math.max(c1, c2) && row >= Math.min(r1, r2) && row <= Math.max(r1, r2)) { hit = true; break; }
+    }
+    if (hit) { if (f.name) names.push(f.name); else n += 1; }
+  }
+  return { formulas: n, names };
+}
+
+/**
+ * Everything the mapping screen needs: sheets with a preview of their cells,
+ * named ranges, what the workbook contains, and the formulas (for counts).
+ * `limit` bounds the preview of a large sheet; the fill itself is not bounded.
+ */
+export function inspectWorkbook(fflate, bytes, xml, { rows = 80, cols = 20 } = {}) {
+  const pkg = new Package(fflate, bytes, xml);
+  const sst = sharedStrings(pkg);
+  const sheets = sheetsOf(pkg);
+  const { features, warnings } = workbookFeatures(pkg);
+  const styles = new Styles(pkg);
+  const out = [];
+  for (const s of sheets) {
+    const doc = pkg.doc(s.path);
+    const data = doc.getElementsByTagNameNS(MAIN, 'sheetData')[0];
+    const merges = mergesOf(doc);
+    if (doc.getElementsByTagNameNS(MAIN, 'sheetProtection').length) features.protectedSheets.push(s.name);
+    const cells = [];
+    let maxRow = 0; let maxCol = 0;
+    if (data) {
+      for (const row of kids(data, 'row')) {
+        const r = Number(row.getAttribute('r'));
+        if (r > rows) break;
+        for (const c of kids(row, 'c')) {
+          const p = splitRef(c.getAttribute('r') || '');
+          if (!p || p.col > cols) continue;
+          const f = kid(c, 'f');
+          const text = cellText(c, sst);
+          const sIdx = c.getAttribute('s') !== null ? Number(c.getAttribute('s')) : 0;
+          if (!text && !f) continue;
+          cells.push({ ref: ref(p.col, p.row), col: p.col, row: p.row, text, formula: f ? (f.textContent || (f.getAttribute('t') === 'shared' ? '(shared formula)' : '(formula)')) : null, kind: styles.kind(sIdx), type: c.getAttribute('t') || 'n' });
+          maxRow = Math.max(maxRow, p.row); maxCol = Math.max(maxCol, p.col);
+        }
+      }
+    }
+    out.push({ name: s.name, path: s.path, hidden: s.hidden, cells, merges: merges.map((m) => ({ a: ref(m.a.col, m.a.row), b: ref(m.b.col, m.b.row) })), maxRow, maxCol });
+  }
+  const wb = pkg.doc('xl/workbook.xml');
+  const definedNames = [...wb.getElementsByTagNameNS(MAIN, 'definedName')].map((d) => ({ name: d.getAttribute('name'), ref: d.textContent || '', hidden: d.getAttribute('hidden') === '1' }))
+    .filter((d) => !/^_xlnm\./.test(d.name));
+  if (features.protectedSheets.length) warnings.push({ level: 'info', text: `Protected sheet${features.protectedSheets.length === 1 ? '' : 's'}: ${features.protectedSheets.join(', ')}. Locked cells there are still written; unprotecting is not needed.` });
+  return { sheets: out, definedNames, features, warnings };
+}
+
+/** A single-cell named range's sheet and cell, or null for a range or a formula. */
+export function nameTarget(ref0) {
+  const m = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?(\d+)$/.exec(String(ref0 || '').trim());
+  if (!m) return null;
+  return { sheet: (m[1] || m[2]).replace(/''/g, "'"), cell: `${m[3]}${m[4]}` };
+}
+
+/**
+ * Suggested cells for each field: a named range named for it (high
+ * confidence), else the cell beside or under a label that names it, when
+ * that cell is empty or a plain number -- never a formula. `fields` is
+ * [{ key, label, re }]. Returns [{ field, sheet, cell, confidence, why }].
+ */
+export function suggestCellMap(info, fields) {
+  const out = [];
+  const taken = new Set();
+  for (const F of fields) {
+    // 1. a named range
+    const words = (n) => n.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_.]+/g, ' ').toLowerCase().trim();
+    const named = info.definedNames.find((d) => F.re.test(words(d.name)) && nameTarget(d.ref));
+    if (named) {
+      const t = nameTarget(named.ref);
+      const key = `${t.sheet}!${t.cell}`;
+      if (!taken.has(key)) { taken.add(key); out.push({ field: F.key, sheet: t.sheet, cell: t.cell, confidence: 'high', why: `named range ${named.name}` }); continue; }
+    }
+    // 2. a label, and the cell it introduces
+    let best = null;
+    for (const s of info.sheets) {
+      if (s.hidden) continue;
+      const at = new Map(s.cells.map((c) => [c.ref, c]));
+      // a row of several headings is a table's header, not a label beside its value
+      const textPerRow = new Map();
+      for (const c of s.cells) if (!c.formula && (c.type === 's' || c.type === 'inlineStr') && c.text) textPerRow.set(c.row, (textPerRow.get(c.row) || 0) + 1);
+      for (const c of s.cells) {
+        if (c.formula || c.type !== 's' && c.type !== 'inlineStr' && c.type !== 'str') continue;
+        if ((textPerRow.get(c.row) || 0) >= 4) continue;
+        const label = norm(c.text).replace(/[:*]+$/, '');
+        if (!label || label.length > 50 || !F.re.test(label)) continue;
+        const exact = F.exact && F.exact.test(label);
+        for (const [dc, dr, w] of [[1, 0, 3], [2, 0, 2], [3, 0, 1], [0, 1, 1]]) {
+          const target = ref(c.col + dc, c.row + dr);
+          const t = at.get(target);
+          if (t && t.formula) break;                     // the label's value is calculated: leave it
+          if (t && (t.type === 's' || t.type === 'inlineStr') && t.text) continue;   // another label
+          if (inMerge((s.merges || []).map((m) => ({ a: splitRef(m.a), b: splitRef(m.b) })), c.col + dc, c.row + dr)
+            && !(s.merges || []).some((m) => m.a === target)) continue;
+          const key = `${s.name}!${target}`;
+          if (taken.has(key)) continue;
+          const score = w + (exact ? 3 : 0) + (t ? 1 : 0);
+          if (!best || score > best.score) best = { score, sheet: s.name, cell: target, why: `next to “${c.text.trim()}” on ${s.name}`, exact };
+          break;
+        }
+      }
+    }
+    if (best) {
+      taken.add(`${best.sheet}!${best.cell}`);
+      out.push({ field: F.key, sheet: best.sheet, cell: best.cell, confidence: best.exact || best.score >= 5 ? 'medium' : 'low', why: best.why });
+    }
+  }
+  return out;
+}
+
+/**
+ * What filling would do, cell by cell, without doing it. `cellMap` is
+ * [{ sheet, cell, field }]; `values` maps a field to { value, type, source }.
+ * Each entry: action 'write', or 'skip' with the reason.
+ */
+export function previewCells(fflate, bytes, cellMap, values, xml) {
+  const pkg = new Package(fflate, bytes, xml);
+  const sst = sharedStrings(pkg);
+  const sheets = sheetsOf(pkg);
+  const formulas = allFormulas(pkg, sheets);
+  return cellMap.map((m) => {
+    const s = sheets.find((x) => x.name === m.sheet);
+    const p = splitRef(m.cell || '');
+    const v = values[m.field] || { value: null };
+    const base = { ...m, next: v.value, type: v.type, source: v.source || '' };
+    if (!s) return { ...base, action: 'skip', reason: `There is no sheet named “${m.sheet}” any more.` };
+    if (!p) return { ...base, action: 'skip', reason: `“${m.cell}” is not a cell reference.` };
+    const doc = pkg.doc(s.path);
+    const data = doc.getElementsByTagNameNS(MAIN, 'sheetData')[0];
+    const row = data ? kids(data, 'row').find((r) => Number(r.getAttribute('r')) === p.row) : null;
+    const c = row ? kids(row, 'c').find((x) => { const q = splitRef(x.getAttribute('r') || ''); return q && q.col === p.col; }) : null;
+    const f = c ? kid(c, 'f') : null;
+    const current = c ? cellText(c, sst) : '';
+    const dep = dependents(formulas, s.name, p.col, p.row);
+    const merge = inMerge(mergesOf(doc), p.col, p.row);
+    const out = { ...base, current: f ? `=${f.textContent || '(shared formula)'}` : current, feeds: dep.formulas, names: dep.names };
+    if (f) return { ...out, action: 'skip', reason: 'The cell holds a formula; it is left alone.' };
+    if (merge && !(merge.a.col === p.col && merge.a.row === p.row)) return { ...out, action: 'skip', reason: `The cell is inside the merged range starting at ${ref(merge.a.col, merge.a.row)}; write to that cell instead.` };
+    if (v.value === null || v.value === undefined || v.value === '') return { ...out, action: 'skip', reason: 'The deal has no value for this field; the cell is left as it is.' };
+    return { ...out, action: 'write' };
+  });
+}
+
+/**
+ * Fill a workbook: single cells from `cellMap` and tables of rows (a rent roll,
+ * comps) under a header. `tables`: [{ sheet, headerRow, columns: [{ col, field }],
+ * rows: [{ field: { value, type } }], clear: true }]. With `audit`, a sheet named
+ * "Comp Loader Audit" lists every cell written, with its source. Returns
+ * { bytes, report: { written, skipped, preview, tables } }.
+ */
+export function fillCells(fflate, bytes, { cellMap = [], values = {}, tables = [], audit = true, auditTitle = '' } = {}, xml) {
+  const preview = previewCells(fflate, bytes, cellMap, values, xml);
+  const pkg = new Package(fflate, bytes, xml);
+  const styles = new Styles(pkg);
+  const sheets = sheetsOf(pkg);
+  const caches = new Map();
+  const at = (s) => {
+    if (!caches.has(s.path)) {
+      const doc = pkg.doc(s.path);
+      caches.set(s.path, { doc, data: doc.getElementsByTagNameNS(MAIN, 'sheetData')[0], rows: new Map() });
+    }
+    return caches.get(s.path);
+  };
+  const report = { written: 0, skipped: preview.filter((p) => p.action === 'skip').length, preview, tables: [] };
+  const log = [];
+  for (const p of preview) {
+    if (p.action !== 'write') continue;
+    const s = sheets.find((x) => x.name === p.sheet);
+    const q = splitRef(p.cell);
+    const { doc, data, rows } = at(s);
+    const row = getRow(doc, data, q.row, rows);
+    row.removeAttribute('spans');
+    const cell = getCell(doc, row, q.col, q.row);
+    setValue(doc, cell, p.type || 'text', p.type === 'date' && !(p.next instanceof Date) ? new Date(p.next) : p.next, styles, 0);
+    growDimension(doc, q.col, q.row);
+    pkg.dirty(s.path);
+    report.written += 1;
+    log.push([p.sheet, p.cell, p.label || p.field, p.next, p.source, p.feeds]);
+  }
+  for (const t of tables) {
+    const s = sheets.find((x) => x.name === t.sheet);
+    if (!s) { report.tables.push({ sheet: t.sheet, rows: 0, skipped: 'no such sheet' }); continue; }
+    const { doc, data, rows } = at(s);
+    const first = t.headerRow + 1;
+    const cols = t.columns.filter((c) => c.field);
+    const mapped = new Set(cols.map((c) => c.col));
+    if (t.clear !== false) {
+      for (const row of kids(data, 'row')) {
+        if (Number(row.getAttribute('r')) < first) continue;
+        for (const c of kids(row, 'c')) {
+          const q = splitRef(c.getAttribute('r') || '');
+          if (q && mapped.has(q.col) && !kid(c, 'f') && c.childNodes.length) clearValue(c);
+        }
+      }
+    }
+    let kept = 0;
+    t.rows.forEach((rowVals, i) => {
+      const r = first + i;
+      const row = getRow(doc, data, r, rows);
+      row.removeAttribute('spans');
+      for (const col of cols) {
+        const cell = getCell(doc, row, col.col, r);
+        if (kid(cell, 'f')) { kept += 1; continue; }
+        const v = rowVals[col.field];
+        setValue(doc, cell, v ? v.type : 'text', v ? v.value : null, styles, 0);
+      }
+    });
+    if (t.rows.length) {
+      growDimension(doc, Math.max(...cols.map((c) => c.col)), first + t.rows.length - 1);
+      stretchTables(pkg, s.path, t.headerRow, first + t.rows.length - 1);
+    }
+    pkg.dirty(s.path);
+    report.tables.push({ sheet: t.sheet, rows: t.rows.length, from: first, to: first + t.rows.length - 1, formulasKept: kept });
+    log.push([t.sheet, `${colName(Math.min(...cols.map((c) => c.col)))}${first}:${colName(Math.max(...cols.map((c) => c.col)))}${first + Math.max(0, t.rows.length - 1)}`, `table of ${t.rows.length} rows`, '', t.source || '', '']);
+  }
+  recalcOnOpen(pkg);
+  const { features } = workbookFeatures(pkg);
+  if (audit && !features.workbookProtected) addAuditSheet(pkg, log, auditTitle);
+  return { bytes: pkg.bytes(), report };
+}
+
+function growDimension(doc, col, row) {
+  const dim = doc.getElementsByTagNameNS(MAIN, 'dimension')[0];
+  if (!dim) return;
+  const [a, b] = (dim.getAttribute('ref') || 'A1').split(':');
+  const end = splitRef(b || a) || { col: 1, row: 1 };
+  dim.setAttribute('ref', `${splitRef(a) ? a : 'A1'}:${colName(Math.max(end.col, col))}${Math.max(end.row, row)}`);
+}
+
+function recalcOnOpen(pkg) {
+  const wbDoc = pkg.doc('xl/workbook.xml');
+  let calcPr = wbDoc.getElementsByTagNameNS(MAIN, 'calcPr')[0];
+  if (!calcPr) {
+    calcPr = wbDoc.createElementNS(MAIN, 'calcPr');
+    const root = wbDoc.documentElement;
+    const before = ['oleSize', 'customWorkbookViews', 'pivotCaches', 'smartTagPr', 'smartTagTypes', 'webPublishing', 'fileRecoveryPr', 'webPublishObjects', 'extLst']
+      .map((n) => kid(root, n)).find(Boolean) || null;
+    root.insertBefore(calcPr, before);
+  }
+  calcPr.setAttribute('fullCalcOnLoad', '1');
+  pkg.dirty('xl/workbook.xml');
+  const chain = pkg.rels('xl/workbook.xml').find((r) => r.type.endsWith('/calcChain'));
+  if (chain) {
+    (pkg.removed ||= new Set()).add(chain.target);
+    chain.node.parentNode.removeChild(chain.node);
+    pkg.dirty(relsPath('xl/workbook.xml'));
+    const ct = pkg.doc('[Content_Types].xml');
+    for (const o of [...ct.documentElement.childNodes]) {
+      if (o.nodeType === 1 && o.getAttribute('PartName') === `/${chain.target}`) ct.documentElement.removeChild(o);
+    }
+    pkg.dirty('[Content_Types].xml');
+  }
+}
+
+const AUDIT = 'Comp Loader Audit';
+const esc = (s) => String(s).replace(XML_BAD, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+/** A sheet listing every cell written and where its value came from; refilling replaces it. */
+function addAuditSheet(pkg, log, auditTitle) {
+  const cell = (r, c, v) => {
+    if (v === null || v === undefined || v === '') return '';
+    if (typeof v === 'number' && Number.isFinite(v)) return `<c r="${colName(c)}${r}"><v>${v}</v></c>`;
+    const t = v instanceof Date ? v.toISOString().slice(0, 10) : String(v);
+    return `<c r="${colName(c)}${r}" t="inlineStr"><is><t xml:space="preserve">${esc(t).slice(0, 32000)}</t></is></c>`;
+  };
+  const rows = [
+    [`Filled by Comp Loader on ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC${auditTitle ? ` · ${auditTitle}` : ''}`],
+    ['Only the cells below were written. Cells holding formulas were left alone. Excel recalculates when the file opens.'],
+    [],
+    ['Sheet', 'Cell', 'Field', 'Value written', 'Source', 'Formulas reading it'],
+    ...log,
+  ];
+  const body = rows.map((r, i) => `<row r="${i + 1}">${r.map((v, j) => cell(i + 1, j + 1, v)).join('')}</row>`).join('');
+  const xmlText = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="${MAIN}"><cols><col min="1" max="1" width="22" customWidth="1"/><col min="2" max="2" width="12" customWidth="1"/><col min="3" max="3" width="30" customWidth="1"/><col min="4" max="4" width="22" customWidth="1"/><col min="5" max="5" width="36" customWidth="1"/><col min="6" max="6" width="18" customWidth="1"/></cols><sheetData>${body}</sheetData></worksheet>`;
+  const existing = sheetsOf(pkg).find((s) => s.name === AUDIT);
+  if (existing) { pkg.files[existing.path] = pkg.fflate.strToU8(xmlText); pkg.docs.delete(existing.path); return; }
+  let n = 1;
+  while (pkg.has(`xl/worksheets/sheet${n}.xml`)) n += 1;
+  const path = `xl/worksheets/sheet${n}.xml`;
+  pkg.files[path] = pkg.fflate.strToU8(xmlText);
+  // the relationship from the workbook
+  const rp = relsPath('xl/workbook.xml');
+  const rdoc = pkg.doc(rp);
+  const ids = [...rdoc.getElementsByTagNameNS(PKG_REL, 'Relationship')].map((r) => r.getAttribute('Id'));
+  let k = ids.length + 1;
+  while (ids.includes(`rId${k}`)) k += 1;
+  const rel = rdoc.createElementNS(PKG_REL, 'Relationship');
+  rel.setAttribute('Id', `rId${k}`);
+  rel.setAttribute('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet');
+  rel.setAttribute('Target', `worksheets/sheet${n}.xml`);
+  rdoc.documentElement.appendChild(rel);
+  pkg.dirty(rp);
+  // the sheet in the workbook, last
+  const wb = pkg.doc('xl/workbook.xml');
+  const sheetsEl = wb.getElementsByTagNameNS(MAIN, 'sheets')[0];
+  const maxId = Math.max(0, ...[...sheetsEl.getElementsByTagNameNS(MAIN, 'sheet')].map((s) => Number(s.getAttribute('sheetId')) || 0));
+  const sh = wb.createElementNS(MAIN, 'sheet');
+  sh.setAttribute('name', AUDIT);
+  sh.setAttribute('sheetId', String(maxId + 1));
+  sh.setAttributeNS(REL, 'r:id', `rId${k}`);
+  sheetsEl.appendChild(sh);
+  pkg.dirty('xl/workbook.xml');
+  // its content type
+  const ct = pkg.doc('[Content_Types].xml');
+  const o = ct.createElementNS('http://schemas.openxmlformats.org/package/2006/content-types', 'Override');
+  o.setAttribute('PartName', `/${path}`);
+  o.setAttribute('ContentType', 'application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml');
+  ct.documentElement.appendChild(o);
+  pkg.dirty('[Content_Types].xml');
+}
