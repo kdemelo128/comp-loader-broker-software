@@ -45,10 +45,10 @@ await page.waitForSelector('#tab-visit');
 await page.click('#tab-visit');
 await page.waitForSelector('#deal-audio');
 check('voice notes persist after reload', (await page.locator('#deal-audio .voice-row').count()) === 3);
-check('notes say they are not transcribed', /not transcribed/i.test(await page.textContent('#deal-audio')));
+check('notes say recordings stay on the device and are sent only when asked', /Kept on this device/.test(await page.textContent('#deal-audio')) && /only when you ask/.test(await page.textContent('#deal-audio')));
 await page.locator('#deal-audio').screenshot({ path: `${SHOTS}voice.png` });
 // delete + undo
-await page.locator('#deal-audio .voice-row').first().locator('button').click();
+await page.locator('#deal-audio .voice-row').first().locator('button[aria-label^="Delete"]').click();
 await page.waitForTimeout(200);
 check('delete a voice note', (await page.locator('#deal-audio .voice-row').count()) === 2);
 await page.locator('.toast button').click();

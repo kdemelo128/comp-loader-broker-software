@@ -19,6 +19,8 @@ import { fromOmRows, project, rentRollSummary } from './lease.js';
 import { emptyRentRoll, layoutFromPreset, presetFor, MARKET_UNIT, legacyRows } from './rentroll.js';
 import { renderRentRollWorkspace } from './rentrollui.js';
 import { openLibrary } from './libraryui.js';
+import { openAiSettings, readWithAi, openAssistant, transcribeNote, openTranscript } from './aiui.js';
+import { crossChecks } from './reconcile.js';
 import {
   $, el, svg, IN_ARTIFACT, XLSX, parseNum, parsePct, int, dec, money0, money2, pct, signed, times, yrs, short, niceDate,
   localDate, toast, actionSheet, getPdfjs, getXlsx, deliver, deliveryError, shareText, idle, pdfProblem,
@@ -64,6 +66,8 @@ const SECTIONS = [
 ];
 const KIND = Object.fromEntries(SECTIONS.flatMap(([, rows]) => rows.map(([k, , kind]) => [k, kind])));
 const LABEL = Object.fromEntries(SECTIONS.flatMap(([, rows]) => rows.map(([k, l]) => [k, l])));
+/** The deal's fields for AI reading and the assistant: key, label, kind. */
+const FIELD_LIST = SECTIONS.flatMap(([, rows]) => rows.map(([key, label, kind]) => ({ key, label, kind })));
 
 const VISIT = [
   ['roof', 'Roof'], ['hvac', 'HVAC'], ['facade', 'Facade and windows'], ['interior', 'Interior and common areas'],
@@ -159,7 +163,8 @@ function visitLines() {
   }
   if (v.notes.trim()) lines.push(...v.notes.trim().split(/\n+/).map((x) => `Note, as written: ${x}`));
   const n = (v.audio || []).length;
-  if (n) lines.push(`${n} voice note${n === 1 ? '' : 's'} recorded on the visit (kept with the deal; not transcribed)`);
+  const tr = (v.audio || []).filter((a) => a.transcript).length;
+  if (n) lines.push(`${n} voice note${n === 1 ? '' : 's'} recorded on the visit (kept with the deal${tr ? `; ${tr} transcribed, check against the recording` : '; not transcribed'})`);
   return lines;
 }
 
@@ -889,6 +894,13 @@ function sourceTag(key) {
     return t;
   }
   if (!s) return el('span', 'src none', '');
+  if (s.ai && !s.hand) {
+    const b = el('button', `src ai${s.verified ? '' : ' unchecked'}`, `AI${s.page ? ` p.${s.page}` : ''}`);
+    b.type = 'button';
+    b.setAttribute('aria-label', `${LABEL[key]}: read by AI, where it came from`);
+    b.addEventListener('click', () => showSource(key));
+    return b;
+  }
   if (s.hand && !s.page) return el('span', 'src hand', 'typed');
   if (!s.page && !s.hand) {
     const t = el('span', 'src low', 'guess');
@@ -908,6 +920,7 @@ function sourceTag(key) {
 function showSource(key) {
   const s = deal.sources[key];
   const kind = KIND[key];
+  if (s.ai) { showAiSource(key); return; }
   const body = api.sheetOpen({ eyebrow: 'From the OM', title: LABEL[key], sub: deal.source || '' });
   const conf = { high: 'Printed in a summary and repeated in the OM, or read from a clearly labelled line.', medium: 'Read from a labelled line. Worth a glance.', low: 'A weaker match: check it against the page.' }[s.confidence] || '';
   const sec = el('section');
@@ -915,6 +928,12 @@ function showSource(key) {
   sec.appendChild(el('div', 'snippet', s.line || ''));
   if (conf) sec.appendChild(el('p', 'hint-sm', conf)).style.marginTop = '8px';
   body.appendChild(sec);
+  if (s.confirmed && s.confirmed.length) {
+    const sc = el('section');
+    sc.appendChild(el('h3', null, 'Also confirmed by'));
+    for (const c of s.confirmed) sc.appendChild(el('p', 'hint-sm', `${c.by}: ${c.doc || ''}${c.page ? ` p.${c.page}` : ''}${c.verified ? ' (passage checked)' : ''} — “${c.line || ''}”`));
+    body.appendChild(sc);
+  }
   if (s.hand) {
     const sec2 = el('section');
     sec2.appendChild(el('h3', null, 'Changed by hand'));
@@ -933,7 +952,7 @@ function showSource(key) {
       const b = el('button', 'li');
       b.type = 'button';
       const m = el('div', 'li-main');
-      m.appendChild(el('div', 'li-title', `${show(kind, a.value)} · page ${a.page}`));
+      m.appendChild(el('div', 'li-title', `${show(kind, a.value)}${a.page ? ` · page ${a.page}` : ''}${a.ai ? ' · read by AI' : ''}`));
       m.appendChild(el('div', 'li-sub', a.line));
       b.appendChild(m);
       b.appendChild(el('span', 'chip chip-accent', 'Use'));
@@ -953,9 +972,13 @@ function pick(key, value, from) {
     s.orig = value;
     s.page = from.page;
     s.line = from.line;
+    s.ai = !!from.ai;
+    s.doc = from.doc;
+    s.verified = from.verified;
   }
   deal.figures[key] = value;
-  s.hand = false;
+  // an earlier figure that was typed by hand goes back to being typed
+  s.hand = !from.page && !from.ai && from.line === 'typed by hand';
   touch();
   api.sheetClose();
   render();
@@ -1319,6 +1342,14 @@ function renderRentRoll(m) {
     const soon = sum.expirations.filter((e) => typeof e.year === 'number' && e.year <= new Date().getFullYear() + 1).reduce((x, e) => x + (e.rentPct || 0), 0);
     add('Expiring by next year-end', pct(soon, 0), 'of rent', soon >= 25 ? 'warn' : '');
     box.appendChild(t);
+    // the rent roll against the OM's own figures (reconcile.js: arithmetic, no AI)
+    const issues = crossChecks(deal.figures, sum);
+    if (issues.length) {
+      const ul = el('ul', 'rr-checks');
+      ul.id = 'deal-rr-checks';
+      for (const i of issues) ul.appendChild(el('li', i.level === 'warn' ? 'warn-text' : null, i.text));
+      box.appendChild(ul);
+    }
     // the OM's own gross income against what the rent roll adds up to
     const P = project(rr, { years: 1 }).annual[0];
     if (Number.isFinite(deal.figures.gross) && P && P.egi) {
@@ -1512,11 +1543,16 @@ function renderAudio(into = null) {
       toast('Voice note deleted.', { label: 'Undo', run: () => { d.visit.audio = keep; touch(d); if (deal === d) renderAudio(); } });
     });
     row.appendChild(x);
+    const acts = el('div', 'voice-acts');
+    if (a.transcript) {
+      acts.appendChild(button('btn-sm btn-gray', a.transcript.reviewed ? 'Transcript' : 'Transcript (not yet checked)', () => openTranscript(aiHost(), a)));
+    } else acts.appendChild(button('btn-sm btn-gray', 'Transcribe…', () => transcribeNote(aiHost(), a)));
+    row.appendChild(acts);
     box.appendChild(row);
   }
   box.appendChild(el('p', 'hint-sm', v.audio.length
-    ? 'Kept on this device with the deal. Not transcribed: that would need a speech service, and nothing here leaves the device.'
-    : 'Record what the owner or manager says, or add a Voice Memos file. Kept with the deal; not transcribed.'));
+    ? 'Kept on this device with the deal. Transcribe sends a recording to your firm’s AI server only when you ask (AI settings, in the deal’s ⋯ menu).'
+    : 'Record what the owner or manager says, or add a Voice Memos file. Kept with the deal on this device.'));
 }
 
 const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -1715,6 +1751,89 @@ export function applyFromTools({ figures = {}, loan = {}, live = {} }, toolTitle
   return true;
 }
 
+/* ------------------------------------------------------------------- AI */
+
+/** What the AI screens need from the open deal. */
+function aiHost() {
+  const d = deal;
+  return {
+    api, fields: FIELD_LIST, deal: () => d,
+    touch: () => touch(d),
+    apply: (entries) => { if (deal === d) applyReviewed(entries); },
+    context: () => {
+      const ctx = templateContext(d);
+      return { m: ctx.m, scenario: ctx.scenario, rrSum: ctx.rrSum, comps: api.count() ? api.basis() : null, issues: ctx.rrSum ? crossChecks(d.figures, ctx.rrSum) : [] };
+    },
+  };
+}
+
+/**
+ * Figures the broker accepted from an AI reading. The figure the deal had
+ * stays as an alternative reading, so it is one tap to go back.
+ */
+function applyReviewed(entries) {
+  for (const { key, value, source } of entries) {
+    if (!(key in KIND) || value === null || value === undefined) continue;
+    const before = deal.figures[key];
+    const s = deal.sources[key];
+    // the same figure the OM reader already found: keep its source, note the confirmation
+    if (s && !s.hand && !s.ai && s.page && (before === value || (ok(before) && ok(value) && Math.abs(before - value) < 1e-9))) {
+      s.confirmed = [...(s.confirmed || []), { by: source.via === 'voice note' ? 'a call' : 'AI reading', doc: source.doc, page: source.page, line: source.line, verified: source.verified }];
+      continue;
+    }
+    const alts = [];
+    if (before !== null && before !== undefined && before !== '' && before !== value) {
+      alts.push(s && !s.hand ? { value: s.orig ?? before, page: s.page || null, line: s.line || '', ai: !!s.ai, doc: s.doc, verified: s.verified } : { value: before, page: null, line: 'typed by hand', ai: false });
+    }
+    deal.figures[key] = value;
+    deal.sources[key] = { ...source, orig: value, hand: false, alts: [...alts, ...((s && s.alts) || []).filter((a) => a.value !== value)] };
+    if (key === 'address' && !deal.name) deal.name = value;
+  }
+  touch();
+  render();
+}
+
+function showAiSource(key) {
+  const s = deal.sources[key];
+  const body = api.sheetOpen({ eyebrow: s.via === 'voice note' ? 'Said on a call' : 'Read by AI', title: LABEL[key], sub: `${s.doc || ''}${s.page ? `, page ${s.page}` : ''}` });
+  const sec = el('section');
+  sec.appendChild(el('h3', null, s.verified ? 'The passage, checked against the document' : 'The passage (not found word for word: check it)'));
+  sec.appendChild(el('div', 'snippet', s.line || ''));
+  sec.appendChild(el('p', 'hint-sm', `${s.model ? `Read by ${s.model}. ` : ''}Accepted by you from the AI review; AI reading can still be wrong.`)).style.marginTop = '8px';
+  body.appendChild(sec);
+  if (s.alts && s.alts.length) {
+    const sec3 = el('section');
+    sec3.appendChild(el('h3', null, 'Earlier readings'));
+    const ul = el('div', 'list');
+    ul.style.cssText = 'background:var(--surface-2);border-radius:13px';
+    for (const a of s.alts) {
+      const b = el('button', 'li');
+      b.type = 'button';
+      const m = el('div', 'li-main');
+      m.appendChild(el('div', 'li-title', `${show(KIND[key], a.value)}${a.page ? ` · page ${a.page}` : ''}${a.ai ? ' · read by AI' : ''}`));
+      m.appendChild(el('div', 'li-sub', a.line || ''));
+      b.appendChild(m);
+      b.appendChild(el('span', 'chip chip-accent', 'Use'));
+      b.addEventListener('click', () => pick(key, a.value, a));
+      ul.appendChild(b);
+    }
+    sec3.appendChild(ul);
+    body.appendChild(sec3);
+  }
+}
+
+function chooseForAi() {
+  const fi = el('input');
+  fi.type = 'file';
+  fi.multiple = true;
+  fi.accept = '.pdf,.txt,.csv,.md,application/pdf,text/plain,text/csv';
+  fi.id = 'ai-files';
+  fi.hidden = true;
+  fi.addEventListener('change', () => { const files = [...fi.files]; fi.remove(); readWithAi(aiHost(), files); });
+  document.body.appendChild(fi);
+  fi.click();
+}
+
 export function openTemplates() {
   return openLibrary(api, { getDeal: () => (deal && hasFigures() ? deal : null), ctxFor: templateContext });
 }
@@ -1771,6 +1890,10 @@ async function dealMenu() {
     ...(IN_ARTIFACT ? [] : [{ label: 'Deal brief', sub: 'print or save as PDF, with photos', value: 'brief', icon: '<path d="M7 9V3h10v6M7 17H5a2 2 0 01-2-2v-4a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2h-2M7 14h10v7H7z"/>' }]),
     { label: 'Fill my Excel template…', sub: 'your firm’s underwriting or rent roll workbook', value: 'template', icon: '<path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/>' },
     { label: 'Use as the comps subject', value: 'subject', icon: '<path d="M5 12h14M13 6l6 6-6 6"/>' },
+    '-',
+    { label: 'Read documents with AI…', sub: 'OM, rent roll, T-12 or lease: figures to check, page by page', value: 'ai-read', icon: '<path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8z"/><path d="M5 17l.9 2.1L8 20l-2.1.9L5 23l-.9-2.1L2 20l2.1-.9z"/>' },
+    { label: 'Ask about this deal…', sub: 'answers from this deal’s figures, with sources', value: 'ai-ask', icon: '<path d="M21 12a8 8 0 01-11.6 7.1L4 21l1.9-5.4A8 8 0 1121 12z"/>' },
+    { label: 'AI settings…', value: 'ai-settings', icon: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/>' },
     { label: 'Open in Maps', value: 'map', disabled: !deal.figures.address, icon: '<path d="M12 21s-7-6.1-7-11a7 7 0 1114 0c0 4.9-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>' },
     '-',
     { label: 'Scan another OM…', value: 'new', icon: '<path d="M12 5v14M5 12h14"/>' },
@@ -1785,6 +1908,9 @@ async function dealMenu() {
   } else if (v === 'brief') printBrief();
   else if (v === 'subject') useAsSubject();
   else if (v === 'template') openTemplates();
+  else if (v === 'ai-read') chooseForAi();
+  else if (v === 'ai-ask') openAssistant(aiHost());
+  else if (v === 'ai-settings') openAiSettings(api);
   else if (v === 'map') window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(placeLine(deal.figures))}`, '_blank', 'noopener');
   else if (v === 'new') $('om-file').click();
   else if (v === 'close') closeDeal();

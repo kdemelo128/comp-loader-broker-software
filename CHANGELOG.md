@@ -39,14 +39,31 @@ this work is released, so installed copies fetch the new files whole.
   new; figures are tagged as typed from that tool, and hold assumptions go to
   the What if scenario, never the deal's figures.
 - The Deal screen is split into Overview, Rent roll, What if and Site visit.
+- **AI features, through an optional server** (`server/`, which holds the API
+  keys; the app holds only its address and an access token). Read documents
+  with AI: figures come back with their passages, which the app checks against
+  the document text before showing them, and nothing is applied until the
+  broker ticks it. Ask about this deal: answers from the deal's facts with
+  citations. Transcribe voice notes, correct the transcript, and make notes
+  (summary, decisions, action items, figures mentioned). Every send is
+  confirmed; with AI off nothing leaves the device.
+- **Reconciliation without AI** (`app/reconcile.js`): quoted passages checked
+  against page text, readings grouped by tolerance (never auto-picked), and
+  the rent roll checked against the OM's occupancy, SF, rent and units.
 
 ### Tests
 
 - `tests/lease.test.js` (18), `tests/tplcells.test.js` (7) and
   `tests/calc.test.js` (12) check the new maths against figures worked out by
   hand or independently.
-- Browser flows `rentroll-flow` (22 checks), `template-flow` (16) and
-  `tools-flow` (28), and the filled template recalculated in LibreOffice.
+- `tests/reconcile.test.js` (5) for quote checks and reconciliation;
+  `server/test/server.test.mjs` (10) runs the server and the real Anthropic SDK
+  against a local stand-in for the API. No live model call is tested: that
+  needs a key.
+- Browser flows `rentroll-flow` (22 checks), `template-flow` (16),
+  `tools-flow` (28) and `ai-flow` (25, against the real server code and
+  stand-in model and speech services), and the filled template recalculated
+  in LibreOffice.
 
 ## 3.1.0
 

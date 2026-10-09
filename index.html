@@ -566,6 +566,8 @@ button.src { position: relative; }
 button.src::after { content: ""; position: absolute; inset: -11px -6px; }
 /* a long "+ more fields" button wraps inside its card on the narrowest phones */
 .card > .btn-plain.btn-sm { max-width: calc(100% - 20px); white-space: normal; text-align: left; }
+.src.ai { background: var(--teal-soft); color: var(--teal); }
+.src.ai.unchecked { background: var(--warn-soft); color: var(--warn); }
 .src.high { background: var(--good-soft); color: var(--good); } .src.high i { background: var(--good); }
 .src.medium { background: var(--accent-soft); color: var(--accent); } .src.medium i { background: var(--accent); }
 .src.low { background: var(--warn-soft); color: var(--warn); } .src.low i { background: var(--warn); }
@@ -606,6 +608,32 @@ button.src::after { content: ""; position: absolute; inset: -11px -6px; }
 .photo-add { aspect-ratio: 1; border-radius: 12px; border: 1.5px dashed var(--line-strong); display: grid; place-items: center; color: var(--accent); cursor: pointer; background: none; }
 .progress { height: 6px; border-radius: 3px; background: var(--fill); overflow: hidden; margin: 14px auto 2px; max-width: 280px; }
 .progress i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 3px; transition: width .2s; }
+
+/* -------------------------------------------------------------------- AI */
+.ai-rows { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.ai-row { background: var(--surface-2); border-radius: 13px; padding: 11px 13px; }
+.ai-row-top { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; cursor: pointer; }
+.ai-row-top input { width: 22px; height: 22px; accent-color: var(--accent); }
+.ai-label { font-weight: 600; font-size: 14.5px; }
+.ai-value { font-variant-numeric: tabular-nums; font-size: 15px; text-align: right; overflow-wrap: anywhere; }
+.ai-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 7px 0 6px; }
+.ai-row .snippet { font-size: 12.5px; }
+.ai-row p { margin-top: 4px; }
+.ai-chat { display: flex; flex-direction: column; gap: 8px; max-height: 52vh; overflow-y: auto; margin-bottom: 10px; }
+.ai-msg { border-radius: 14px; padding: 9px 12px; font-size: 14.5px; max-width: 92%; overflow-wrap: anywhere; }
+.ai-msg.q { align-self: flex-end; background: var(--accent); color: var(--accent-ink, #fff); }
+.ai-msg.a { align-self: flex-start; background: var(--surface-2); }
+.ai-cites { margin-top: 6px; font-size: 12.5px; color: var(--muted); }
+.ai-cites summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.ai-cites ul { margin: 4px 0 0; padding-left: 16px; }
+.ai-q, .ai-transcript { width: 100%; border: 1px solid var(--line-strong); border-radius: 12px; padding: 10px 12px; background: var(--surface); color: var(--ink); font: inherit; font-size: 16px; resize: vertical; }
+.ai-transcript { margin-top: 10px; min-height: 200px; }
+.ai-segs { margin-top: 10px; font-size: 13.5px; }
+.ai-segs summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.ai-segs p { margin: 4px 0; }
+.voice-acts { grid-column: 1 / -1; display: flex; gap: 8px; }
+.rr-checks { margin: 0 16px 10px; padding-left: 18px; font-size: 13.5px; }
+.rr-checks li { margin: 3px 0; }
 
 /* ----------------------------------------------------------------- tools */
 .tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; margin-top: 14px; }

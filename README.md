@@ -17,7 +17,8 @@ app. Three tabs:
 
 Everything is read on the device. PDFs and workbooks are never uploaded, the
 page makes no request to any other site, and once it has loaded it works with
-no connection at all.
+no connection at all. The optional AI features are the exception, and only
+when a firm runs its own AI server and a broker turns them on (see below).
 
 © 2026 Kyle Alexander De Melo. MIT License.
 
@@ -306,6 +307,11 @@ app/calc.js           the Tools maths: DCF, debt, returns, waterfall, leasing, d
 app/template.js       filling your own Excel template in place
 app/dealfields.js     the deal fields a template can take, with their sources
 app/library.js        the template library on the device
+app/reconcile.js      checking quoted passages, grouping readings, rent roll against the OM
+app/ai.js             talking to the AI server
+app/aifacts.js        the deal as numbered facts for the assistant
+app/aiui.js           AI settings, document review, the assistant, transcripts and notes
+server/               the optional AI server (see server/README.md)
 app/libraryui.js      the template library, mapping and preview screens
 app/costar.js         CoStar parsing and the comp-set rules
 app/layout.js         rebuilds column-preserving text from positioned glyphs
@@ -341,7 +347,7 @@ vendor/, fonts/       bundled dependencies (see VENDOR.md)
 ## Limits
 
 - Scanned PDFs with no text layer can't be read (that needs OCR; see below).
-- Voice notes are stored, not transcribed.
+- Voice notes are transcribed only through the AI server, when set up.
 - Hold-period returns, the DCF and the waterfall are annual models with
   end-of-year cash flows and no tax. NOI grows at one rate unless the rent roll
   projection is used; the sale is priced on the following year's NOI.
@@ -353,20 +359,41 @@ vendor/, fonts/       bundled dependencies (see VENDOR.md)
 - Zoning covers the District of Columbia table and Montgomery County zone names.
 - Needs iOS 16.4 or later, or a current Chrome, Edge, Firefox or Safari.
 
-## What would need a server
+## AI features (optional, need a server)
 
-The app is a static site: no keys, no backend, nothing leaves the device.
-Three things people ask for need more than that:
+The app itself sends nothing anywhere. Three features need a language or
+speech model, and so a server that holds the API keys: `server/` in this
+repository (see `server/README.md`). With it running, a broker turns AI on
+under **AI settings** (Deal → ⋯) with the server's address and an access
+token from the firm. Each send is confirmed first.
 
-- **Transcribing voice notes** and **AI reading of an OM** need a speech or
-  language-model API. Its key must never sit in this page's JavaScript (anyone
-  could copy it from a public GitHub Pages site). It would need a small server
-  or serverless function that holds the key, receives the audio or text with
-  the broker's consent, and returns the result, and the app would have to say
-  plainly that the file leaves the device.
-- **Scanned OMs** need OCR. Tesseract compiled to WebAssembly can run on the
-  device (several MB to download, slow on a phone); a hosted OCR service would
-  be faster but, again, sends the document off the device.
+- **Read documents with AI** (Deal → ⋯): an OM, rent roll, operating
+  statement or lease, as PDF or text. Every figure comes back with the passage
+  it was read from, and the app checks that passage against the document's
+  own text before showing it: *passage checked*, *found on another page*,
+  *figure not in the passage*, or *passage not in the document* (which can't be
+  applied). Documents that disagree are shown side by side. Nothing changes
+  until the broker ticks figures and taps Apply; a figure the deal already had
+  from the OM keeps its source, with the AI reading noted as a confirmation,
+  and a replaced figure stays one tap away as an earlier reading. Applied
+  figures are tagged *AI p.N*.
+- **Ask about this deal**: answers from the deal's own figures, rent roll,
+  scenario and comps, sent as numbered facts with their sources; each answer
+  lists the facts it used and says what the deal doesn't contain. Answers that
+  cite a fact that doesn't exist are flagged.
+- **Transcribe** a voice note (Site visit): the transcript comes back with
+  timings to check against the recording and correct, then **Make notes**
+  gives a summary, decisions, action items, questions to confirm, and figures
+  mentioned, each with the words that support it. Figures said aloud start
+  unticked and are marked approximate or hearsay where the speaker was.
+
+The rent roll is also checked against the OM without any AI (occupancy,
+total SF, rent against gross potential rent, unit count), on the Overview's
+rent roll card.
+
+**Scanned OMs** with no text layer still can't be read by the app itself. AI
+reading accepts them (the model reads the page images), but its passages
+can't be checked against a text layer, so they show as unchecked.
 
 ## Licence
 
