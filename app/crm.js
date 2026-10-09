@@ -3,6 +3,7 @@
  * deal's stage lives on the deal itself. */
 
 import { kvGet, kvSet } from './store.js';
+import { applyStageConfig } from './pipeline.js';
 
 const K = { tasks: 'crm.tasks', contacts: 'crm.contacts', activity: 'crm.activity' };
 const MAX_ACTIVITY = 500;
@@ -74,6 +75,12 @@ export async function linkContact(cid, dealId, on = true) {
   await put(K.contacts, all);
   return c;
 }
+
+/* ----------------------------------------------------------------- stages */
+
+/** The firm's names for the stages, and which are hidden; applied to every screen. */
+export async function loadStages() { const c = (await kvGet('crm.stages')) || {}; applyStageConfig(c); return c; }
+export async function saveStages(cfg) { await put('crm.stages', cfg); applyStageConfig(cfg); }
 
 /* --------------------------------------------------- activity, deliverables */
 

@@ -167,6 +167,10 @@ function visitLines() {
   const n = (v.audio || []).length;
   const tr = (v.audio || []).filter((a) => a.transcript).length;
   if (n) lines.push(`${n} voice note${n === 1 ? '' : 's'} recorded on the visit (kept with the deal${tr ? `; ${tr} transcribed, check against the recording` : '; not transcribed'})`);
+  // call notes are labelled for what they are: an AI summary of a transcript
+  for (const a of v.audio || []) {
+    if (a.notes && a.notes.summary) lines.push(`AI summary of “${a.name}” (from its transcript${a.transcript && a.transcript.edited ? ', corrected by hand' : ''}; not checked word for word): ${a.notes.summary}`);
+  }
   return lines;
 }
 

@@ -7,6 +7,8 @@ export const el = (tag, cls, text) => {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
   if (text !== undefined && text !== null) n.textContent = text;
+  // a sideways-scrolling table must be reachable from the keyboard (WCAG 2.1.1)
+  if (tag === 'div' && cls && /(^|\s)scroll(\s|$)/.test(cls)) n.tabIndex = 0;
   return n;
 };
 export const svg = (paths, size = 18, extra = '') => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${extra}>${paths}</svg>`;

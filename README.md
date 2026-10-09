@@ -102,18 +102,23 @@ the figures against the page tags before relying on them.
 
 ## Home: pipeline, tasks and contacts
 
-- **Pipeline**: every deal by stage (Prospect, Underwriting, Offer / LOI, Under
-  contract, Closed, Passed) with its asking price and cap rate. Change a
-  deal's stage on Home or on the deal's own **Pipeline** card; each change is
-  logged. **Report** gives the pipeline, tasks and contacts as an Excel
+- **Pipeline**: every deal by stage (Prospect, Listing, Underwriting,
+  Marketing, Offer / LOI, Under contract, Due diligence, Closed, Lost or
+  passed) with its asking price and cap rate. **Stages** renames them to the
+  firm's words or hides unused ones. Change a deal's stage on Home or on the
+  deal's own **Pipeline** card; each change is logged.
+- **Key dates** on each deal (LOI response, due diligence, financing
+  contingency, deposit going hard, closing, lease expiration, loan maturity):
+  the next 30 days are listed on Home, and anything within a week or past is
+  in Needs attention. **Report** gives the pipeline, tasks and contacts as an Excel
   workbook (figures as numbers) or a printable page.
 - **Tasks**: due today, overdue, the next seven days, later; each can belong
   to a deal. A deal's next steps are on its Overview. Action items from call
   notes can be added in one tap. Done and delete both have Undo.
 - **Contacts**: name, company, role, phone and email (tap to call or write),
   notes, and the deals they are part of. Search by name, company or role.
-- **Needs attention**: overdue tasks, active deals with no next step, and
-  deals untouched for three weeks.
+- **Needs attention**: key dates within a week, overdue tasks, active deals
+  with no next step, deals untouched for three weeks, and no recent backup.
 - **Activity**: stage changes, tasks, contacts, and every file saved or page
   printed (with the deal it was for, when made from the Deal tab).
 
@@ -311,6 +316,10 @@ independently (debt service, balances, DSCR, debt yield, cash-on-cash, loan
 sizing, break-even occupancy, WALT, net effective rent, IRR, equity multiple,
 the price for a target IRR) and that junk inputs never produce NaN or Infinity.
 
+`tests/e2e/a11y-flow.mjs` runs axe-core's WCAG 2.0/2.1/2.2 A and AA rules on
+every screen, light and dark, and checks keyboard focus, 24 px targets and
+reflow at 320 px. It is part of `run.sh`.
+
 `tests/e2e/run.sh` drives the app in an iPhone-sized Chromium page: comps,
 a template, three OM layouts, bad files, the rent roll workspace, the template
 library, the Tools screen, the AI features (against stand-in services), Home,
@@ -378,6 +387,10 @@ vendor/, fonts/       bundled dependencies (see VENDOR.md)
 
 ## How it was checked
 
+`docs/ACCEPTANCE.md` lists every requirement of the 3.2 work with its status
+(implemented and tested, incompletely tested, partial, blocked, not
+implemented) and what was and was not tested.
+
 - **Against the Python loader** it was ported from, over 47 CoStar reports in
   seven comp sets; 3.0's parser output is identical to 2.1's.
 - **Every XML part of every workbook validates** against the ISO/IEC 29500
@@ -441,6 +454,27 @@ rent roll card.
 **Scanned OMs** with no text layer still can't be read by the app itself. AI
 reading accepts them (the model reads the page images), but its passages
 can't be checked against a text layer, so they show as unchecked.
+
+## Security and privacy
+
+- **On the device.** Deals, comps, templates, tasks and contacts are kept in
+  this browser's storage on this device. Nothing is uploaded unless the AI
+  features are on and a send is confirmed. A backup file holds all of it:
+  treat it like the OMs it came from.
+- **No secrets in the page.** The app holds no API key. AI keys live only on
+  the firm's AI server (`server/`), which checks an access token and the
+  calling site, limits each client to 20 AI requests a minute, never passes
+  upstream error bodies on, and logs no documents, questions or answers. The
+  access token is kept on the device and never written into a backup.
+- **What the page may do.** A Content-Security-Policy forbids plugins, a
+  changed base URL and form posts; no referrer is sent. User text is always
+  set as text, never as HTML. GitHub Pages cannot send headers, so the policy
+  does not restrict scripts; a host that can should add
+  `script-src 'self'` plus the hashes of the three small inline start-up
+  scripts in `index.html`, and `frame-ancestors 'none'`.
+- **Dependencies.** The app bundles its libraries in `vendor/` (see
+  VENDOR.md); the AI server has one, the official Anthropic SDK. `npm audit`
+  reports no known vulnerabilities in either.
 
 ## Licence
 

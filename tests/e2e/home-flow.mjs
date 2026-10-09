@@ -34,6 +34,13 @@ await page.fill('#contact-email', 'dana@example.com');
 await page.click('#contact-save');
 await page.waitForFunction(() => /Dana Whitlock/.test(document.querySelector('#deal-crm').textContent));
 check('the contact is linked to the deal, with call and email links', await page.locator('#deal-crm a[href="tel:2025550147"]').count() === 1 && await page.locator('#deal-crm a[href="mailto:dana@example.com"]').count() === 1);
+// a key date three days out
+const soon = await page.evaluate(() => { const d = new Date(Date.now() + 3 * 86400000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
+await page.selectOption('#deal-date-label', 'Due diligence expires');
+await page.fill('#deal-date', soon);
+await page.locator('#deal-crm form').filter({ has: page.locator('#deal-date') }).locator('button[type=submit]').click();
+await page.waitForFunction(() => /Key dates \(1\)/.test(document.querySelector('#deal-crm').textContent));
+check('a key date is kept on the deal', /Key dates \(1\)/.test(await page.textContent('#deal-crm')));
 // a deliverable from the Deal tab
 await page.evaluate(() => { window.print = () => {}; });
 await page.click('#deal-root button[aria-label="More deal actions"] >> visible=true');
@@ -45,6 +52,7 @@ await go('home');
 await page.waitForSelector('#home-pipeline .pipe');
 const dealName = await page.locator('#home-pipeline .pipe-col[data-stage="offer"] .pipe-open b').first().textContent();
 check('the deal sits in Offer / LOI with its price and cap', /4410 Example Avenue/.test(dealName) && /\$6\.45M · 6\.10% cap/.test(await page.textContent('#home-pipeline .pipe-col[data-stage="offer"]')), dealName);
+check('the key date is on Home and, being within a week, in Needs attention', /Due diligence expires/.test(await page.textContent('#home-dates')) && /in 3d/.test(await page.textContent('#home-dates')) && /Due diligence expires in 3 days/.test(await page.textContent('#home-attention')));
 let t = await tileV('Active deals');
 check('active deals and value', t[1] === '1' && /\$6\.45M asking/.test(t[2]), t.join(' | '));
 t = await tileV('Due today');
@@ -68,6 +76,15 @@ await page.waitForSelector('#deal-stage');
 check('the open deal shows the stage set on Home', (await page.inputValue('#deal-stage')) === 'contract');
 await go('home');
 
+// the firm's own stage names, and a hidden stage
+await page.click('#pipeline-stages');
+await page.waitForSelector('#stage-contract');
+await page.fill('#stage-contract', 'In contract');
+await page.uncheck('#stage-show-marketing');
+await page.click('#stages-save');
+await page.waitForTimeout(500);
+check('a renamed stage shows on the board', /In contract/.test(await page.textContent('#home-pipeline .pipe-col[data-stage="contract"] .pipe-head')));
+check('a hidden stage is left out of the stage menus', !(await page.$$eval('#home-pipeline select option', (o) => o.map((x) => x.value))).includes('marketing'));
 // tasks: an overdue one with no deal, then tick today's done
 await page.fill('#task-title', 'Renew CoStar subscription');
 await page.fill('#task-due', '2020-01-15');
@@ -93,7 +110,7 @@ await dl.saveAs(xl);
 const wb = JSON.parse(execFileSync('python3', ['-c', 'import openpyxl,json,sys; wb=openpyxl.load_workbook(sys.argv[1]); print(json.dumps({ws.title: [list(r) for r in ws.iter_rows(values_only=True)] for ws in wb}, default=str))', xl]).toString());
 const pr = wb.Pipeline[1];
 check('report: three sheets', Object.keys(wb).join(',') === 'Pipeline,Tasks,Contacts');
-check('report: the deal row with stage, price, NOI and cap as numbers', pr[1] === 'Under contract' && pr[4] === 6450000 && pr[5] === 393450 && Math.abs(pr[6] - 393450 / 6450000) < 1e-12, JSON.stringify(pr));
+check('report: the deal row with stage, price, NOI and cap as numbers', pr[1] === 'In contract' && pr[4] === 6450000 && pr[5] === 393450 && Math.abs(pr[6] - 393450 / 6450000) < 1e-12, JSON.stringify(pr));
 check('report: tasks and contacts', wb.Tasks.length === 3 && wb.Contacts[1][0] === 'Dana Whitlock' && /4410 Example/.test(wb.Contacts[1][5]));
 await page.waitForTimeout(300);
 check('the report itself is logged as produced', /Saved: Pipeline .*\.xlsx/.test(await page.textContent('#home-activity')));

@@ -2,7 +2,7 @@
  * next steps (tasks) and the people involved (contacts). */
 
 import * as crm from './crm.js';
-import { STAGES, STAGE_LABEL, stageOf, taskBuckets, CONTACT_ROLES, isoDay } from './pipeline.js';
+import { STAGE_LABEL, stageChoices, stageOf, taskBuckets, CONTACT_ROLES, KEY_DATE_LABELS, isoDay } from './pipeline.js';
 import { el, svg, toast, niceDate } from './kit.js';
 
 /**
@@ -10,14 +10,14 @@ import { el, svg, toast, niceDate } from './kit.js';
  * itself when tasks or contacts change.
  */
 export async function renderDealCrm(box, d, { touch, api }) {
-  const [tasks, contacts] = await Promise.all([crm.listTasks(), crm.listContacts()]);
+  const [tasks, contacts] = await Promise.all([crm.listTasks(), crm.listContacts(), crm.loadStages()]);
   box.textContent = '';
   const h = el('div', 'card-head');
   h.appendChild(el('h2', null, 'Pipeline'));
   const sel = el('select', 'stage-select');
   sel.id = 'deal-stage';
   sel.setAttribute('aria-label', 'Deal stage');
-  for (const [k, label] of STAGES) { const o = el('option', null, label); o.value = k; sel.appendChild(o); }
+  for (const [k, label] of stageChoices(stageOf(d))) { const o = el('option', null, label); o.value = k; sel.appendChild(o); }
   sel.value = stageOf(d);
   sel.addEventListener('change', () => {
     const was = stageOf(d);
@@ -55,6 +55,56 @@ export async function renderDealCrm(box, d, { touch, api }) {
   });
   sec.appendChild(add);
   box.appendChild(sec);
+
+  // key dates: the deal's own milestones and deadlines
+  const kd = el('div', 'crm-sec');
+  const dates = (d.keyDates || []).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  kd.appendChild(el('h3', null, `Key dates${dates.length ? ` (${dates.length})` : ''}`));
+  const today = isoDay();
+  for (const k of dates) {
+    const row = el('div', `task-row${k.done ? ' done' : ''}${!k.done && k.date < today ? ' overdue' : ''}`);
+    const cb = el('input');
+    cb.type = 'checkbox';
+    cb.checked = !!k.done;
+    cb.setAttribute('aria-label', `${k.done ? 'Not passed' : 'Passed'}: ${k.label}`);
+    cb.addEventListener('change', () => { k.done = cb.checked; touch(); renderDealCrm(box, d, { touch, api }); });
+    const main = el('div', 'task-main');
+    main.appendChild(el('span', 'task-title', k.label));
+    main.appendChild(el('span', 'task-meta', `${niceDate(`${k.date}T12:00:00`)}${!k.done && k.date < today ? ' · past' : ''}`));
+    const x = el('button', 'iconbtn');
+    x.type = 'button';
+    x.innerHTML = svg('<path d="M6 6l12 12M18 6L6 18"/>', 14);
+    x.setAttribute('aria-label', `Delete key date: ${k.label}`);
+    x.addEventListener('click', () => {
+      const keep = d.keyDates;
+      d.keyDates = keep.filter((q) => q !== k);
+      touch();
+      renderDealCrm(box, d, { touch, api });
+      toast('Key date deleted.', { label: 'Undo', run: () => { d.keyDates = keep; touch(); renderDealCrm(box, d, { touch, api }); } });
+    });
+    row.append(cb, main, x);
+    kd.appendChild(row);
+  }
+  const kf = el('form', 'task-add');
+  const kl = el('select');
+  kl.id = 'deal-date-label';
+  kl.setAttribute('aria-label', 'Which date');
+  for (const l of KEY_DATE_LABELS) { const o = el('option', null, l); o.value = l; kl.appendChild(o); }
+  const kdt = el('input');
+  kdt.type = 'date'; kdt.id = 'deal-date'; kdt.setAttribute('aria-label', 'Date');
+  const kb = el('button', 'btn btn-sm', 'Add');
+  kb.type = 'submit';
+  kf.append(kl, kdt, kb);
+  kf.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!kdt.value) { kdt.focus(); return; }
+    (d.keyDates ||= []).push({ id: `k${Date.now().toString(36)}`, label: kl.value, date: kdt.value, done: false });
+    touch();
+    crm.log('deal', `${d.name || 'Untitled deal'}: ${kl.value} set for ${kdt.value}`, d.id);
+    renderDealCrm(box, d, { touch, api });
+  });
+  kd.appendChild(kf);
+  box.appendChild(kd);
 
   // people
   const people = contacts.filter((c) => (c.dealIds || []).includes(d.id));

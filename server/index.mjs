@@ -11,6 +11,7 @@
  *   AI_MODEL           default claude-opus-5-5
  *   PORT               default 8787
  *   MAX_BODY_MB        default 40
+ *   RATE_PER_MIN       AI requests a minute per client address, default 20
  *
  * No request body, document or transcript is logged or stored. */
 
@@ -26,6 +27,7 @@ export function config(env = process.env) {
     aiConfigured: !!(env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN),
     stt: env.STT_URL ? { url: env.STT_URL, key: env.STT_API_KEY || '', model: env.STT_MODEL || 'whisper-1' } : null,
     maxBody: Math.max(1, Number(env.MAX_BODY_MB) || 40) * 1024 * 1024,
+    ratePerMin: Math.max(1, Number(env.RATE_PER_MIN) || 20),
     port: Number(env.PORT) || 8787,
   };
 }
@@ -69,11 +71,25 @@ export async function transcribe(stt, { name, mediaType, data }, fetchImpl = fet
   return { text: String(j.text || segments.map((s) => s.text).join(' ')).trim(), segments, language: j.language || null, duration: j.duration ?? null };
 }
 
+/** A fixed one-minute window per client: enough for a broker, not for a leaked token run in a loop. */
+export function limiter(perMin, now = () => Date.now()) {
+  const seen = new Map();
+  return (key) => {
+    const t = now();
+    let w = seen.get(key);
+    if (!w || t - w.start >= 60000) { w = { start: t, n: 0 }; seen.set(key, w); }
+    w.n += 1;
+    if (seen.size > 5000) for (const [k, v] of seen) if (t - v.start >= 60000) seen.delete(k);
+    return w.n <= perMin ? 0 : Math.ceil((w.start + 60000 - t) / 1000);
+  };
+}
+
 /**
  * The request handler. `client` is an Anthropic client (or a stand-in in
  * tests); `deps.fetch` is used for the speech service.
  */
 export function handler(cfg, client, deps = {}) {
+  const limit = limiter(cfg.ratePerMin || 20, deps.now);
   return async (req, res) => {
     const origin = req.headers.origin;
     const cors = origin && cfg.origins.includes(origin)
@@ -90,6 +106,8 @@ export function handler(cfg, client, deps = {}) {
         return;
       }
       if (req.method !== 'POST') { send(res, 404, { error: 'not_found' }, cors); return; }
+      const wait = limit(req.socket.remoteAddress || 'unknown');
+      if (wait) { send(res, 429, { error: 'rate_limited', message: `Too many requests: try again in ${wait} seconds.` }, { ...cors, 'Retry-After': String(wait) }); return; }
       const body = await readJson(req, cfg.maxBody);
       const needAi = () => { if (!cfg.aiConfigured || !client) throw new AiError('AI is not set up on this server (ANTHROPIC_API_KEY).', 501, 'not_configured'); };
       let out;

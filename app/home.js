@@ -4,7 +4,7 @@
 
 import * as crm from './crm.js';
 import { kvGet } from './store.js';
-import { STAGES, STAGE_LABEL, stageOf, pipelineSummary, taskBuckets, attention, findContacts, isoDay } from './pipeline.js';
+import { STAGES, STAGE_LABEL, DEFAULT_STAGES, HIDDEN, stageChoices, stageOf, pipelineSummary, taskBuckets, attention, findContacts, upcomingDates, isoDay } from './pipeline.js';
 import { listAllDeals, updateDeal, showDeal, currentDealId } from './dealui.js';
 import { taskRow, contactLinks, editContact } from './dealcrm.js';
 import { renderDataCard } from './backupui.js';
@@ -37,7 +37,7 @@ const section = (title, id) => {
 async function render() {
   const root = $('home-root');
   if (!root) return;
-  const [deals, tasks, contacts, activity] = await Promise.all([listAllDeals(), crm.listTasks(), crm.listContacts(), crm.listActivity()]);
+  const [deals, tasks, contacts, activity] = await Promise.all([listAllDeals(), crm.listTasks(), crm.listContacts(), crm.listActivity(), crm.loadStages()]);
   const scrollY = window.scrollY;
   root.textContent = '';
   const nameOf = Object.fromEntries(deals.map((d) => [d.id, d.name || d.figures.address || 'Untitled deal']));
@@ -59,6 +59,8 @@ async function render() {
   root.appendChild(tiles);
 
   const att = attention(deals, tasks);
+  const dates = upcomingDates(deals, { days: 30 });
+  for (const k of dates.filter((x) => x.daysLeft <= 7)) att.unshift({ kind: 'date', dealId: k.dealId, text: `${k.name}: ${k.label} ${k.daysLeft < 0 ? `was ${-k.daysLeft} day${k.daysLeft === -1 ? '' : 's'} ago` : k.daysLeft === 0 ? 'is today' : `in ${k.daysLeft} day${k.daysLeft === 1 ? '' : 's'}`}.` });
   const lastBackup = await kvGet('backup.last');
   if (deals.length && (!lastBackup || Date.now() - lastBackup > 30 * 86400000)) att.push({ kind: 'backup', text: lastBackup ? `No backup for ${Math.floor((Date.now() - lastBackup) / 86400000)} days: Your data, below.` : 'No backup yet: everything is on this device only (Your data, below).' });
   if (att.length) {
@@ -75,6 +77,7 @@ async function render() {
   }
 
   root.appendChild(pipelineCard(p));
+  if (dates.length) root.appendChild(datesCard(dates));
   root.appendChild(tasksCard(tasks, deals, nameOf));
   root.appendChild(contactsCard(contacts, deals, nameOf));
   root.appendChild(activityCard(activity, nameOf));
@@ -89,6 +92,11 @@ async function render() {
 
 function pipelineCard(p) {
   const [c, h] = section('Pipeline', 'home-pipeline');
+  const st = el('button', 'btn btn-sm btn-gray', 'Stages');
+  st.type = 'button';
+  st.id = 'pipeline-stages';
+  st.addEventListener('click', editStages);
+  h.appendChild(st);
   const rep = el('button', 'btn btn-sm btn-gray', 'Report');
   rep.type = 'button';
   rep.id = 'pipeline-report';
@@ -123,7 +131,7 @@ function pipelineCard(p) {
       open.addEventListener('click', () => showDeal(d.id));
       const sel = el('select');
       sel.setAttribute('aria-label', `Stage of ${d.name || 'deal'}`);
-      for (const [k, label] of STAGES) { const o = el('option', null, label); o.value = k; sel.appendChild(o); }
+      for (const [k, label] of stageChoices(stageOf(d))) { const o = el('option', null, label); o.value = k; sel.appendChild(o); }
       sel.value = stageOf(d);
       sel.addEventListener('change', async () => {
         const was = stageOf(d);
@@ -138,6 +146,64 @@ function pipelineCard(p) {
   c.appendChild(board);
   if (empty.length) { const e = el('p', 'hint-sm pipe-empty', `No deals in ${empty.join(', ')}.`); c.appendChild(e); }
   return c;
+}
+
+function datesCard(dates) {
+  const [c] = section('Key dates, next 30 days', 'home-dates');
+  const ul = el('div', 'task-group');
+  for (const k of dates) {
+    const row = el('div', `task-row date-row${k.daysLeft < 0 ? ' overdue' : ''}`);
+    const when = el('span', 'date-when', k.daysLeft < 0 ? `${-k.daysLeft}d ago` : k.daysLeft === 0 ? 'today' : `in ${k.daysLeft}d`);
+    const main = el('div', 'task-main');
+    main.appendChild(el('span', 'task-title', k.label));
+    const a = el('button', 'btn-plain linkish', k.name);
+    a.type = 'button';
+    a.addEventListener('click', () => showDeal(k.dealId));
+    const meta = el('span', 'task-meta', `${niceDate(`${k.date}T12:00:00`)} · `);
+    meta.appendChild(a);
+    main.appendChild(meta);
+    row.append(when, main);
+    ul.appendChild(row);
+  }
+  c.appendChild(ul);
+  return c;
+}
+
+/** Rename stages or hide those the firm does not use. Keys never change, so deals keep their stage. */
+async function editStages() {
+  await crm.loadStages();
+  const save = el('button', 'btn', 'Save');
+  save.type = 'button';
+  save.id = 'stages-save';
+  const reset = el('button', 'btn btn-gray', 'Defaults');
+  reset.type = 'button';
+  const body = api.sheetOpen({ eyebrow: 'Pipeline', title: 'Stages', sub: 'Rename stages to your firm’s words, or hide the ones you do not use. A deal in a hidden stage stays there.', foot: [reset, save] });
+  const rows = [];
+  for (const [k, def] of DEFAULT_STAGES) {
+    const r = el('div', 'stage-row');
+    const i = el('input');
+    i.id = `stage-${k}`;
+    i.value = STAGE_LABEL[k];
+    i.placeholder = def;
+    i.setAttribute('aria-label', `Name for the ${def} stage`);
+    const l = el('label', 'chk');
+    const cb = el('input');
+    cb.type = 'checkbox';
+    cb.checked = !HIDDEN.has(k);
+    cb.id = `stage-show-${k}`;
+    l.append(cb, document.createTextNode(' Show'));
+    r.append(i, l);
+    body.appendChild(r);
+    rows.push([k, def, i, cb]);
+  }
+  reset.addEventListener('click', () => { for (const [, def, i, cb] of rows) { i.value = def; cb.checked = true; } });
+  save.addEventListener('click', async () => {
+    const next = {};
+    for (const [k, def, i, cb] of rows) { const label = i.value.trim(); if ((label && label !== def) || !cb.checked) next[k] = { label: label && label !== def ? label : '', hidden: !cb.checked }; }
+    await crm.saveStages(next);
+    api.sheetClose();
+    toast('Stages saved.');
+  });
 }
 
 /* ----------------------------------------------------------------- tasks */

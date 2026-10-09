@@ -1,9 +1,9 @@
 # Changelog
 
-## Unreleased
+## 3.2.0 (on the development branch; not yet merged or deployed)
 
-Not yet released: the version number (and so the offline cache) is bumped when
-this work is released, so installed copies fetch the new files whole.
+The version (and so the offline cache name) is 3.2.0, so an installed copy
+fetches every new file whole once this reaches the published site.
 
 ### New
 
@@ -51,7 +51,9 @@ this work is released, so installed copies fetch the new files whole.
   (stage also on each deal's new Pipeline card, with its history), tasks by
   due date, contacts linked to deals, recent activity, and every file saved
   or page printed. A pipeline report exports to Excel or prints. Call-note
-  action items can become a deal's next steps.
+  action items can become a deal's next steps. Nine stages (the firm can
+  rename or hide them) and key dates per deal, with the next 30 days on Home.
+  The deal brief includes call-note summaries, labelled as AI summaries.
 - **Backup and restore** of everything on the device in one file (deals with
   photos and recordings, comps, templates, tasks, contacts, settings; never
   the AI token). Restoring merges, newer copy winning, or replaces everything
@@ -61,22 +63,38 @@ this work is released, so installed copies fetch the new files whole.
   against page text, readings grouped by tolerance (never auto-picked), and
   the rent roll checked against the OM's occupancy, SF, rent and units.
 
+### Fixed (accessibility and security)
+
+- Text contrast: the faint grey, the green, amber and teal now meet WCAG AA
+  (4.5:1) on every surface they sit on, light and dark.
+- Tap targets of at least 24 px (WCAG 2.2): page-source tags, chips,
+  checkboxes; sideways-scrolling tables can be reached and scrolled from the
+  keyboard; the file pickers have names; chart points have a role for their
+  labels; a date field shows a focus ring on its calendar button too.
+- A Content-Security-Policy forbids plugins, a re-pointed base URL and form
+  posts; the page sends no referrer.
+- The AI server limits each client to 20 AI requests a minute.
+
 ### Tests
 
 - `tests/lease.test.js` (18), `tests/tplcells.test.js` (7) and
   `tests/calc.test.js` (12) check the new maths against figures worked out by
   hand or independently.
 - `tests/reconcile.test.js` (5) for quote checks and reconciliation;
-  `tests/pipeline.test.js` (4) for stages, task due dates and attention;
+  `tests/pipeline.test.js` (6) for stages, key dates, task due dates and attention;
   `tests/backup.test.js` (4) for the backup round trip and restore plans;
   `server/test/server.test.mjs` (10) runs the server and the real Anthropic SDK
   against a local stand-in for the API. No live model call is tested: that
   needs a key.
 - Browser flows `rentroll-flow` (22 checks), `template-flow` (16),
-  `tools-flow` (28), `home-flow` (28), `backup-flow` (16: a wiped browser restored, photos byte
+  `tools-flow` (28), `home-flow` (32), `backup-flow` (16: a wiped browser restored, photos byte
   for byte) and `ai-flow` (26, against the real server code and
   stand-in model and speech services), and the filled template recalculated
   in LibreOffice.
+- `a11y-flow` (24 checks): axe-core's WCAG 2.0/2.1/2.2 A and AA rules on every
+  screen and the main sheets, light and dark, with no violations; every
+  control Tab reaches on Home shows a focus ring; 24 px targets; reflow at
+  320 px. Automated checks are a floor: no screen-reader session was run.
 
 ## 3.1.0
 

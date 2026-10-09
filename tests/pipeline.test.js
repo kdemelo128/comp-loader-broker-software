@@ -1,7 +1,7 @@
 /* The Home screen's arithmetic: deals by stage, tasks by due date, what needs attention. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pipelineSummary, taskBuckets, attention, findContacts, stageOf } from '../app/pipeline.js';
+import { pipelineSummary, taskBuckets, attention, findContacts, stageOf, applyStageConfig, STAGES, STAGE_LABEL, stageChoices, upcomingDates } from '../app/pipeline.js';
 
 const day = 86400000;
 const today = '2026-10-09';
@@ -60,4 +60,23 @@ test('contact search', () => {
   assert.deepEqual(findContacts(cs, '').map((c) => c.name), ['Al Moss', 'Zoe Park']);
   assert.deepEqual(findContacts(cs, 'lender').map((c) => c.name), ['Al Moss']);
   assert.deepEqual(findContacts(cs, 'harbor').map((c) => c.name), ['Zoe Park']);
+});
+
+test('stages can be renamed and hidden; a deal keeps its own stage in the menu', () => {
+  applyStageConfig({ listing: { label: 'Exclusive listing' }, marketing: { hidden: true }, bogus: { label: 'x' } });
+  assert.equal(STAGE_LABEL.listing, 'Exclusive listing');
+  assert.equal(STAGES.length, 9);
+  assert.ok(!stageChoices().some(([k]) => k === 'marketing'));
+  assert.ok(stageChoices('marketing').some(([k]) => k === 'marketing'), 'a deal in a hidden stage still shows it');
+  applyStageConfig({});
+  assert.equal(STAGE_LABEL.listing, 'Listing');
+});
+
+test('key dates: overdue and within the window, active deals only, soonest first', () => {
+  const deals = [
+    { id: 'a', name: 'Alpha', stage: 'contract', keyDates: [{ id: 1, label: 'Closing', date: '2026-11-20' }, { id: 2, label: 'Due diligence expires', date: '2026-10-12' }, { id: 3, label: 'Deposit goes hard', date: '2026-10-01' }, { id: 4, label: 'Done one', date: '2026-10-10', done: true }] },
+    { id: 'b', name: 'Beta', stage: 'closed', keyDates: [{ id: 5, label: 'Closing', date: '2026-10-10' }] },
+  ];
+  const u = upcomingDates(deals, { today, days: 30 });
+  assert.deepEqual(u.map((x) => [x.label, x.daysLeft]), [['Deposit goes hard', -8], ['Due diligence expires', 3]]);
 });

@@ -40,6 +40,7 @@ npm start
 | `STT_URL`, `STT_API_KEY`, `STT_MODEL` | Optional. Any speech service with an OpenAI-compatible `/audio/transcriptions` endpoint (OpenAI, Groq, or a self-hosted Whisper server). `STT_MODEL` defaults to `whisper-1`. |
 | `PORT` | Default 8787. |
 | `MAX_BODY_MB` | Largest request, default 40 (a 28 MB PDF after base64). |
+| `RATE_PER_MIN` | AI requests a minute per client address, default 20. Over it, the server answers 429 with `Retry-After`. Behind a reverse proxy every request comes from the proxy's address, so the limit is then shared by everyone. |
 
 Put it behind HTTPS (any host that runs Node: a small VM, Render, Fly.io, a
 container service). The app refuses a plain `http://` address except

@@ -6,7 +6,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import Anthropic from '@anthropic-ai/sdk';
-import { handler, config, transcribe } from '../index.mjs';
+import { handler, config, transcribe, limiter } from '../index.mjs';
 
 let mock; let mockUrl; let app; let appUrl;
 const seen = [];
@@ -162,4 +162,24 @@ test('transcribe: posts the audio to the speech service and returns segments', a
   assert.equal(got.init.headers.Authorization, 'Bearer k');
   assert.equal(got.init.body.get('model'), 'whisper-1');
   await assert.rejects(() => transcribe(null, { data: 'x' }), /not set up/);
+});
+
+test('rate limit: a client over its minute is told when to come back', async () => {
+  let t = 0;
+  const lim = limiter(2, () => t);
+  assert.equal(lim('a'), 0);
+  assert.equal(lim('a'), 0);
+  t = 15000;
+  assert.equal(lim('a'), 45, 'the third request in the minute waits out the window');
+  assert.equal(lim('b'), 0, 'another client is not affected');
+  t = 60000;
+  assert.equal(lim('a'), 0, 'a new minute starts afresh');
+  const tight = http.createServer(handler({ ...config({ APP_TOKEN: 'test-token-0123456789', RATE_PER_MIN: '1' }), aiConfigured: false }, null));
+  await new Promise((r) => tight.listen(0, '127.0.0.1', r));
+  const hit = () => fetch(`http://127.0.0.1:${tight.address().port}/api/assist`, { method: 'POST', headers: { authorization: 'Bearer test-token-0123456789' }, body: '{}' });
+  assert.equal((await hit()).status, 501);
+  const r = await hit();
+  assert.equal(r.status, 429);
+  assert.ok(Number(r.headers.get('retry-after')) > 0);
+  tight.close();
 });
