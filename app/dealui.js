@@ -1687,6 +1687,34 @@ function templateContext(d) {
     scenario: runScenario(figuresFor(d), m, d.live || {}, { noiSeries: series }), preparedBy, today: new Date(),
   };
 }
+/** The open deal for the Tools screen: its figures, analysis, rent roll and scenario, or null. */
+export function dealForTools() {
+  if (!deal || !hasFigures()) return null;
+  const ctx = templateContext(deal);
+  return { name: deal.name || deal.figures.address || 'Untitled deal', figures: { ...deal.figures }, loan: { ...deal.loan }, live: { ...(deal.live || {}) }, m: ctx.m, rrSum: ctx.rrSum, rrProj: ctx.rrProj, scenario: ctx.scenario };
+}
+
+/**
+ * The one way a tool's result reaches the deal: called only after the person
+ * confirmed. Figures written are tagged as typed (with the tool named), loan
+ * terms replace the deal's, and hold assumptions go to the What-if scenario,
+ * never to the deal's own figures.
+ */
+export function applyFromTools({ figures = {}, loan = {}, live = {} }, toolTitle) {
+  if (!deal) return false;
+  for (const [k, v] of Object.entries(figures)) {
+    if (v === null || v === undefined || (typeof v === 'number' && !Number.isFinite(v))) continue;
+    deal.figures[k] = v;
+    const s = deal.sources[k];
+    if (s) { s.hand = s.orig !== v; s.tool = toolTitle; } else deal.sources[k] = { hand: true, tool: toolTitle };
+  }
+  for (const [k, v] of Object.entries(loan)) if (v !== null && v !== undefined) deal.loan[k] = v;
+  deal.live = { ...(deal.live || {}), ...Object.fromEntries(Object.entries(live).filter(([, v]) => v !== null && v !== undefined)) };
+  touch();
+  render();
+  return true;
+}
+
 export function openTemplates() {
   return openLibrary(api, { getDeal: () => (deal && hasFigures() ? deal : null), ctxFor: templateContext });
 }

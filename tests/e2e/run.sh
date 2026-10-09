@@ -25,6 +25,6 @@ if command -v ffmpeg >/dev/null; then ffmpeg -loglevel error -y -f lavfi -i "sin
 SERVER=$!
 trap 'kill $SERVER 2>/dev/null' EXIT
 sleep 1
-FLOWS=${1:-"workflows rentroll-flow template-flow live-flow voice-flow final-e2e deal-persistence deal-isolation comps-reload errors-flow pwa-flow tpl-flow comps-flow mobile-audit"}
+FLOWS=${1:-"workflows rentroll-flow template-flow tools-flow live-flow voice-flow final-e2e deal-persistence deal-isolation comps-reload errors-flow pwa-flow tpl-flow comps-flow mobile-audit"}
 for f in $FLOWS; do echo "===== $f"; node "$f.mjs"; done
 for x in files/*.xlsx files/*.xlsm; do case "$x" in *acme-template.xlsx) continue;; esac; echo "===== recalc $x"; python3 -W ignore recalc.py "$x"; done

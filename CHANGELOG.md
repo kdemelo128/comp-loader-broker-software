@@ -1,5 +1,53 @@
 # Changelog
 
+## Unreleased
+
+Not yet released: the version number (and so the offline cache) is bumped when
+this work is released, so installed copies fetch the new files whole.
+
+### New
+
+- **Rent roll workspace** (Deal → Rent roll). Leases as dated rent periods
+  with a lease engine behind them (`app/lease.js`): per-month, per-year and
+  per-SF rents, step increases, day-weighted proration, free rent and partial
+  abatements, recoveries (pro rata, base year, stop, fixed), percentage rent,
+  one-time items, renewal and re-leasing blended by probability, lease-up, and
+  a monthly and annual projection to NOI. Configurable columns, presets,
+  saved layouts, keyboard navigation, validation (overlaps, gaps, bad dates),
+  expirations, concentration, import from Excel or CSV, and Rent Roll, Lease
+  Schedule and Cash Flow tabs in the deal workbook. What if can use the
+  projection's NOI year by year.
+- **Template library.** Upload a firm's own .xlsx or .xlsm, map deal fields to
+  its cells (suggested from named ranges and labels, corrected on a
+  tap-to-map view), preview every cell before writing, and fill it in place:
+  formulas, formats, merges, named ranges, hidden sheets and macros kept, an
+  optional audit sheet of every value written and its source. Versions,
+  duplicate, export and import as one file.
+- **Tools: 23 new calculators**, 30 in all, in seven groups with search:
+  discounted cash flow (optionally on the rent roll's NOI), NOI bridge,
+  break-even occupancy, value sensitivity; amortization schedule, refinance
+  and cash-out, floating-rate stress with a rate cap, maturity and refinance
+  risk, financing costs; hold returns before and after sponsor fees, IRR
+  sensitivity, a distribution waterfall with IRR hurdles, commission and
+  splits; lease proposal comparison, renewal versus replacement, escalation
+  schedule, percentage rent, recoveries, absorption; a comp set check; and
+  residual land value, yield on cost and construction draws.
+- Every tool can **save named scenarios**, **export** to Excel or print, and
+  explain its formula; tools that use deal figures can **load them from the
+  open deal**. Loan sizing, the NOI bridge and hold returns can **send their
+  result to the deal**, after a confirmation listing each change from old to
+  new; figures are tagged as typed from that tool, and hold assumptions go to
+  the What if scenario, never the deal's figures.
+- The Deal screen is split into Overview, Rent roll, What if and Site visit.
+
+### Tests
+
+- `tests/lease.test.js` (18), `tests/tplcells.test.js` (7) and
+  `tests/calc.test.js` (12) check the new maths against figures worked out by
+  hand or independently.
+- Browser flows `rentroll-flow` (22 checks), `template-flow` (16) and
+  `tools-flow` (28), and the filled template recalculated in LibreOffice.
+
 ## 3.1.0
 
 A reliability release, found by testing every workflow in a phone-sized

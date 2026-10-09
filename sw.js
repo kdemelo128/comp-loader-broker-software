@@ -50,6 +50,8 @@ const ASSETS = [
   'app/rentroll.js',
   'app/rentrollui.js',
   'app/rrbook.js',
+  'app/calc.js',
+  'app/toolsdefs.js',
   'app/dealfields.js',
   'app/library.js',
   'app/libraryui.js',

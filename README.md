@@ -9,9 +9,11 @@ app. Three tabs:
   page each came from, what doesn't add up, where it sits against your comps, a
   loan run, a **live what-if** with hold-period returns, the questions to ask,
   and site-visit notes, photos and voice notes.
-- **Tools** holds the calculators a deal needs between meetings: quick value,
-  loan sizing, offer and seller net, net effective rent, 1031 deadlines, WALT
-  and a converter.
+- **Tools** holds 30 calculators for valuation, debt, returns and fees,
+  leasing, comps and development (DCF, amortization, refinance, floating-rate
+  stress, sensitivity grids, a distribution waterfall, commission splits,
+  lease comparisons, residual land value and more). A tool can load the open
+  deal's figures and, after you confirm each change, send its result back.
 
 Everything is read on the device. PDFs and workbooks are never uploaded, the
 page makes no request to any other site, and once it has loaded it works with
@@ -80,6 +82,9 @@ download). In a few seconds:
   notes are kept as audio with the deal; they are **not transcribed**, because
   that needs a speech service and nothing here leaves the device.
 
+The Deal screen has four sections: **Overview**, **Rent roll**, **What if** and
+**Site visit**.
+
 Then: **Excel** (a Deal Analysis tab and a Rent Roll tab, every result a live
 formula), **Share** (a five-line summary), **Deal brief** (print or save as
 PDF, with photos and any scenarios, labelled as assumptions), or **Use as the
@@ -89,6 +94,91 @@ comps subject**. Deals are saved on the device; **All deals** lists them, and
 An OM that is a scan, with no text in it, can't be read: enter the figures by
 hand and everything else works the same. OMs have no standard layout, so check
 the figures against the page tags before relying on them.
+
+## Rent roll
+
+The **Rent roll** section holds each lease as dated rent periods, not one rent
+figure, so an irregular schedule is entered as the lease reads.
+
+- **The grid** shows one row per unit with the columns you choose: show, hide,
+  rename, widen and reorder them, add your own fields, start from a preset for
+  the property type, and save a layout to reuse. Arrows, Enter and Escape move
+  around it as in a spreadsheet; search, sort and filter by status.
+- **The lease schedule** (tap a row's schedule button) has a timeline, the rent
+  periods (per month, per year, per SF a year or a month), a step builder for %
+  or $ increases on any interval, free rent and partial abatements, one-time
+  charges and credits, expense recoveries (pro rata, base year, expense stop,
+  fixed), percentage rent, and renewal terms. It checks for overlaps, gaps,
+  bad dates and per-SF rent with no SF.
+- **Outputs**: expirations by year, tenant concentration, and a month-by-month
+  projection to NOI, with renewals and re-leasing blended by probability and
+  general vacancy netted against the vacancy already modelled. Periods taken
+  from documents are kept apart from projected ones; with no market rent set,
+  re-leasing assumes the last contract rent and says so.
+- **Import** from Excel or CSV with a column-matching step; export to Excel or
+  CSV. The deal workbook carries Rent Roll, Lease Schedule and Cash Flow tabs.
+- **What if** can take NOI year by year from this projection.
+
+## Template library
+
+**Fill my Excel template** (Deal menu and Deal screen; also under the Comps ⋯
+menu as Template library) keeps your firm's own workbooks on the device and
+fills them from any deal.
+
+1. Upload an .xlsx or .xlsm. Comp Loader lists its sheets, named ranges and
+   anything that needs a warning (macros, external links, pivot tables,
+   connections, protection). .xls and .xlsb are refused with what to do.
+2. It suggests which cell takes which deal figure (a named range, or the cell
+   beside or under a label naming it), with its reason; correct it on a
+   tap-to-map view of the sheet. Rent roll tables are found by their headings.
+3. Before anything is written, a preview lists every cell: its value now, the
+   new value, where that comes from (OM page, typed, calculated, rent roll,
+   scenario) and how many formulas read it. Formula cells and the inside of
+   merged ranges are never written.
+4. The filled copy keeps formats, formulas, merges, named ranges, hidden sheets
+   and macros (an .xlsm stays an .xlsm, its macros byte for byte). An optional
+   **Comp Loader Audit** sheet lists every cell written and its source.
+
+Templates have categories, versions (replace the file, restore an older one),
+duplicate and delete, and export as one file to send to a colleague, who
+imports it on their device. There is no shared server: that is how a firm
+template travels.
+
+## Tools
+
+Thirty calculators in seven groups. Results update as you type, and every
+figure comes from the tested functions in `app/calc.js`, `app/deal.js`,
+`app/lease.js` and `app/tools.js`.
+
+| Group | Tools |
+|---|---|
+| Valuation | Quick value, offer and seller net, discounted cash flow (optionally on the rent roll's projected NOI), NOI bridge, break-even occupancy, value sensitivity (NOI × cap rate) |
+| Debt and financing | Loan sizing, amortization schedule with interest-only, refinance and cash-out, floating-rate stress with a rate cap, maturity and refinance risk, financing costs |
+| Returns and fees | Hold returns before and after sponsor fees, IRR sensitivity (price × exit cap), distribution waterfall with IRR hurdles, commission and splits |
+| Leasing | Net effective rent, compare three proposals, renewal versus replacement, escalation schedule, percentage rent, expense recoveries, lease-up and absorption, WALT |
+| Comps and market | Comp set check: count, recency, spread and a value range from the sale comps on the Comps tab |
+| Development | Residual land value, yield on cost, construction draws with capitalized interest |
+| Conversions and dates | 1031 exchange deadlines, the converter |
+
+In each tool:
+
+- **Load from deal** fills the inputs from the open deal; the deal is not
+  changed.
+- **Send to deal** (loan sizing, NOI bridge, hold returns) shows exactly what
+  will change, old value to new, and writes only when you confirm. Figures
+  written are tagged as typed, from that tool; hold assumptions go to the What
+  if scenario, never to the deal's own figures.
+- **Scenarios** saves named sets of inputs per tool (load, rename, duplicate,
+  delete), kept on the device.
+- **Export** copies the results as text, builds an Excel workbook (inputs as
+  numbers, results as the values shown, tables), or prints.
+- **How it is worked out** gives the formula, and warnings flag inputs that
+  don't hang together (an exit cap far above the discount rate, hurdles that
+  don't rise, a refinance that can't repay the old loan).
+
+The waterfall's rules are stated in the tool: capital in pro rata, cash out pro
+rata until the investors reach the first hurdle (compounded yearly), then the
+sponsor's promote off the top in each band; no catch-up and no clawback.
 
 ## On a phone
 
@@ -165,8 +255,15 @@ python3 -m http.server 8080      # then open http://localhost:8080
 
 ```sh
 npm ci        # the packages the tests use
-npm test      # parser, OM reader, deal maths, known-answer finance, tools, template, workbook, exports, repository
+npm test      # parser, OM reader, deal maths, known-answer finance, lease engine, tools, templates, workbook, exports, repository
 ```
+
+`tests/lease.test.js` checks the lease engine against schedules worked out by
+hand (proration, steps, abatements, recoveries, percentage rent, rollover,
+vacancy). `tests/calc.test.js` checks the Tools calculators (DCF, amortization,
+refinance, waterfall, commission, renewal versus replacement, residual land,
+draws and the rest) against figures worked out independently.
+`tests/tplcells.test.js` checks template mapping, the preview and filling.
 
 `tests/finance.test.js` checks the deal arithmetic against figures worked out
 independently (debt service, balances, DSCR, debt yield, cash-on-cash, loan
@@ -174,7 +271,8 @@ sizing, break-even occupancy, WALT, net effective rent, IRR, equity multiple,
 the price for a target IRR) and that junk inputs never produce NaN or Infinity.
 
 `tests/e2e/run.sh` drives the app in an iPhone-sized Chromium page: comps,
-a template, three OM layouts, bad files, the live what-if, photos and voice
+a template, three OM layouts, bad files, the rent roll workspace, the template
+library, the Tools screen, the live what-if, photos and voice
 notes, two deals side by side, reloads mid-edit, offline use, and a full
 broker walk-through. It then recalculates every exported workbook in
 LibreOffice and checks each formula against the value stored beside it. It
@@ -197,9 +295,18 @@ app/dealui.js         the Deal screen
 app/om.js             reading figures and the rent roll out of an OM
 app/deal.js           deal maths, checks and questions
 app/brief.js          the one-page deal brief and the text summary
+app/lease.js          the lease engine: dated rent periods, projection, validation
+app/rentroll.js       rent roll columns, presets and layouts
+app/rentrollui.js     the rent roll workspace and lease schedule
+app/rrbook.js         Rent Roll, Lease Schedule and Cash Flow workbook tabs
 app/toolsui.js        the Tools screen
-app/tools.js          the calculators
+app/toolsdefs.js      the Tools calculators' inputs and results
+app/tools.js          the first calculators
+app/calc.js           the Tools maths: DCF, debt, returns, waterfall, leasing, development
 app/template.js       filling your own Excel template in place
+app/dealfields.js     the deal fields a template can take, with their sources
+app/library.js        the template library on the device
+app/libraryui.js      the template library, mapping and preview screens
 app/costar.js         CoStar parsing and the comp-set rules
 app/layout.js         rebuilds column-preserving text from positioned glyphs
 app/pdftext.js        pdf.js to page text
@@ -235,8 +342,12 @@ vendor/, fonts/       bundled dependencies (see VENDOR.md)
 
 - Scanned PDFs with no text layer can't be read (that needs OCR; see below).
 - Voice notes are stored, not transcribed.
-- Hold-period returns are a simple annual model: NOI grows at one rate, the
-  sale is priced on the following year's NOI, no capital reserves, no tax.
+- Hold-period returns, the DCF and the waterfall are annual models with
+  end-of-year cash flows and no tax. NOI grows at one rate unless the rent roll
+  projection is used; the sale is priced on the following year's NOI.
+- The waterfall has no catch-up or clawback; the commission tool uses the
+  rates you enter, not a schedule of its own.
+- The comp set check has no distances: CoStar comps here carry no coordinates.
 - OM layouts vary without limit; the reader shows its sources so you can check it.
 - CoStar lease reports are not parsed; the Lease Comps tab is filled by hand.
 - Zoning covers the District of Columbia table and Montgomery County zone names.

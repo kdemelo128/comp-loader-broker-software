@@ -1439,6 +1439,8 @@ document.querySelectorAll('.app-version').forEach((n) => { n.textContent = `Comp
 const compsApi = {
   basis: () => compBasis(state.sales.filter(included)),
   count: () => state.sales.filter(included).length,
+  // the included sale comps, for the Tools screen's comp set check
+  sales: () => state.sales.filter(included).map((c) => ({ price: c.price, bsf: c.bsf, cap: c.cap, date: c.date })),
   setSubject: setSubjectFromDeal,
   showView,
   sheetOpen,
