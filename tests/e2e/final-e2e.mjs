@@ -31,6 +31,7 @@ check('4. pro forma NOI read from its column', (await page.inputValue('#fig-noi_
 const vs = await page.$$eval('#deal-comps .tile', (t) => t.map((x) => x.innerText.replace(/\n/g, ' | ')));
 check('5. asking vs comps -30.4%', vs.some((t) => /-30\.4%/.test(t)), vs.join(' || '));
 // 6-7. live deal
+await page.click('#tab-whatif');
 await page.fill('#scn-price', '6.1m'); await page.press('#scn-price', 'Tab');
 await page.fill('#scn-rate', '7'); await page.press('#scn-rate', 'Tab');
 await page.waitForTimeout(200);
@@ -43,6 +44,7 @@ check('7. scenario saved by name', (await page.locator('#scn-saved .li-title').f
 const irrAns = await page.locator('#scn-answers li', { hasText: 'levered IRR' }).innerText();
 check('9. price for a 15% levered IRR answered', /\$\d/.test(irrAns), irrAns.replace(/\n/g, ' '));
 // 8. site visit
+await page.click('#tab-visit');
 await page.locator('#deal-root button', { hasText: 'Start visit' }).click();
 await page.waitForTimeout(200);
 await page.locator('button[aria-label="Roof: Issue"]').click();
@@ -78,6 +80,7 @@ await dl2.saveAs(F + 'final-comps.xlsx');
 await page.waitForTimeout(700);
 await page.reload({ waitUntil: 'load' });
 await page.click('.tab[data-view="deal"] >> visible=true');
+await page.click('#tab-visit');
 await page.waitForSelector('#deal-audio .voice-row');
 check('14. after reload: notes, photos, voice, scenario, live price', (await page.inputValue('#visit-notes')).includes('patched in 2023')
   && (await page.locator('#deal-photos .photo').count()) === 2 && (await page.locator('#deal-audio .voice-row').count()) === 1

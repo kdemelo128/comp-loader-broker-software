@@ -15,6 +15,9 @@ import { readOm } from './om.js';
 import { analyze, runScenario, scenarioAnswers } from './deal.js';
 import * as store from './store.js';
 import { renderDealBrief, dealSummaryText, placeLine } from './brief.js';
+import { fromOmRows, project, rentRollSummary } from './lease.js';
+import { emptyRentRoll, layoutFromPreset, presetFor, MARKET_UNIT, legacyRows } from './rentroll.js';
+import { renderRentRollWorkspace } from './rentrollui.js';
 import {
   $, el, svg, IN_ARTIFACT, XLSX, parseNum, parsePct, int, dec, money0, money2, pct, signed, times, yrs, short, niceDate,
   localDate, toast, actionSheet, getPdfjs, getXlsx, deliver, deliveryError, shareText, idle, pdfProblem,
@@ -162,8 +165,9 @@ function visitLines() {
 /** Each saved scenario, and the unsaved one if it differs from the deal, as a line of text. */
 function scenarioLines(m) {
   const line = (name, over) => {
-    const r = runScenario(figuresFor(deal), m, over);
+    const r = runScenario(figuresFor(deal), m, over, { noiSeries: over.noiBasis === 'rentroll' ? rentRollSeries(Number.isFinite(over.hold) ? over.hold : 5) : null });
     const changed = Object.entries(over).map(([k, v]) => {
+      if (k === 'noiBasis') return v === 'rentroll' ? 'NOI from the rent roll' : null;
       const spec = SCN.find((x) => x[0] === k);
       return spec ? `${spec[1].replace(/, % change| %|, years/g, '').toLowerCase()} ${scnShow(spec[2], v)}` : null;
     }).filter(Boolean).join(', ');
@@ -185,7 +189,7 @@ export function dealForWorkbook(basis) {
 function workbookDeal(m) {
   return {
     name: `${deal.example ? 'FICTIONAL SAMPLE — ' : ''}${deal.name || deal.figures.address}`, source: deal.source, readAt: deal.readAt,
-    figures: { ...deal.figures, rentRoll: deal.rentRoll }, loan: deal.loan, sources: deal.sources,
+    figures: { ...deal.figures, rentRoll: deal.rentRoll }, loan: deal.loan, sources: deal.sources, rr: deal.rr, example: !!deal.example,
     questions: activeQuestions(m), visitLines: visitLines(), scenarioLines: scenarioLines(m),
   };
 }
@@ -400,6 +404,7 @@ function render() {
   r.textContent = '';
   if (reading) return renderReading(r);
   if (!deal) return renderLanding(r);
+  if (ensureRentRoll(deal)) touch();
   renderDeal(r);
 }
 
@@ -531,26 +536,55 @@ function renderDeal(r) {
   head.appendChild(tiles);
   stack.appendChild(head);
 
+  // the deal's sections, one at a time: a tab bar rather than one endless page
+  const tabs = el('div', 'seg');
+  tabs.setAttribute('role', 'tablist');
+  tabs.setAttribute('aria-label', 'Deal sections');
+  const panes = {};
+  for (const [key, label] of PANES) {
+    const b = el('button', null, label);
+    b.type = 'button';
+    b.id = `tab-${key}`;
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-controls', `pane-${key}`);
+    b.addEventListener('click', () => showPane(key));
+    b.addEventListener('keydown', (e) => {
+      const i = PANES.findIndex(([k]) => k === key);
+      const to = e.key === 'ArrowRight' ? PANES[(i + 1) % PANES.length] : e.key === 'ArrowLeft' ? PANES[(i - 1 + PANES.length) % PANES.length] : null;
+      if (to) { e.preventDefault(); showPane(to[0]); $(`tab-${to[0]}`).focus(); }
+    });
+    tabs.appendChild(b);
+    const p = el('div', 'pane stack');
+    p.id = `pane-${key}`;
+    p.setAttribute('role', 'tabpanel');
+    p.setAttribute('aria-labelledby', b.id);
+    panes[key] = p;
+  }
+  stack.appendChild(tabs);
+
   const checks = el('section', 'card');
   checks.id = 'deal-checks';
-  stack.appendChild(checks);
+  panes.overview.appendChild(checks);
   const comps = el('section', 'card');
   comps.id = 'deal-comps';
-  stack.appendChild(comps);
-
-  stack.appendChild(figuresCard());
-  stack.appendChild(financeCard());
-  stack.appendChild(scenarioCard());
+  panes.overview.appendChild(comps);
+  panes.overview.appendChild(figuresCard());
+  panes.overview.appendChild(financeCard());
   const ladder = el('section', 'card');
   ladder.id = 'deal-ladder';
-  stack.appendChild(ladder);
+  panes.overview.appendChild(ladder);
   const rr = el('section', 'card');
   rr.id = 'deal-rr';
-  stack.appendChild(rr);
+  panes.overview.appendChild(rr);
   const qs = el('section', 'card');
   qs.id = 'deal-q';
-  stack.appendChild(qs);
-  stack.appendChild(visitCard());
+  panes.overview.appendChild(qs);
+  const rrw = el('section', 'card rr-card');
+  rrw.id = 'deal-rentroll';
+  panes.rentroll.appendChild(rrw);
+  panes.whatif.appendChild(scenarioCard());
+  panes.visit.appendChild(visitCard());
+  for (const p of Object.values(panes)) stack.appendChild(p);
 
   const bottom = el('div', 'view-actions');
   bottom.style.cssText = 'justify-content:center;margin:6px 0 4px';
@@ -559,6 +593,55 @@ function renderDeal(r) {
   bottom.appendChild(button('btn-gray', 'All deals', closeDeal, '<path d="M15 6l-6 6 6 6"/>'));
   stack.appendChild(bottom);
   r.appendChild(stack);
+  renderDerived();
+  showPane(pane, { focus: false });
+}
+
+const PANES = [['overview', 'Overview'], ['rentroll', 'Rent roll'], ['whatif', 'What if'], ['visit', 'Site visit']];
+let pane = 'overview';
+function showPane(key, { focus = true } = {}) {
+  if (!PANES.some(([k]) => k === key)) key = 'overview';
+  pane = key;
+  for (const [k] of PANES) {
+    const p = $(`pane-${k}`); const t = $(`tab-${k}`);
+    if (!p || !t) continue;
+    p.hidden = k !== key;
+    t.setAttribute('aria-selected', String(k === key));
+    t.tabIndex = k === key ? 0 : -1;
+  }
+  if (key === 'rentroll') drawRentRoll();
+  if (focus) { const t = $(`tab-${key}`); if (t) t.scrollIntoView({ block: 'nearest' }); }
+}
+
+/* --------------------------------------------------------------- rent roll */
+
+/** A deal from before the rent roll existed gets one: the OM's table as documented periods. */
+function ensureRentRoll(d) {
+  if (d.rr) return false;
+  const asOf = localDate();
+  const bsf = d.figures && Number.isFinite(d.figures.bsf) ? d.figures.bsf : null;
+  const preset = presetFor(d.figures && d.figures.ptype);
+  if (d.rentRoll && d.rentRoll.length) {
+    d.rr = fromOmRows(d.rentRoll, { asOf, page: d.rentRollPage, buildingSf: bsf });
+    d.rr.columns = layoutFromPreset(preset);
+    d.rr.preset = preset;
+    d.rr.settings.marketUnit = MARKET_UNIT[preset] || 'psf_year';
+  } else d.rr = emptyRentRoll(d.figures && d.figures.ptype, asOf, bsf);
+  if (d.figures && Number.isFinite(d.figures.opex)) d.rr.settings.opex = d.figures.opex;
+  d.schema = 2;
+  return true;
+}
+
+function drawRentRoll() {
+  const box = $('deal-rentroll');
+  if (!box || !deal) return;
+  renderRentRollWorkspace(box, deal, api, rentRollChanged);
+}
+
+/** Any rent roll edit: the flat rows the analysis reads follow, the deal saves, the analysis redraws. */
+function rentRollChanged() {
+  deal.rentRoll = legacyRows(deal.rr);
+  touch();
   renderDerived();
 }
 
@@ -946,7 +1029,7 @@ const SCN = [
   ['rate', 'Interest rate %', 'pct'], ['ltv', 'Loan to value %', 'pct'],
   ['exitCap', 'Exit cap rate %', 'pct'], ['hold', 'Hold, years', 'int'], ['growth', 'NOI growth a year %', 'delta'], ['saleCost', 'Sale costs %', 'pct0'],
 ];
-const HOLD_KEYS = ['exitCap', 'hold', 'growth', 'saleCost'];
+const HOLD_KEYS = ['exitCap', 'hold', 'growth', 'saleCost', 'noiBasis'];
 const scnShow = (kind, v) => {
   if (!ok(v)) return '';
   if (kind === 'money') return money0(v);
@@ -972,6 +1055,17 @@ function scenarioCard() {
   h.appendChild(el('h2', null, 'Live deal: what if'));
   h.appendChild(el('span', 'count', 'changes here never alter the deal unless you save them to it'));
   c.appendChild(h);
+  // where the hold-period NOI comes from
+  const basis = el('div', 'scn-basis');
+  const bl = el('label', null, 'NOI over the hold');
+  bl.htmlFor = 'scn-noiBasis';
+  const bs = el('select', 'compact');
+  bs.id = 'scn-noiBasis';
+  for (const [v, l] of [['om', 'The deal’s NOI, growing at the rate below'], ['rentroll', 'The rent roll’s projection, year by year']]) { const o = el('option', null, l); o.value = v; bs.appendChild(o); }
+  bs.value = deal.live.noiBasis || 'om';
+  bs.addEventListener('change', () => { if (bs.value === 'om') delete deal.live.noiBasis; else deal.live.noiBasis = bs.value; touch(); renderDerived(); });
+  basis.append(bl, bs);
+  c.appendChild(basis);
   const g = el('div', 'grid-form');
   g.id = 'scn-inputs';
   c.appendChild(g);
@@ -998,10 +1092,20 @@ function scenarioCard() {
   return c;
 }
 
+/** The rent roll's NOI for each year of the hold and the year after, or null. */
+function rentRollSeries(hold) {
+  const rr = deal.rr;
+  if (!rr || !rr.leases.length || !Number.isFinite(rr.settings.opex)) return null;
+  const years = Math.max(2, Math.round(Number.isFinite(hold) ? hold : 5) + 1);
+  return project(rr, { years }).annual.map((y) => y.noi);
+}
+
 function renderScenario(m) {
   const g = $('scn-inputs');
   if (!g) return;
-  const run = runScenario(figuresFor(deal), m, deal.live);
+  const hold = Number.isFinite(deal.live.hold) ? deal.live.hold : 5;
+  const ctx = { noiSeries: deal.live.noiBasis === 'rentroll' ? rentRollSeries(hold) : null };
+  const run = runScenario(figuresFor(deal), m, deal.live, ctx);
   const base = run.base;
   // inputs: drawn once, then only their state changes, so the keyboard stays put
   if (!g.children.length) {
@@ -1041,7 +1145,7 @@ function renderScenario(m) {
 
   // the Deal column uses the deal's figures with the same hold assumptions
   const holdOnly = Object.fromEntries(Object.entries(deal.live).filter(([k]) => HOLD_KEYS.includes(k)));
-  const dealRun = runScenario(figuresFor(deal), m, holdOnly);
+  const dealRun = runScenario(figuresFor(deal), m, holdOnly, ctx);
   const box = $('scn-out');
   box.textContent = '';
   const t = el('table', 'mini scn');
@@ -1076,13 +1180,13 @@ function renderScenario(m) {
   wrap.appendChild(t);
   box.appendChild(wrap);
   const s = B.inputs;
-  const p = el('p', 'hint-sm', `Returns: ${s.hold}-year hold, NOI growing ${dec(s.growth, 2)}% a year, sold at a ${ok(s.exitCap) ? pct(s.exitCap) : '—'} cap on the following year's NOI, less ${dec(s.saleCost, 2)}% sale costs and the loan balance. All scenario assumptions: change them above.`);
+  const p = el('p', 'hint-sm', `Returns: ${s.hold}-year hold, ${B.series ? 'NOI year by year from the rent roll projection' : `NOI growing ${dec(s.growth, 2)}% a year`}, sold at a ${ok(s.exitCap) ? pct(s.exitCap) : '—'} cap on the following year's NOI, less ${dec(s.saleCost, 2)}% sale costs and the loan balance. All scenario assumptions: change them above.`);
   p.style.marginTop = '8px';
   box.appendChild(p);
 
   // answers to the questions a buyer asks, on the scenario's terms
   const tg = deal.targets;
-  const a = scenarioAnswers(figuresFor(deal), m, deal.live, { targetCap: tg.cap ?? (ok(s.exitCap) ? Math.round((m.cap ?? s.exitCap) * 4 + 1) / 4 : null), targetIrr: tg.irr, capForValue: tg.value ?? s.exitCap });
+  const a = scenarioAnswers(figuresFor(deal), m, deal.live, { targetCap: tg.cap ?? (ok(s.exitCap) ? Math.round((m.cap ?? s.exitCap) * 4 + 1) / 4 : null), targetIrr: tg.irr, capForValue: tg.value ?? s.exitCap }, ctx);
   const ab = $('scn-answers');
   ab.textContent = '';
   ab.appendChild(el('div', 'sec-label', 'Answers, on the scenario’s terms'));
@@ -1124,7 +1228,7 @@ function renderSavedScenarios(m) {
   const list = el('div', 'list');
   list.style.cssText = 'margin:0 16px 14px;background:var(--surface-2);border-radius:13px';
   for (const sc of deal.scenarios) {
-    const r = runScenario(figuresFor(deal), m, sc.over);
+    const r = runScenario(figuresFor(deal), m, sc.over, { noiSeries: sc.over.noiBasis === 'rentroll' ? rentRollSeries(Number.isFinite(sc.over.hold) ? sc.over.hold : 5) : null });
     const row = el('div', 'li');
     const main = el('div', 'li-main');
     main.appendChild(el('div', 'li-title', sc.name));
@@ -1195,44 +1299,43 @@ function saveToDeal() {
 
 function renderRentRoll(m) {
   const box = $('deal-rr');
+  if (!box) return;
   box.textContent = '';
-  const rows = deal.rentRoll || [];
-  box.hidden = !rows.length;
-  if (!rows.length) return;
+  const rr = deal.rr;
+  const n = rr ? rr.leases.length : 0;
   const h = el('div', 'card-head');
   h.appendChild(el('h2', null, 'Rent roll'));
-  h.appendChild(el('span', 'count', `${rows.length} row${rows.length === 1 ? '' : 's'}${deal.rentRollPage ? ` · page ${deal.rentRollPage}` : ''}`));
+  h.appendChild(el('span', 'count', n ? `${n} unit${n === 1 ? '' : 's'}${deal.rentRollPage ? ` · read from OM page ${deal.rentRollPage}` : ''}` : 'none yet'));
   box.appendChild(h);
-  const L = m.leases;
-  if (L) {
+  if (n) {
+    const sum = rentRollSummary(rr, rr.settings.asOf);
     const t = el('div', 'tiles');
-    const add = (k, v, s, cls) => { const x = el('div', `tile${cls ? ` ${cls}` : ''}`); x.appendChild(el('div', 'k', k)); x.appendChild(el('div', 'v', v)); if (s) x.appendChild(el('div', 's', s)); t.appendChild(x); };
-    add('WALT', yrs(L.waltIncome), ok(L.waltSf) ? `${yrs(L.waltSf)} by SF` : 'by income');
-    add('Occupancy', pct(L.occupancy, 1), L.vacantSf ? `${int(L.vacantSf)} SF vacant` : null, ok(L.occupancy) && L.occupancy < 85 ? 'warn' : '');
-    add('Rolling in 24 mo', pct(L.roll24Pct, 0), ok(L.roll12Pct) ? `${pct(L.roll12Pct, 0)} in 12` : null, L.roll24Pct >= 25 ? 'warn' : '');
-    add('Average rent', ok(L.avgRentPsf) ? `${money2(L.avgRentPsf)}/SF` : '—', `${money0(L.rent)} a year`);
+    const add = (k, v, s2, cls) => { const x = el('div', `tile${cls ? ` ${cls}` : ''}`); x.appendChild(el('div', 'k', k)); x.appendChild(el('div', 'v', v)); if (s2) x.appendChild(el('div', 's', s2)); t.appendChild(x); };
+    add('In-place rent', short(sum.annualRent), `as of ${rr.settings.asOf}`);
+    add('Occupancy', pct(sum.occupancy, 1), sum.totalSf ? `${int(sum.leasedSf)} SF leased` : null, ok(sum.occupancy) && sum.occupancy < 85 ? 'warn' : '');
+    add('WALT', yrs(sum.waltIncome), 'by income');
+    const soon = sum.expirations.filter((e) => typeof e.year === 'number' && e.year <= new Date().getFullYear() + 1).reduce((x, e) => x + (e.rentPct || 0), 0);
+    add('Expiring by next year-end', pct(soon, 0), 'of rent', soon >= 25 ? 'warn' : '');
     box.appendChild(t);
+    // the OM's own gross income against what the rent roll adds up to
+    const P = project(rr, { years: 1 }).annual[0];
+    if (Number.isFinite(deal.figures.gross) && P && P.egi) {
+      const gap = (P.egi / deal.figures.gross - 1) * 100;
+      if (Math.abs(gap) > 5) {
+        const p = el('p', 'hint-sm', `The rent roll projects ${money0(P.egi)} of effective gross income over the next twelve months; the OM states ${money0(deal.figures.gross)} (${gap > 0 ? '+' : ''}${gap.toFixed(1)}%). Check which leases, recoveries or other income explain it.`);
+        p.style.padding = '0 16px 10px';
+        box.appendChild(p);
+      }
+    }
+  } else {
+    const p = el('p', 'hint');
+    p.style.padding = '0 16px 6px';
+    p.textContent = 'No rent roll yet. Add units by hand, import one from Excel or CSV, or read an OM that prints one.';
+    box.appendChild(p);
   }
-  const t = el('table', 'mini');
-  const tr0 = el('tr');
-  for (const x of ['Tenant', 'SF', 'Annual rent', '$/SF', 'Expires']) tr0.appendChild(el('th', null, x));
-  t.appendChild(tr0);
-  for (const r of rows) {
-    const tr = el('tr');
-    tr.appendChild(el('td', null, [r.suite, r.tenant].filter(Boolean).join(' · ')));
-    tr.appendChild(el('td', null, ok(r.sf) ? int(r.sf) : '—'));
-    tr.appendChild(el('td', null, r.vacant ? 'vacant' : money0(r.annual)));
-    tr.appendChild(el('td', null, ok(r.psf) ? money2(r.psf) : '—'));
-    tr.appendChild(el('td', null, r.mtm ? 'MTM' : r.end ? new Date(r.end).toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—'));
-    t.appendChild(tr);
-  }
-  const wrap = el('div', 'scroll');
-  wrap.style.paddingBottom = '6px';
-  wrap.appendChild(t);
-  box.appendChild(wrap);
-  const p = el('p', 'hint-sm', 'Read from the OM’s table: check it against the leases. The Excel download has it as a Rent Roll tab with live WALT.');
-  p.style.padding = '4px 16px 14px';
-  box.appendChild(p);
+  const b = button('btn-sm', n ? 'Open the rent roll' : 'Start a rent roll', () => showPane('rentroll'));
+  b.style.margin = '0 16px 16px';
+  box.appendChild(b);
 }
 
 /* --------------------------------------------------------------- questions */

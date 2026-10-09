@@ -89,6 +89,7 @@ await page.waitForSelector('#deal-tiles .tile');
 await page.fill('#deal-q .add-q input', 'Any environmental reports?');
 await page.press('#deal-q .add-q input', 'Enter');
 await page.locator('#deal-q li', { hasText: '32.3% of rent' }).locator('input').check();
+await page.click('#tab-visit');
 await page.locator('button[aria-label="Roof: Issue"]').click();
 await page.fill('#visit-notes', 'Met the owner. Roof replaced 2019 per owner (reported).');
 await page.waitForTimeout(600);

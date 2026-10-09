@@ -22,6 +22,7 @@
  *   Audit Trail      provenance, flags and the $/SF reconciliation
  *   CoStar Notes     the full notes behind each comp
  */
+import { addRentRollTabs } from './rrbook.js';
 import * as S from './stats.js';
 import { ZONING, zoningInfo, MOCO_NOTE } from './zoning.js';
 import { cleanPackage } from './package.js';
@@ -1398,6 +1399,8 @@ function addDeal(wb, deal, metrics, comps) {
   const now = new Date();
   const asOf = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
   dealTab(wb, deal, metrics, comps, {});
+  // the full rent roll (lease schedules, cash flow) when the deal has one; else the OM's table
+  if (deal.rr && deal.rr.leases && deal.rr.leases.length) { addRentRollTabs(wb, deal, deal.rr); return; }
   const rows = deal.figures.rentRoll || [];
   if (rows.length) rentRollTab(wb, rows, asOf);
 }
@@ -1493,3 +1496,6 @@ function chartSpecs(g, sales, market) {
   if (market.length) bars('On market — asking $/SF, high to low', 'On Market Comps', market, 'EB6834');
   return specs;
 }
+
+/* The helpers other workbook builders share (rrbook.js, the template report). */
+export const XL = { sheet, title, band, headerRow, f, v, label, note, rate, prod, agg, MONEY, MONEY2, SF, PCT1, PCT2, DATE, NUM1, OCC, GREY, FONT };

@@ -327,7 +327,7 @@ export function irr(flows) {
  * Returns the yearly flows, the exit, and unlevered and levered IRR and
  * equity multiple. Every figure is null when an input it needs is missing.
  */
-export function holdReturns({ price, noi, growth = 0, hold = 5, exitCap, saleCost = 0, loan = {} }) {
+export function holdReturns({ price, noi, growth = 0, hold = 5, exitCap, saleCost = 0, loan = {}, noiSeries = null }) {
   const n = Math.round(hold);
   if (!pos(price) || !ok(noi) || !pos(exitCap) || !(n >= 1 && n <= 30)) return null;
   const g = ok(growth) ? growth / 100 : 0;
@@ -335,7 +335,9 @@ export function holdReturns({ price, noi, growth = 0, hold = 5, exitCap, saleCos
   const L = pos(loan.ltv) ? price * loan.ltv / 100 : 0;
   const ds = L ? debtService(L, loan.rate, loan.amort, loan.io) : 0;
   if (L && ds === null) return null;
-  const nois = Array.from({ length: n + 1 }, (_, t) => noi * (1 + g) ** t);   // years 1 .. n+1
+  // years 1 .. n+1: a NOI for each year from a projection (the rent roll), or year 1 grown at one rate
+  const series = Array.isArray(noiSeries) && noiSeries.length >= n + 1 && noiSeries.slice(0, n + 1).every(ok) ? noiSeries.slice(0, n + 1) : null;
+  const nois = series || Array.from({ length: n + 1 }, (_, t) => noi * (1 + g) ** t);
   const exitValue = nois[n] / (exitCap / 100);
   const sell = ok(saleCost) && saleCost > 0 ? exitValue * saleCost / 100 : 0;
   const balance = L ? balanceAfter(L, loan.rate, loan.amort, n, loan.io) : 0;
@@ -413,7 +415,7 @@ export function scenarioBase(d, m) {
  * changes when the deal has gross income and expenses to apply them to; a
  * NOI typed straight in wins over all three.
  */
-export function runScenario(d, m, over = {}) {
+export function runScenario(d, m, over = {}, { noiSeries = null } = {}) {
   const base = scenarioBase(d, m);
   const s = { ...base };
   for (const [k, v] of Object.entries(over)) if (v !== null && v !== undefined && v !== '') s[k] = v;
@@ -432,17 +434,26 @@ export function runScenario(d, m, over = {}) {
   } else if (touchesOps) {
     notes.push('Rent, occupancy and expense changes need the deal\'s gross income and operating expenses; enter them, or change NOI directly.');
   }
+  // NOI year by year from the rent roll's projection, when asked for and available
+  let series = null;
+  if (s.noiBasis === 'rentroll') {
+    if (Array.isArray(noiSeries) && noiSeries.length && noiSeries.every(ok)) {
+      if (ok(over.noi)) notes.push('A NOI typed in replaces the rent roll\'s: returns use it, grown at the growth rate.');
+      else if (touchesOps) notes.push('Rent, occupancy and expense changes apply to the OM\'s NOI, grown at the growth rate, not to the rent roll; to change the rent roll\'s projection, edit its leases.');
+      else { series = noiSeries; noi = noiSeries[0]; }
+    } else notes.push('The rent roll can\'t give a NOI yet: it needs leases and operating expenses (Rent roll, Assumptions).');
+  }
   if (ok(over.noi)) noi = over.noi;
   s.noi = noi;
   const loan = { ltv: s.ltv, rate: s.rate, amort: s.amort, io: s.io, closing: s.closing, minDscr: (d.loan || {}).minDscr, minDy: (d.loan || {}).minDy };
   const sm = analyze({ ...d, price: s.price, noi, cap: null, gross: s.grossNow ?? d.gross, opex: s.opexNow ?? d.opex, occ: s.occ ?? d.occ, loan }, null);
-  const ret = holdReturns({ price: s.price, noi, growth: s.growth, hold: s.hold, exitCap: s.exitCap, saleCost: s.saleCost, loan });
-  return { inputs: s, base, m: sm, returns: ret, notes, changed: Object.keys(over).filter((k) => over[k] !== null && over[k] !== undefined && over[k] !== '') };
+  const ret = holdReturns({ price: s.price, noi, growth: s.growth, hold: s.hold, exitCap: s.exitCap, saleCost: s.saleCost, loan, noiSeries: series });
+  return { inputs: s, base, m: sm, returns: ret, notes, series, changed: Object.keys(over).filter((k) => over[k] !== null && over[k] !== undefined && over[k] !== '') };
 }
 
 /** Deterministic answers to the questions a buyer asks of a scenario. */
-export function scenarioAnswers(d, m, over = {}, { targetCap, targetIrr, capForValue } = {}) {
-  const run = runScenario(d, m, over);
+export function scenarioAnswers(d, m, over = {}, { targetCap, targetIrr, capForValue } = {}, ctx = {}) {
+  const run = runScenario(d, m, over, ctx);
   const s = run.inputs;
   const loan = { ltv: s.ltv, rate: s.rate, amort: s.amort, io: s.io, closing: s.closing };
   const out = {};
@@ -450,7 +461,7 @@ export function scenarioAnswers(d, m, over = {}, { targetCap, targetIrr, capForV
   if (ok(s.noi) && s.noi > 0 && pos(capForValue)) out.valueAtCap = s.noi / (capForValue / 100);
   if (ok(targetIrr) && pos(s.price) && run.returns) {
     out.priceForIrr = solvePrice((p) => {
-      const r = holdReturns({ price: p, noi: s.noi, growth: s.growth, hold: s.hold, exitCap: s.exitCap, saleCost: s.saleCost, loan });
+      const r = holdReturns({ price: p, noi: s.noi, growth: s.growth, hold: s.hold, exitCap: s.exitCap, saleCost: s.saleCost, loan, noiSeries: run.series });
       return r ? r.leveredIrr : null;
     }, targetIrr, s.price);
   }
