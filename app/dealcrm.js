@@ -262,5 +262,6 @@ export function editContact(api, c = {}, deals = []) {
       toast(`${rec.name} saved.`);
     } catch (e) { toast(e.message); }
   });
-  if (!c.id) setTimeout(() => name.focus(), 50);
+  // only if nothing else has focus yet: on a slow device the timer can fire after the first tap into another field
+  if (!c.id) setTimeout(() => { if (!document.activeElement?.matches('#sheet input, #sheet select, #sheet textarea')) name.focus(); }, 50);
 }

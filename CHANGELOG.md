@@ -66,6 +66,9 @@ cache name) is 3.3.0, so an installed copy fetches the new files once.
   browser tests' overflow check compared against a width that grows with the
   overflow, so it could not catch this; it now compares against the layout
   width.
+- On a slow device, a new contact's details could end up in the name: the
+  sheet focused its name field 50 ms after opening, even if a person had
+  already moved to the phone field. It now leaves a chosen field alone.
 - Task checkboxes were 22 px, under the 24 px minimum target size.
 - Chart labels and the tab bar's labels were 10.5 px; now 11 px.
 

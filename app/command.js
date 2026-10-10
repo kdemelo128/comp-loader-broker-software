@@ -63,7 +63,7 @@ async function sources() {
     act('Read an offering memorandum…', 'Choose an OM PDF; its figures are read on this device', () => { api.showView('deal'); document.getElementById('om-file').click(); }, 'om pdf scan new deal'),
     act('Add CoStar comp reports…', 'Choose comp report PDFs for the comp set', () => { api.showView('comps'); document.getElementById('file').click(); }, 'comps pdf'),
     act('New deal by hand', 'Start a deal and type its figures', () => { startDealByHand(); api.showView('deal'); }, 'create'),
-    act('New task', 'Add a next step on Home', () => { api.showView('home'); setTimeout(() => document.getElementById('task-title')?.focus(), 350); }, 'todo follow up'),
+    act('New task', 'Add a next step on Home', () => { api.showView('home'); setTimeout(() => { if (!document.activeElement?.matches('input, select, textarea')) document.getElementById('task-title')?.focus(); }, 350); }, 'todo follow up'),
     act('New contact', 'A person on a deal: owner, broker, lender…', () => editContact(api, {}, deals.map((d) => ({ id: d.id, name: d.name || 'Untitled deal' }))), 'person'),
     act('Back up everything', 'One file with every deal, comp set, template and contact', () => makeBackup().catch((e) => toast(`The backup could not be made: ${e.message}`)), 'export save'),
     act('Template library', 'Your firm’s Excel workbooks, mapped to deal fields', () => openTemplates(), 'excel xlsx'),

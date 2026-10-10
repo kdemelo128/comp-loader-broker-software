@@ -48,7 +48,16 @@ await page.waitForTimeout(300);
 check('they do once it scrolls away, and stop on the way back', stuckDown && !(await stuck()));
 await page.selectOption('#deal-stage', 'offer');
 check('changing the stage updates the header', (await page.textContent('#deal-stage-pill')) === 'Offer / LOI');
-await page.locator('#deal-crm button', { hasText: '+ New contact' }).click();
+// a field chosen straight away keeps the focus: the sheet's own first-field focus must not take it back
+const kept = await page.evaluate(async () => {
+  [...document.querySelectorAll('#deal-crm button')].find((b) => b.textContent.includes('+ New contact')).click();
+  let ph = null;
+  for (let i = 0; i < 100 && !(ph = document.getElementById('contact-phone')); i++) await new Promise((r) => setTimeout(r, 0));
+  ph.focus();
+  await new Promise((r) => setTimeout(r, 200));
+  return document.activeElement.id;
+});
+check('a field chosen as the contact sheet opens keeps the focus', kept === 'contact-phone', kept);
 await page.fill('#contact-name', 'Morgan Ellery');
 await page.fill('#contact-company', 'First Capital Bank');
 await page.selectOption('#contact-role', 'Lender');
