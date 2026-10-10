@@ -16,7 +16,7 @@ checkpoint; nothing merged by Claude. D-E tagline "Every source. Every
 assumption. Every number." D-F the repository name and Pages URL stay. The
 seven further ideas (§6) are not to be built yet.
 
-Progress: checkpoint (a) merged (4.0.0). Checkpoint (b) merged (4.1.0).
+Progress (2026-10-10): checkpoints (a)–(d) merged (4.0.0–4.3.1). Checkpoint (e), part 1 (`analyze()` as registered formulas) built in 4.3.2, in review; part 2 (the map and its screens) next, as 4.4.0. Earlier progress line: checkpoint (a) merged (4.0.0). Checkpoint (b) merged (4.1.0).
 Checkpoint (c) implemented in 4.2.0, in review
 (`docs/proposals/checkpoint-c-results.md`). Besides the worker, it needed row
 windowing for long rent rolls (§2.7 did not foresee that).

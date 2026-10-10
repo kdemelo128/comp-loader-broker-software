@@ -1,6 +1,11 @@
 # Checkpoint (e): the dependency map, "what does this change affect": design for approval
 
-Status: **proposal, written 2026-10-10 against 4.3.1. Nothing is built.**
+Status: **approved 2026-10-10**, all four decisions as recommended, in two
+pull requests. Part 1, `analyze()` split into registered formulas with no
+change to any result, is built in 4.3.2 (618 deals identical to the last
+digit, speed unchanged within noise). Part 2, the map, the Affects screens and
+their tests, follows as 4.4.0. Original status: proposal, written 2026-10-10
+against 4.3.1.
 Timings below were measured in this container (Node, the 500-lease deal from
 `perf-flow`, 10-year projection) unless marked as an estimate.
 
