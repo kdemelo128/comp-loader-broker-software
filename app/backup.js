@@ -10,12 +10,18 @@
  * Backups made before the rename (format `comp-loader-backup`, local keys
  * `comp-loader.*`) are read the same as new ones, for good.
  *
+ * Version 2 (4.3) can also carry each deal's history and snapshots (they are
+ * included unless the broker leaves them out). Version 1 files have neither
+ * and restore as before; a version 2 file is refused by 4.2 and older with
+ * "made by a newer version". Photos and recordings removed from a deal (kept
+ * 30 days for undo) are not part of a backup.
+ *
  * The encoding and the restore plan are pure (tests/backup.test.js). */
 
 import { FORMATS, PRODUCT, renameKey } from './brand.js';
 
 export const BACKUP_FORMAT = FORMATS.backup.write;
-export const BACKUP_VERSION = 1;
+export const BACKUP_VERSION = 2;
 /** localStorage keys worth keeping (the rest are recovery mirrors, rebuilt on their own). */
 export const LOCAL_KEYS = ['zlatura.tools.v1', 'zlatura.subject.v1', 'zlatura.loan.v1'];
 const SECRET = { 'ai.settings': ['token'] };
@@ -47,16 +53,25 @@ export function decodeValue(v) {
   return out;
 }
 
-/** Everything as one JSON-safe object. kv: { key: value }; local: { key: string }. */
-export async function buildBackup({ deals = [], kv = {}, session = null, local = {}, appVersion = '' }) {
+/**
+ * Everything as one JSON-safe object. kv: { key: value }; local: { key: string };
+ * history: { dealId: [entries] } and snapshots: { dealId: [snapshots] }, or null to leave them out.
+ */
+export async function buildBackup({ deals = [], kv = {}, session = null, local = {}, appVersion = '', history = null, snapshots = null }) {
   const keptKv = {};
   for (const [k, v] of Object.entries(kv)) {
     if (SECRET[k] && v && typeof v === 'object') { const c = { ...v }; for (const f of SECRET[k]) delete c[f]; keptKv[k] = c; } else keptKv[k] = v;
   }
   return {
     format: BACKUP_FORMAT, version: BACKUP_VERSION, app: appVersion, createdAt: new Date().toISOString(),
-    counts: { deals: deals.length, templates: (kv['tpl.library'] || []).length, tasks: (kv['crm.tasks'] || []).length, contacts: (kv['crm.contacts'] || []).length },
+    counts: {
+      deals: deals.length, templates: (kv['tpl.library'] || []).length, tasks: (kv['crm.tasks'] || []).length, contacts: (kv['crm.contacts'] || []).length,
+      ...(history ? { historyEntries: Object.values(history).reduce((a, l) => a + l.length, 0) } : {}),
+      ...(snapshots ? { snapshots: Object.values(snapshots).reduce((a, l) => a + l.length, 0) } : {}),
+    },
     deals: await encodeValue(deals), kv: await encodeValue(keptKv), session: await encodeValue(session), local: { ...local },
+    ...(history ? { history: await encodeValue(history) } : {}),
+    ...(snapshots ? { snapshots: await encodeValue(snapshots) } : {}),
   };
 }
 
@@ -67,7 +82,10 @@ export function readBackup(text) {
   if (o.version > BACKUP_VERSION) throw new Error(`This backup was made by a newer version of ${PRODUCT}: update the app first.`);
   // settings saved under the old name come back under the new one
   const local = Object.fromEntries(Object.entries(o.local || {}).map(([k, v]) => [renameKey(k), v]));
-  return { ...o, deals: decodeValue(o.deals || []), kv: decodeValue(o.kv || {}), session: decodeValue(o.session ?? null), local };
+  return {
+    ...o, deals: decodeValue(o.deals || []), kv: decodeValue(o.kv || {}), session: decodeValue(o.session ?? null), local,
+    history: o.history ? decodeValue(o.history) : null, snapshots: o.snapshots ? decodeValue(o.snapshots) : null,
+  };
 }
 
 const newer = (a, b) => (a.updatedAt || a.createdAt || 0) > (b.updatedAt || b.createdAt || 0);
@@ -98,7 +116,9 @@ export function planRestore(backup, current, mode = 'merge') {
     const keepIds = new Set(backup.deals.map((d) => d.id));
     const removeDeals = current.deals.filter((d) => !keepIds.has(d.id)).map((d) => d.id);
     summary.push(`${backup.deals.length} deal${backup.deals.length === 1 ? '' : 's'} restored; ${removeDeals.length} deal${removeDeals.length === 1 ? '' : 's'} on this device not in the backup will be deleted.`);
-    return { deals: { put: backup.deals, added: backup.deals.length, updated: 0, kept: 0 }, removeDeals, kv, removeKv: Object.keys(current.kv).filter((k) => !(k in kv)), session: backup.session, local: backup.local, summary };
+    const hs = historyPlan(backup, keepIds);
+    if (hs.line) summary.push(hs.line);
+    return { deals: { put: backup.deals, added: backup.deals.length, updated: 0, kept: 0 }, removeDeals, kv, removeKv: Object.keys(current.kv).filter((k) => !(k in kv)), session: backup.session, local: backup.local, summary, history: hs.history, snapshots: hs.snapshots };
   }
   const d = mergeById(current.deals, backup.deals);
   const put = backup.deals.filter((x) => { const h = current.deals.find((c) => c.id === x.id); return !h || newer(x, h); });
@@ -130,5 +150,20 @@ export function planRestore(backup, current, mode = 'merge') {
   if (backup.session && !current.session) summary.push('The comp set from the backup is restored (this device had none).');
   else if (backup.session) summary.push('The comp set on this device is kept (the backup’s is not loaded over it).');
   const local = Object.fromEntries(Object.entries(backup.local || {}).filter(([k]) => LOCAL_KEYS.includes(k) && !(current.local || {})[k]));
-  return { deals: { put, added: d.added, updated: d.updated, kept: current.deals.length - d.updated }, removeDeals: [], kv, removeKv: [], session, local, summary };
+  const hs = historyPlan(backup, new Set([...current.deals.map((x) => x.id), ...backup.deals.map((x) => x.id)]));
+  if (hs.line) summary.push(hs.line);
+  return { deals: { put, added: d.added, updated: d.updated, kept: current.deals.length - d.updated }, removeDeals: [], kv, removeKv: [], session, local, summary, history: hs.history, snapshots: hs.snapshots };
+}
+
+/**
+ * The history and snapshots a restore brings, for the deals it keeps. They
+ * are combined with what the device has (store.mergeHistory, mergeSnapshots):
+ * a history is a record, so nothing in it is overwritten or dropped.
+ */
+function historyPlan(backup, dealIds) {
+  const pick = (m) => Object.fromEntries(Object.entries(m || {}).filter(([id, l]) => dealIds.has(id) && Array.isArray(l) && l.length));
+  const history = pick(backup.history); const snapshots = pick(backup.snapshots);
+  const nh = Object.values(history).reduce((a, l) => a + l.length, 0); const ns = Object.values(snapshots).reduce((a, l) => a + l.length, 0);
+  const line = nh || ns ? `History: ${nh} entr${nh === 1 ? 'y' : 'ies'} and ${ns} snapshot${ns === 1 ? '' : 's'} combined with what this device has.` : '';
+  return { history, snapshots, line };
 }

@@ -1,5 +1,50 @@
 # Changelog
 
+## 4.3.1: history in backups, and the space it may take (on the development branch; not merged or deployed)
+
+Phase 1, checkpoint (d), parts C and D, as approved.
+
+### Backups, version 2
+
+- A backup carries each deal's history and snapshots. They are included by
+  default; untick the option under "Back up everything" for a smaller file.
+- A restore combines the backup's history with the device's by entry id, in
+  time order, and adds snapshots the device doesn't have. Nothing in either
+  is overwritten.
+- Version 1 backups (4.2.1 and older, including 3.3.0's) still restore. Each
+  deal's history then starts with the restore.
+- 4.3.0 and older refuse a version 2 file with "made by a newer version".
+- Removed photos and recordings (the 30-day trash) aren't in a backup.
+
+### The space history may take
+
+- **Per deal:** the last 1,000 changes or 2 MB of history, whichever comes
+  first; the oldest go. History then says "kept since …".
+- **Overall:** history, snapshots and removed media together get 50 MB, and
+  never more than half of the browser's quota for the site. Over that, the
+  oldest automatic snapshots go first, then the oldest history (any deal),
+  then the oldest removed photos and recordings. Named snapshots are never
+  removed.
+- **Settings → Your data** shows what each takes against the space allowed.
+  It warns from 80% of that space, or of the browser's quota.
+- A deal's ⋯ → History can clear its history; the deal and its snapshots
+  stay.
+- **How sizes are kept:** in one small record, updated in the same
+  transaction as each change. If it's missing (a 4.3.0 database), it is
+  counted again.
+
+### Tests
+
+- `tests/backup.test.js`: 4 new tests, which fail on 4.3.0.
+- `limits-flow`: 18 checks, which fail on 4.3.0:
+  - version 2 backups with and without history;
+  - restored on an empty device, Undo and snapshots work;
+  - a 4.2.1 backup restores;
+  - the 1,000-entry and 2 MB limits, "kept since", clearing a history;
+  - recounting a 4.3.0 database;
+  - the overall space with a 6 MB quota, automatic snapshots going first,
+    and the 80% warning.
+
 ## 4.3.0: change history, undo and snapshots (on the development branch; not merged or deployed)
 
 Phase 1, checkpoint (d), parts A and B, as approved. Backups version 2 and
