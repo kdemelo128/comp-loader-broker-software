@@ -608,7 +608,8 @@ function renderDeal(r) {
   wsName.setAttribute('aria-hidden', 'true');
   tabs.appendChild(wsName);
   if ('IntersectionObserver' in window) {
-    const io = new IntersectionObserver(([e]) => tabs.classList.toggle('stuck', !e.isIntersecting), { rootMargin: '-8px 0px 0px 0px' });
+    // one callback can carry several entries for the header; the last is its current state
+    const io = new IntersectionObserver((es) => tabs.classList.toggle('stuck', !es[es.length - 1].isIntersecting), { rootMargin: '-8px 0px 0px 0px' });
     io.observe(head);
   }
   const panes = {};

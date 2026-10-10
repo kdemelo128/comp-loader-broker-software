@@ -58,6 +58,9 @@ cache name) is 3.3.0, so an installed copy fetches the new files once.
   moment after reading an OM (the new deal was not yet saved). The deal list
   now includes deals that are open but not yet saved.
 - Typing straight after ⌘K could lose the first characters.
+- The section tabs could show the deal's name (their scrolled state) while the
+  header was still in view, when a deal was opened from a hidden screen: the
+  first of several batched visibility reports was read instead of the last.
 - At 320 px the Comps screen's Excel output choice was 1 px wider than the
   screen; segmented controls now wrap their labels on narrow screens. The
   browser tests' overflow check compared against a width that grows with the
