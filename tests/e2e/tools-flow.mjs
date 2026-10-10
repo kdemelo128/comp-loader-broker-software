@@ -15,7 +15,7 @@ const fill = async (pairs) => { for (const [id, v] of pairs) { await page.fill(i
 const result = async (label) => (await page.$$eval('#sheet-body .results li', (li) => li.map((x) => [x.querySelector('span').firstChild.textContent, x.querySelector('b').textContent]))).find((x) => x[0] === label)?.[1];
 const pick = async (text) => { await page.locator('dialog.action-sheet .action-item', { hasText: text }).first().click(); await page.waitForTimeout(250); };
 
-await page.goto(BASE, { waitUntil: 'load' });
+await page.goto(BASE + '#comps', { waitUntil: 'load' });
 // sale comps on the Comps tab, for the comp set check
 await page.setInputFiles('#file', F + 'costar-comps.pdf');
 await page.waitForFunction(() => document.querySelectorAll('#sales-table tbody tr').length > 0, null, { timeout: 20000 });
@@ -33,7 +33,7 @@ await fill([['#tool-dcf-noi', '1,000,000'], ['#tool-dcf-growth', '3'], ['#tool-d
 check('DCF value', (await result('Value')) === '$16,265,040', await result('Value'));
 check('DCF table has 10 years', (await page.locator('#sheet-body .tool-table tbody tr').count()) === 10);
 check('formula explanation present', /Σ/.test(await page.textContent('#sheet-body .tool-how')));
-check('no horizontal overflow with the table open', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+check('no horizontal overflow with the table open', await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
 await page.screenshot({ path: `${SHOTS}tools-dcf.png` });
 // saved scenario: save, change, load back
 await page.click('#tool-scenarios');

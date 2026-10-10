@@ -7,7 +7,7 @@ const check = (name, cond, detail = '') => { R.push([cond ? 'PASS' : 'FAIL', nam
 const sheetAction = async (label) => { await page.locator('.action-sheet .action-item', { hasText: label }).first().click(); };
 page.on('dialog', (d) => d.accept('cracked tiles at entry'));
 
-await page.goto(BASE, { waitUntil: 'load' });
+await page.goto(BASE + '#comps', { waitUntil: 'load' });
 // ---- comps: manual comp add / edit / delete / undo
 await page.click('#example');
 await page.waitForTimeout(400);
@@ -107,7 +107,7 @@ await page.click('#deal-root .view-head button[aria-label="More deal actions"]')
 await sheetAction('Scan another OM');
 await page.waitForTimeout(200);
 await page.setInputFiles('#om-file', F + 'om-netlease.pdf');
-await page.waitForFunction(() => document.querySelector('#deal-root h2')?.textContent.includes('8820'));
+await page.waitForFunction(() => document.querySelector('#deal-root h1')?.textContent.includes('8820'));
 check('second deal has no first-deal notes', (await page.inputValue('#visit-notes')) === '');
 check('second deal has no first-deal question', (await page.locator('#deal-q li', { hasText: 'Any environmental reports?' }).count()) === 0);
 // delete second deal, undo, delete again
@@ -118,7 +118,7 @@ let list = await page.$$eval('#deal-root .list .li .li-title', (x) => x.map((e) 
 check('delete removes only that deal', list.length === 1 && list[0].includes('4410'), list.join(' / '));
 await page.locator('.toast button').click();
 await page.waitForTimeout(800);
-check('undo delete reopens it', (await page.locator('#deal-root h2').first().textContent()).includes('8820'));
+check('undo delete reopens it', (await page.locator('#deal-root h1').first().textContent()).includes('8820'));
 await page.click('#deal-root .view-head button[aria-label="More deal actions"]');
 await sheetAction('Delete this deal');
 await page.waitForTimeout(1200);

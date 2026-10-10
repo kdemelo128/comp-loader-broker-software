@@ -10,7 +10,7 @@ page.on('dialog', (d) => (d.type() === 'prompt' ? d.accept(d.message().includes(
 const scn = async (label) => (await page.$$eval('#scn-out table tr', (t) => t.map((r) => [...r.children].map((c) => c.textContent)))).find((r) => r[0].startsWith(label));
 
 // 1. comps
-await page.goto(BASE, { waitUntil: 'load' });
+await page.goto(BASE + '#comps', { waitUntil: 'load' });
 await page.setInputFiles('#file', F + 'costar-comps.pdf');
 await page.waitForFunction(() => document.querySelectorAll('#sales-table tbody tr').length === 3);
 check('1. comp set loaded (3 sales, 3 listings)', (await page.locator('#market-table tbody tr').count()) === 3);
@@ -89,7 +89,7 @@ check('14. after reload: notes, photos, voice, scenario, live price', (await pag
 await page.click('#deal-root .view-head button[aria-label="More deal actions"]');
 await sheetAction('Scan another OM');
 await page.setInputFiles('#om-file', F + 'om-netlease.pdf');
-await page.waitForFunction(() => document.querySelector('#deal-root h2')?.textContent.includes('8820'));
+await page.waitForFunction(() => document.querySelector('#deal-root h1')?.textContent.includes('8820'));
 check('15. second property: nothing from the first', (await page.inputValue('#visit-notes')) === '' && (await page.locator('#deal-photos .photo').count()) === 0
   && (await page.locator('#deal-audio .voice-row').count()) === 0 && (await page.locator('#scn-saved .li-title').count()) === 0 && (await page.inputValue('#scn-price')) === '');
 check('15. second property: its own figures', (await page.inputValue('#fig-price')) === '$3,280,000' && (await page.inputValue('#fig-tenant')) === 'Northstar Pharmacy, Inc.');

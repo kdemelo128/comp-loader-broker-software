@@ -23,8 +23,11 @@ await page.waitForTimeout(400);
 // an AI token on the device, which must not go into the backup
 await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('comp-loader'); r.onsuccess = () => { const t = r.result.transaction('kv', 'readwrite'); t.objectStore('kv').put({ url: 'https://ai.example', token: 'DEVICE-SECRET-TOKEN', enabled: true }, 'ai.settings'); t.oncomplete = res; }; }));
 await go('home');
-await page.waitForSelector('#home-data #backup-make');
-check('Home nudges for a first backup', /No backup yet/.test(await page.textContent('#home-attention')));
+await page.waitForSelector('#home-attention');
+check('Home nudges for a first backup, pointing to Settings', /No backup yet/.test(await page.textContent('#home-attention')));
+await page.locator('#home-attention button', { hasText: 'No backup yet' }).click();
+await page.waitForSelector('#settings-data #backup-make');
+check('the nudge opens Settings, where the backup lives', await page.isVisible('#view-settings'));
 const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click('#backup-make')]);
 const file = `${SHOTS}backup.json`;
 await dl.saveAs(file);
@@ -33,15 +36,17 @@ const j = JSON.parse(text);
 check('the backup holds the deal, its photo, the task', j.format === 'comp-loader-backup' && j.deals.length === 1 && j.deals[0].visit.photos[0].blob.$blob.length > 1000 && j.kv['crm.tasks'].length === 1, JSON.stringify(j.counts));
 check('the AI token is not in the backup', !text.includes('DEVICE-SECRET-TOKEN') && j.kv['ai.settings'].url === 'https://ai.example');
 await page.waitForTimeout(300);
-check('the last backup date is shown and the nudge is gone', /Last backup:/.test(await page.textContent('#home-data')) && !/No backup yet/.test((await page.locator('#home-attention').count()) ? await page.textContent('#home-attention') : ''));
+await page.waitForFunction(() => /Last backup:/.test(document.querySelector('#settings-data').textContent));
+await go('home');
+check('the last backup date is shown and the nudge is gone', !/No backup yet/.test(await page.textContent('#home-attention')));
 const before = await dealCount();
 
 // wipe the browser's storage entirely, as a lost or reset phone would
 await page.evaluate(() => new Promise((res) => { localStorage.clear(); const r = indexedDB.deleteDatabase('comp-loader'); r.onsuccess = res; r.onerror = res; r.onblocked = res; }));
-await page.goto(BASE + '#home', { waitUntil: 'load' });
+await page.goto(BASE + '#settings', { waitUntil: 'load' });
 await page.reload({ waitUntil: 'load' });
-await page.waitForSelector('#home-data #backup-file', { state: 'attached' });
-check('after the wipe, nothing is left', /No deals yet/.test(await page.textContent('#home-pipeline')));
+await page.waitForSelector('#settings-data #backup-file', { state: 'attached' });
+check('after the wipe, nothing is left', /0 deals/.test(await page.textContent('#settings-data')));
 await page.setInputFiles('#backup-file', file);
 await page.waitForSelector('dialog.action-sheet');
 check('the restore offers merge, with what it will do', /Deals: 1 added/.test(await page.textContent('dialog.action-sheet')));
@@ -66,7 +71,8 @@ check('the restored photo displays', await page.evaluate(() => { const i = docum
 await page.click('#tab-overview');
 await page.selectOption('#deal-stage', 'contract');
 await page.waitForTimeout(800);
-await go('home');
+await go('settings');
+await page.waitForSelector('#settings-data #backup-file', { state: 'attached' });
 await page.setInputFiles('#backup-file', file);
 await page.waitForSelector('dialog.action-sheet');
 check('merging the older backup changes nothing', /0 added, 0 updated/.test(await page.textContent('dialog.action-sheet')), (await page.textContent('dialog.action-sheet')).slice(0, 200));
@@ -82,7 +88,8 @@ await page.evaluate(() => [...document.querySelectorAll('#deal-root button')].fi
 await page.waitForTimeout(500);
 check('two deals before replacing', (await dealCount()).length === 2);
 await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('comp-loader'); r.onsuccess = () => { const t = r.result.transaction('kv', 'readwrite'); t.objectStore('kv').put({ url: 'https://ai.example', token: 'NEW-DEVICE-TOKEN', enabled: true }, 'ai.settings'); t.oncomplete = res; }; }));
-await go('home');
+await go('settings');
+await page.waitForSelector('#settings-data #backup-file', { state: 'attached' });
 await page.setInputFiles('#backup-file', file);
 await page.locator('dialog.action-sheet .action-item', { hasText: 'Replace everything' }).click();
 await page.waitForTimeout(400);

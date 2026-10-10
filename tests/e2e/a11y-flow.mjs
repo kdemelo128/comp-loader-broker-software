@@ -89,6 +89,14 @@ await page.locator('dialog.action-sheet .action-item', { hasText: 'AI settings' 
 await page.waitForSelector('#ai-url');
 await audit('AI settings sheet', '#sheet');
 await page.click('#sheet-close');
+await go('settings');
+await page.waitForSelector('#settings-data #backup-make');
+await audit('Settings');
+await smallTargets('Settings');
+await page.keyboard.press('Control+k');
+await page.waitForSelector('dialog.cmdk[open] .cmdk-item');
+await audit('Command menu', 'dialog.cmdk');
+await page.keyboard.press('Escape');
 
 // dark mode
 await page.emulateMedia({ colorScheme: 'dark' });
@@ -98,6 +106,18 @@ await go('home');
 await audit('Home, dark');
 await go('tools');
 await audit('Tools, dark');
+await go('settings');
+await page.waitForSelector('#settings-data #backup-make');
+await audit('Settings, dark');
+await go('comps');
+await audit('Comps, dark');
+await go('deal');
+for (const p of ['rentroll', 'whatif']) { await page.click(`#tab-${p}`); await audit(`Deal ${p}, dark`); }
+await page.click('#tab-overview');
+await page.keyboard.press('Control+k');
+await page.waitForSelector('dialog.cmdk[open] .cmdk-item');
+await audit('Command menu, dark', 'dialog.cmdk');
+await page.keyboard.press('Escape');
 await page.emulateMedia({ colorScheme: 'light' });
 
 // keyboard: every control Tab reaches on Home shows a focus ring
@@ -122,9 +142,9 @@ check('keyboard: Tab reaches Home’s controls and each shows a focus ring', rea
 
 // reflow at 320 px (WCAG 1.4.10) on each view
 await page.setViewportSize({ width: 320, height: 640 });
-for (const v of ['home', 'comps', 'deal', 'tools']) {
+for (const v of ['home', 'comps', 'deal', 'tools', 'settings']) {
   await go(v);
-  check(`reflows at 320 px: ${v}`, await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), String(await page.evaluate(() => document.documentElement.scrollWidth)));
+  check(`reflows at 320 px: ${v}`, await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), String(await page.evaluate(() => document.documentElement.scrollWidth)));
 }
 // browsers other than iOS Safari get no zoom limit at all (WCAG 1.4.4)
 const other = await browser.newContext({ viewport: { width: 412, height: 900 }, userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36' });
