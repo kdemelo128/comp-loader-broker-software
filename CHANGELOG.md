@@ -1,6 +1,53 @@
 # Changelog
 
-## Unreleased (Zlatura Phase 0)
+## 4.0.0: Zlatura (on the development branch; not merged or deployed)
+
+Comp Loader is now **Zlatura**. *Every source. Every assumption. Every
+number.* No figure, formula or saved-data shape changed; this release renames
+the product and moves the data kept on each device to the new name.
+
+### The move from Comp Loader
+
+- The IndexedDB database `comp-loader` is copied to `zlatura` the first time
+  4.0 opens: every store in one transaction, so it happens completely or not
+  at all, and only into empty stores, so nothing newer is overwritten. A
+  `meta` store records the move.
+- `comp-loader.*` settings keys (theme, loan terms, subject, Tools inputs,
+  recovery copies) are copied to `zlatura.*` once, before any module reads
+  them. Copying only once matters: a recovery copy the app has deliberately
+  cleared must not come back.
+- The old database and keys are kept until a backup has been made since the
+  move, or for 30 days, then deleted. Settings → Your data says so meanwhile.
+- New files are written as `zlatura-backup`, `zlatura-project` and
+  `zlatura-template`; the `comp-loader-*` formats are read for good, and old
+  backups' settings come back under the new key names.
+- Refilling a firm workbook that has a *Comp Loader Audit* sheet replaces it
+  with a *Zlatura Audit* sheet instead of adding a second.
+- The offline cache is `zlatura-4.0.0`; the old cache is removed when the new
+  service worker activates.
+
+### Identity
+
+- A new mark (a Z with a bar through it, as currency signs are drawn), in ink
+  and gold, with light and dark versions (`docs/brand/`), an adaptive SVG
+  favicon, and new app icons (any and maskable).
+- The tagline and "About the name" in Settings → About and the README.
+- Every visible name, the page title, the installed app's name, workbook
+  creator fields, file names, the AI server's name and package names.
+
+### Tests
+
+- `rename-flow` (browser): the real 3.3.0 app, taken from git, is used on a
+  site; the new app is served at the same address and must open with the
+  deal, photo, task, contact, comp set, theme and loan terms; a backup then
+  finishes the move (old database and keys deleted); a backup made by 3.3.0
+  restores into a fresh copy of 4.0.
+- `rename.test.js`: that 3.3.0 backup (kept as
+  `tests/fixtures/backup-comp-loader-3.3.0.json`) reads and plans a full
+  restore; old and new format ids; the once-only key copy.
+- The template audit-sheet test covers a workbook filled before the rename.
+
+## Zlatura Phase 0
 
 - Fixed: the lease comparison tool's **Landlord PV** was the NER multiplied by
   area and years (a sum of payments, not a present value). It is now the

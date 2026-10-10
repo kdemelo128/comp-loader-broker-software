@@ -7,12 +7,17 @@
  * The AI access token is left out: a backup is a file that gets copied and
  * sent, and the token is a credential.
  *
+ * Backups made before the rename (format `comp-loader-backup`, local keys
+ * `comp-loader.*`) are read the same as new ones, for good.
+ *
  * The encoding and the restore plan are pure (tests/backup.test.js). */
 
-export const BACKUP_FORMAT = 'comp-loader-backup';
+import { FORMATS, PRODUCT, renameKey } from './brand.js';
+
+export const BACKUP_FORMAT = FORMATS.backup.write;
 export const BACKUP_VERSION = 1;
 /** localStorage keys worth keeping (the rest are recovery mirrors, rebuilt on their own). */
-export const LOCAL_KEYS = ['comp-loader.tools.v1', 'comp-loader.subject.v1', 'comp-loader.loan.v1'];
+export const LOCAL_KEYS = ['zlatura.tools.v1', 'zlatura.subject.v1', 'zlatura.loan.v1'];
 const SECRET = { 'ai.settings': ['token'] };
 
 const b64 = (bytes) => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(s); };
@@ -57,10 +62,12 @@ export async function buildBackup({ deals = [], kv = {}, session = null, local =
 
 export function readBackup(text) {
   let o;
-  try { o = typeof text === 'string' ? JSON.parse(text) : text; } catch { throw new Error('That file is not a Comp Loader backup (it is not valid JSON).'); }
-  if (!o || o.format !== BACKUP_FORMAT) throw new Error(o && o.format === 'comp-loader-project' ? 'That is a comp project file: open it from the Comps tab (⋯ → Open project).' : 'That file is not a Comp Loader backup.');
-  if (o.version > BACKUP_VERSION) throw new Error('This backup was made by a newer version of Comp Loader: update the app first.');
-  return { ...o, deals: decodeValue(o.deals || []), kv: decodeValue(o.kv || {}), session: decodeValue(o.session ?? null), local: o.local || {} };
+  try { o = typeof text === 'string' ? JSON.parse(text) : text; } catch { throw new Error(`That file is not a ${PRODUCT} backup (it is not valid JSON).`); }
+  if (!o || !FORMATS.backup.read.includes(o.format)) throw new Error(o && FORMATS.project.read.includes(o.format) ? 'That is a comp project file: open it from the Comps tab (⋯ → Open project).' : `That file is not a ${PRODUCT} backup.`);
+  if (o.version > BACKUP_VERSION) throw new Error(`This backup was made by a newer version of ${PRODUCT}: update the app first.`);
+  // settings saved under the old name come back under the new one
+  const local = Object.fromEntries(Object.entries(o.local || {}).map(([k, v]) => [renameKey(k), v]));
+  return { ...o, deals: decodeValue(o.deals || []), kv: decodeValue(o.kv || {}), session: decodeValue(o.session ?? null), local };
 }
 
 const newer = (a, b) => (a.updatedAt || a.createdAt || 0) > (b.updatedAt || b.createdAt || 0);

@@ -9,7 +9,7 @@ const R = []; const check = (n, c, d = '') => R.push([c ? 'PASS' : 'FAIL', n, d]
 // ------------------------------------------------------------- desktop
 const { browser, page, errors } = await phone({ viewport: { width: 1360, height: 900 }, isMobile: false, hasTouch: false, userAgent: undefined, deviceScaleFactor: 1 });
 await page.goto(BASE, { waitUntil: 'load' });
-check('the app opens on Home', await page.isVisible('#view-home') && (await page.title()) === 'Home · Comp Loader', await page.title());
+check('the app opens on Home', await page.isVisible('#view-home') && (await page.title()) === 'Home · Zlatura', await page.title());
 for (const [v, title] of [['deal', 'Deals'], ['comps', 'Comps'], ['tools', 'Tools'], ['settings', 'Settings'], ['home', 'Home']]) {
   await page.click(`.sidebar .tab[data-view="${v}"]`);
   await page.waitForTimeout(150);
@@ -26,7 +26,7 @@ await page.waitForLoadState('load');
 await page.click('.sidebar [data-theme-set="light"]');
 check('Light overrides a dark system preference', (await page.getAttribute('html', 'data-theme')) === 'light');
 await page.click('.sidebar [data-theme-set="system"]');
-check('System removes the override', (await page.getAttribute('html', 'data-theme')) === null && (await page.evaluate(() => localStorage.getItem('comp-loader.theme'))) === null);
+check('System removes the override', (await page.getAttribute('html', 'data-theme')) === null && (await page.evaluate(() => localStorage.getItem('zlatura.theme'))) === null);
 await page.focus('.sidebar [data-theme-set="system"]');
 await page.keyboard.press('ArrowRight');
 check('arrow keys move the appearance choice', (await page.getAttribute('html', 'data-theme')) === 'light');

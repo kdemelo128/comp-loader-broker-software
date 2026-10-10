@@ -1,4 +1,4 @@
-/* ai.mjs -- what the Comp Loader server asks Claude, and how it checks the
+/* ai.mjs -- what the Zlatura AI server asks Claude, and how it checks the
  * answer before it goes back to the app.
  *
  * Every call returns structured JSON against a schema, so the app never

@@ -450,7 +450,7 @@ async function reportXlsx() {
   const nameOf = Object.fromEntries(deals.map((d) => [d.id, d.name || d.figures.address || 'Untitled deal']));
   const { ExcelJS } = await getXlsx();
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'Comp Loader';
+  wb.creator = 'Zlatura';
   const sheet = (name, cols, data) => {
     const ws = wb.addWorksheet(name);
     ws.columns = cols.map(([header, key, width, numFmt]) => ({ header, key, width, style: numFmt ? { numFmt } : {} }));
@@ -496,7 +496,7 @@ async function reportPrint() {
     }
     box.appendChild(t);
   }
-  box.appendChild(el('p', 'ps-foot', 'Cap rate is NOI over asking price where both are known, else the stated cap rate. Figures as entered in Comp Loader on this device.'));
+  box.appendChild(el('p', 'ps-foot', 'Cap rate is NOI over asking price where both are known, else the stated cap rate. Figures as entered in Zlatura on this device.'));
   printed('Pipeline report');
   window.print();
 }

@@ -149,7 +149,7 @@ await page.click('#tab-overview');
 await page.waitForTimeout(300);
 check('occupancy from the call is applied and tagged', (await page.locator('#deal-root .src.ai').count()) === 2);
 const persisted = await page.evaluate(() => new Promise((res) => {
-  const rq = indexedDB.open('comp-loader');
+  const rq = indexedDB.open('zlatura');
   rq.onsuccess = () => { const tx = rq.result.transaction('deals'); const g = tx.objectStore('deals').getAll(); g.onsuccess = () => res(g.result.map((d) => ({ ex: (d.ai && d.ai.extractions || []).length, chat: (d.aiChat || []).length, tr: (d.visit.audio || []).filter((a) => a.transcript && a.transcript.edited).length }))); };
 }));
 await page.waitForTimeout(800);

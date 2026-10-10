@@ -14,6 +14,8 @@
  * The Deal and Tools screens live in dealui.js and toolsui.js; this module
  * starts them and lends them the comp set. */
 
+// first: moves settings kept under the old name before any module reads them
+import { PRODUCT } from './brand.js';
 import { pdfPages } from './pdftext.js';
 import { loadComps, ppsf, mdy, MAX_COMPS } from './costar.js';
 import { buildWorkbook, byPpsf } from './workbook.js';
@@ -35,7 +37,7 @@ import { initSettings } from './settings.js';
 import { initCommand } from './command.js';
 import { initTheme } from './theme.js';
 
-window.__compLoaderReady = true;
+window.__zlaturaReady = true;
 
 const state = {
   docs: [],          // [{ name, pages }] every report read, in the order added
@@ -66,7 +68,7 @@ function showView(name, { push = true } = {}) {
     if (t.dataset.view === name) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
   });
   $('view-name').textContent = $(`view-${name}`).dataset.title;
-  document.title = `${$(`view-${name}`).dataset.title} · Comp Loader`;
+  document.title = `${$(`view-${name}`).dataset.title} · ${PRODUCT}`;
   // a sandboxed preview can refuse history changes; the tab still switches
   if (push && location.hash !== `#${name}`) { try { history.replaceState(null, '', `#${name}`); } catch { /* fine */ } }
   window.scrollTo({ top: 0 });
@@ -134,7 +136,7 @@ function subjectSummary() {
 
 /* The subject panel is a per-device convenience, so it lives in this browser
  * and nowhere else. Storage can be unavailable or throw; the page works either way. */
-const SKEY = 'comp-loader.subject.v1';
+const SKEY = 'zlatura.subject.v1';
 function saveSubject() {
   try { localStorage.setItem(SKEY, JSON.stringify(readSubject())); } catch { /* no storage */ }
 }
@@ -758,7 +760,7 @@ let changedAt = 0;
  * hand-entered comps and window are small, and are also mirrored to
  * localStorage synchronously, because a page torn down mid-save (a reload, a
  * phone closing the app) abandons an IndexedDB write still in flight. */
-const REC_KEY = 'comp-loader.session.unsaved';
+const REC_KEY = 'zlatura.session.unsaved';
 function scheduleSave() {
   touched = true;
   savePending = true;
@@ -853,7 +855,7 @@ async function openProject(file) {
   try {
     p = store.readProject(JSON.parse(await file.text()));
   } catch (err) {
-    toast(err instanceof SyntaxError ? 'That file is not a Comp Loader project.' : err.message);
+    toast(err instanceof SyntaxError ? `That file is not a ${PRODUCT} project.` : err.message);
     return;
   }
   const snap = snapshot();
@@ -1014,7 +1016,7 @@ async function buildFile() {
     sales, market, subject,
     label: setLabel(),
     sources: [...state.docs.map((d) => d.name), ...(state.manual.length ? ['entered by hand'] : [])],
-    app: 'Comp Loader',
+    app: PRODUCT,
     preparedBy: subject.preparedBy || '',
     manual,
     deal,
@@ -1388,7 +1390,7 @@ $('install').addEventListener('click', async () => {
 });
 window.addEventListener('appinstalled', () => { $('install').hidden = true; });
 
-const HINT = 'comp-loader.ios-hint-dismissed';
+const HINT = 'zlatura.ios-hint-dismissed';
 let hintDismissed = false;
 try { hintDismissed = localStorage.getItem(HINT) === '1'; } catch { hintDismissed = false; }
 if (!IN_ARTIFACT && isIOS() && !isStandalone() && !hintDismissed) $('ios-hint').hidden = false;
@@ -1425,7 +1427,7 @@ function registerWorker() {
       if (!w) return;
       w.addEventListener('statechange', () => {
         if (w.state === 'activated' && hadController) {
-          toast('A new version of Comp Loader is ready.', { label: 'Reload', run: () => location.reload() });
+          toast(`A new version of ${PRODUCT} is ready.`, { label: 'Reload', run: () => location.reload() });
         }
       });
     });
@@ -1440,7 +1442,7 @@ if (!IN_ARTIFACT && 'serviceWorker' in navigator && (location.protocol === 'http
 
 /* -------------------------------------------------------------------- start */
 
-document.querySelectorAll('.app-version').forEach((n) => { n.textContent = `Comp Loader ${VERSION}`; });
+document.querySelectorAll('.app-version').forEach((n) => { n.textContent = `${PRODUCT} ${VERSION}`; });
 
 const compsApi = {
   basis: () => compBasis(state.sales.filter(included)),
@@ -1471,4 +1473,6 @@ restoreSession();
   if (out === 'template' && state.template) state.output = 'template';
   refreshOutput();
 })();
+// the old database from before the rename: deleted once a backup has been made since the move, or after 30 days
+setTimeout(() => { store.finishRename().catch(() => {}); }, 4000);
 showView(VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home', { push: false });

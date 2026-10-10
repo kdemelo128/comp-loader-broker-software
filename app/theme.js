@@ -2,7 +2,7 @@
  * on this device and applied by a tiny script in index.html before the page
  * first paints; this module changes it and keeps every control in step. */
 
-const KEY = 'comp-loader.theme';
+const KEY = 'zlatura.theme';
 const BAR = { light: '#F7F6F3', dark: '#0F1012' };
 
 export function getTheme() {

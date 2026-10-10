@@ -771,7 +771,7 @@ export function previewCells(fflate, bytes, cellMap, values, xml) {
  * Fill a workbook: single cells from `cellMap` and tables of rows (a rent roll,
  * comps) under a header. `tables`: [{ sheet, headerRow, columns: [{ col, field }],
  * rows: [{ field: { value, type } }], clear: true }]. With `audit`, a sheet named
- * "Comp Loader Audit" lists every cell written, with its source. Returns
+ * "Zlatura Audit" lists every cell written, with its source. Returns
  * { bytes, report: { written, skipped, preview, tables } }.
  */
 export function fillCells(fflate, bytes, { cellMap = [], values = {}, tables = [], audit = true, auditTitle = '' } = {}, xml) {
@@ -878,7 +878,16 @@ function recalcOnOpen(pkg) {
   }
 }
 
-const AUDIT = 'Comp Loader Audit';
+/** Rename a sheet in the workbook's sheet list (nothing refers to the audit sheet, so only the name changes). */
+function renameSheet(pkg, from, to) {
+  const wb = pkg.doc('xl/workbook.xml');
+  for (const sh of wb.getElementsByTagNameNS(MAIN, 'sheet')) if (sh.getAttribute('name') === from) sh.setAttribute('name', to);
+  pkg.dirty('xl/workbook.xml');
+}
+
+const AUDIT = 'Zlatura Audit';
+/** The audit sheet's name before the rename: refilling such a workbook replaces it. */
+const OLD_AUDIT = 'Comp Loader Audit';
 const esc = (s) => String(s).replace(XML_BAD, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 /** A sheet listing every cell written and where its value came from; refilling replaces it. */
 function addAuditSheet(pkg, log, auditTitle) {
@@ -889,7 +898,7 @@ function addAuditSheet(pkg, log, auditTitle) {
     return `<c r="${colName(c)}${r}" t="inlineStr"><is><t xml:space="preserve">${esc(t).slice(0, 32000)}</t></is></c>`;
   };
   const rows = [
-    [`Filled by Comp Loader on ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC${auditTitle ? ` · ${auditTitle}` : ''}`],
+    [`Filled by Zlatura on ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC${auditTitle ? ` · ${auditTitle}` : ''}`],
     ['Only the cells below were written. Cells holding formulas were left alone. Excel recalculates when the file opens.'],
     [],
     ['Sheet', 'Cell', 'Field', 'Value written', 'Source', 'Formulas reading it'],
@@ -897,8 +906,13 @@ function addAuditSheet(pkg, log, auditTitle) {
   ];
   const body = rows.map((r, i) => `<row r="${i + 1}">${r.map((v, j) => cell(i + 1, j + 1, v)).join('')}</row>`).join('');
   const xmlText = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="${MAIN}"><cols><col min="1" max="1" width="22" customWidth="1"/><col min="2" max="2" width="12" customWidth="1"/><col min="3" max="3" width="30" customWidth="1"/><col min="4" max="4" width="22" customWidth="1"/><col min="5" max="5" width="36" customWidth="1"/><col min="6" max="6" width="18" customWidth="1"/></cols><sheetData>${body}</sheetData></worksheet>`;
-  const existing = sheetsOf(pkg).find((s) => s.name === AUDIT);
-  if (existing) { pkg.files[existing.path] = pkg.fflate.strToU8(xmlText); pkg.docs.delete(existing.path); return; }
+  const existing = sheetsOf(pkg).find((s) => s.name === AUDIT) || sheetsOf(pkg).find((s) => s.name === OLD_AUDIT);
+  if (existing) {
+    pkg.files[existing.path] = pkg.fflate.strToU8(xmlText);
+    pkg.docs.delete(existing.path);
+    if (existing.name !== AUDIT) renameSheet(pkg, existing.name, AUDIT);
+    return;
+  }
   let n = 1;
   while (pkg.has(`xl/worksheets/sheet${n}.xml`)) n += 1;
   const path = `xl/worksheets/sheet${n}.xml`;

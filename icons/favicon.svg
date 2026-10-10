@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <style>
+    .bg { fill: #16191E; } .z { stroke: #C9A15A; }
+    @media (prefers-color-scheme: dark) { .bg { fill: #EEECE7; } .z { stroke: #9A7128; } }
+  </style>
+  <rect class="bg" width="32" height="32" rx="7"/>
+  <path class="z" d="M9.5 9h13l-13 14h13M12.2 16h7.6" fill="none" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

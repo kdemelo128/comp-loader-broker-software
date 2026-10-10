@@ -8,10 +8,11 @@
  * travels. */
 
 import { kvGet, kvSet } from './store.js';
+import { FORMATS, PRODUCT } from './brand.js';
 
 const KEY = 'tpl.library';
 export const CATEGORIES = ['Underwriting', 'Rent roll', 'Comps', 'Valuation', 'IC report', 'Other'];
-export const PACKAGE_FORMAT = 'comp-loader-template';
+export const PACKAGE_FORMAT = FORMATS.template.write;
 
 export async function listTemplates() { return (await kvGet(KEY)) || []; }
 async function saveAll(list) { return kvSet(KEY, list); }
@@ -76,7 +77,8 @@ export function exportPackage(t) {
 }
 export function readPackage(text) {
   let o;
-  try { o = JSON.parse(text); } catch { throw new Error('That file is not a Comp Loader template.'); }
-  if (!o || o.format !== PACKAGE_FORMAT || typeof o.workbook !== 'string') throw new Error('That file is not a Comp Loader template.');
+  try { o = JSON.parse(text); } catch { throw new Error(`That file is not a ${PRODUCT} template.`); }
+  // packages exported before the rename carry the old format id and open the same
+  if (!o || !FORMATS.template.read.includes(o.format) || typeof o.workbook !== 'string') throw new Error(`That file is not a ${PRODUCT} template.`);
   return { name: o.name || 'Imported template', category: o.category || 'Other', description: o.description || '', fileName: o.fileName || 'template.xlsx', mapping: o.mapping || { cells: [], tables: [] }, bytes: unb64(o.workbook) };
 }

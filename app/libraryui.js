@@ -31,7 +31,7 @@ export async function openLibrary(compsApi, opts) {
   const live = list.filter((t) => !t.archived);
   const archived = list.filter((t) => t.archived);
   if (!list.length) {
-    body.appendChild(el('p', 'hint', 'No templates yet. Upload the .xlsx your firm uses for underwriting, a rent roll or an IC report. Comp Loader finds the labelled input cells and any rent roll table, and you check the mapping once.'));
+    body.appendChild(el('p', 'hint', 'No templates yet. Upload the .xlsx your firm uses for underwriting, a rent roll or an IC report. Zlatura finds the labelled input cells and any rent roll table, and you check the mapping once.'));
   }
   const draw = (items, title) => {
     if (!items.length) return;
@@ -435,7 +435,7 @@ async function fillSheet(t, deal) {
       : 'This deal has no rent roll yet, so the rent roll table is left as it is.'));
   }
   const a = el('label', 'chk');
-  a.append(audit, document.createTextNode(' Add a “Comp Loader Audit” sheet listing every cell written and its source'));
+  a.append(audit, document.createTextNode(' Add a “Zlatura Audit” sheet listing every cell written and its source'));
   body.appendChild(a);
   body.appendChild(el('p', 'hint-sm', 'Formulas are not calculated here: Excel works them out when it opens the file. Cells that hold formulas, and the inside of merged cells, are never written.'));
 }

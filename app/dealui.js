@@ -42,8 +42,8 @@ const opened = new Map();
 const deleted = new Set();  // a late photo or recording must not bring a deleted deal back
 let photoUrls = [];
 
-const LOAN_KEY = 'comp-loader.loan.v1';
-const CUR_KEY = 'comp-loader.deal.current';
+const LOAN_KEY = 'zlatura.loan.v1';
+const CUR_KEY = 'zlatura.deal.current';
 const LOAN_DEFAULTS = { ltv: 65, rate: 6.75, amort: 30, io: false, closing: 2, minDscr: 1.25, minDy: 8 };
 
 /* What the figures list shows, in the order a broker reads an OM. */
@@ -240,7 +240,7 @@ export async function prepareForRestore() {
   pending = null;
   opened.clear();
   deal = null;
-  try { for (const k of [CUR_KEY, REC_KEY, 'comp-loader.session.unsaved']) localStorage.removeItem(k); } catch { /* fine */ }
+  try { for (const k of [CUR_KEY, REC_KEY, 'zlatura.session.unsaved']) localStorage.removeItem(k); } catch { /* fine */ }
 }
 /** A blank deal to type figures into (the command menu's "New deal by hand"). */
 export function startDealByHand() { flushDeal(); deal = newDeal(); try { localStorage.setItem(CUR_KEY, deal.id); } catch { /* fine */ } render(); touch(); }
@@ -288,7 +288,7 @@ export function flushDeal() {
  * phone closing the app) abandons a transaction still in flight. So every
  * unsaved change is also mirrored, synchronously, to localStorage, without
  * the photos, and replayed when that deal next opens if storage never got it. */
-const REC_KEY = 'comp-loader.deal.unsaved';
+const REC_KEY = 'zlatura.deal.unsaved';
 function writeRecovery(d) {
   try {
     const { visit, ...rest } = d;
@@ -1792,7 +1792,7 @@ function templateContext(d) {
   const m = analyze(figuresFor(d), comps);
   const rr = d.rr && d.rr.leases.length ? d.rr : null;
   let preparedBy = '';
-  try { preparedBy = (JSON.parse(localStorage.getItem('comp-loader.subject.v1') || '{}') || {}).preparedBy || ''; } catch { /* fine */ }
+  try { preparedBy = (JSON.parse(localStorage.getItem('zlatura.subject.v1') || '{}') || {}).preparedBy || ''; } catch { /* fine */ }
   const hold = Number.isFinite((d.live || {}).hold) ? d.live.hold : 5;
   const series = (d.live || {}).noiBasis === 'rentroll' && rr && Number.isFinite(rr.settings.opex) ? project(rr, { years: hold + 1 }).annual.map((y) => y.noi) : null;
   return {
@@ -1956,7 +1956,7 @@ function printBrief() {
   const { m, comps } = metrics();
   const urls = deal.visit.photos.map((p) => { const u = URL.createObjectURL(p.blob); photoUrls.push(u); return u; });
   let preparedBy = '';
-  try { preparedBy = (JSON.parse(localStorage.getItem('comp-loader.subject.v1') || '{}') || {}).preparedBy || ''; } catch { /* fine */ }
+  try { preparedBy = (JSON.parse(localStorage.getItem('zlatura.subject.v1') || '{}') || {}).preparedBy || ''; } catch { /* fine */ }
   renderDealBrief($('print-sheet'), { deal: { ...deal, activeQuestions: activeQuestions(m), visitLines: visitLines(), scenarioLines: scenarioLines(m) }, m, comps, photos: urls, preparedBy });
   // images have to be decoded before the print snapshot is taken
   const imgs = [...$('print-sheet').querySelectorAll('img')];

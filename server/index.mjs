@@ -1,4 +1,4 @@
-/* The Comp Loader AI server: a small HTTP service that holds the API keys the
+/* The Zlatura AI server: a small HTTP service that holds the API keys the
  * static app must never carry, and does three things for it: reads figures
  * out of documents, answers questions about a deal from its facts, and
  * transcribes and summarizes audio.
@@ -137,6 +137,6 @@ if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
   let client = null;
   if (cfg.aiConfigured) { const { default: Anthropic } = await import('@anthropic-ai/sdk'); client = new Anthropic(); }
   http.createServer(handler(cfg, client)).listen(cfg.port, () => {
-    console.log(`Comp Loader AI server on :${cfg.port} -- AI ${cfg.aiConfigured ? `on (${MODEL})` : 'off'}, transcription ${cfg.stt ? 'on' : 'off'}`);
+    console.log(`Zlatura AI server on :${cfg.port} -- AI ${cfg.aiConfigured ? `on (${MODEL})` : 'off'}, transcription ${cfg.stt ? 'on' : 'off'}`);
   });
 }

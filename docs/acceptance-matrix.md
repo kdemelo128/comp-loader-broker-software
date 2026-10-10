@@ -1,7 +1,8 @@
 # Acceptance matrix: Zlatura (from Comp Loader 3.3.0)
 
 Baseline: `main` at the merge of pull request #3 (content identical to commit
-`8ddc4e9`), version 3.3.0, audited 2026-10-10. This file tracks every feature
+`8ddc4e9`), version 3.3.0, audited 2026-10-10. Updated through Phase 1
+checkpoint (a), version 4.0.0. This file tracks every feature
 in the Zlatura development brief. It supersedes `docs/ACCEPTANCE.md` (the 3.2.0
 matrix), which stays as the detailed record of how 3.2.0 was tested.
 
@@ -32,18 +33,21 @@ recalculation of 9 exported workbooks; all pass on the baseline).
 
 | Feature | Status | Notes |
 |---|---|---|
-| Rename to Zlatura (UI, metadata, docs, exports, file names) | Not implemented | Proposed as Phase 1 increment 1; see `docs/architecture/proposal.md` §4. About 90 occurrences of the old name across code, tests and docs. |
-| Storage-key migration (IndexedDB `comp-loader`, 8 localStorage keys, cache name, backup/project/template format ids) | Not implemented | Plan in proposal §4. |
-| Pre-rename backups still restore (with a test) | Not implemented | Planned with the rename. |
-| "About the name" section, tagline options, logo, favicon and icon set | Not implemented | Tagline needs the user's choice. Current icons are the Comp Loader ones. |
+| Rename to Zlatura (UI, metadata, docs, exports, file names) | Implemented and verified | Checkpoint (a), version 4.0.0. `rename-flow`, `shell-flow` (title), `tplcells.test.js` (audit sheet). The GitHub repository name and Pages URL are unchanged, as decided. |
+| Storage migration (IndexedDB `comp-loader` → `zlatura`, `comp-loader.*` keys, cache name) | Implemented and verified | `rename-flow` serves the real 3.3.0 app from git, uses it, then serves 4.0.0 at the same origin: deal, photo, task, contact, comp set, theme and loan terms all present; copy is one transaction into empty stores; old database and keys kept until a backup, then deleted. Tested in Chromium only. |
+| Old file formats still read (backup, project, template package) | Implemented and verified | `rename.test.js`; new files use `zlatura-*` ids. |
+| Pre-rename backups still restore (with a test) | Implemented and verified | `tests/fixtures/backup-comp-loader-3.3.0.json` was made by the real 3.3.0 app; `rename.test.js` reads it and plans a full restore; `rename-flow` restores a fresh 3.3.0 backup through the UI. |
+| "About the name" | Partially implemented | Settings → About and the README. There is no onboarding screen yet (Guided Mode, later). |
+| Tagline | Implemented and verified | "Every source. Every assumption. Every number." (chosen by the user): Settings → About, README, page and manifest descriptions. |
+| Logo (light, dark), favicon, app icons | Implemented, not fully tested | Original mark: `docs/brand/logo-{light,dark}.svg`, `icons/favicon.svg` (adapts to dark mode), PNG app icons including maskable. Not checked on a real home screen. The logo's wordmark uses the system serif, so it renders differently by platform. |
 
 ## Part 2–3. Pillars and architecture foundations
 
 | Feature | Status | Notes |
 |---|---|---|
-| Typed domain model with unit-branded types | Not implemented | Plain JS objects today. Proposal §2.1 (JSDoc types checked by `tsc --checkJs`, no build step) needs a decision. |
+| Typed domain model with unit-branded types | Not implemented | Plain JS objects today. Decided: JSDoc types checked by `tsc --checkJs`, no build step, no switch to TypeScript. |
 | Explicit missing values (`unknown` / `not_applicable` / `confirmed_zero`) | Partially implemented | Analysis treats missing as `null`, never 0 (`deal.js`). Stored deals use absent keys and `null`; there is no `confirmed_zero` or `not_applicable`. |
-| Decimal or integer-cent money | Not implemented | Float64 throughout, rounded at display. Needs a decision (proposal §2.2), because it can change cents. |
+| Decimal or integer-cent money | Not implemented | Float64 throughout, rounded at display. Decided: typed and extracted money stored as whole cents, computed figures in floating point; every displayed cent that changes is listed for the user's review before it ships (checkpoint b). |
 | Pure calculation engine, one formula per quantity | Partially implemented | The math is in pure modules (`calc.js`, `deal.js`, `lease.js`, `tools.js`), but some quantities are computed in more than one place; see `docs/baseline-report.md` §5. |
 | Calculation results carry inputs, formula id, conventions, warnings | Not implemented | |
 | Convention registry, configurable | Not implemented | Conventions are fixed in code and partly described in tool notes. |

@@ -5,6 +5,7 @@ import * as store from './store.js';
 import { buildBackup, readBackup, planRestore, LOCAL_KEYS } from './backup.js';
 import { prepareForRestore, listAllDeals } from './dealui.js';
 import { VERSION } from './exporters.js';
+import { PRODUCT, OLD_PRODUCT } from './brand.js';
 import { el, toast, actionSheet, deliver, localDate, niceDate } from './kit.js';
 
 const LAST = 'backup.last';
@@ -12,7 +13,7 @@ const mb = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max
 
 /** The card, drawn into `box`. */
 export async function renderDataCard(box, api) {
-  const [info, last, deals] = await Promise.all([store.storageInfo(), store.kvGet(LAST), listAllDeals()]);
+  const [info, last, deals, moved] = await Promise.all([store.storageInfo(), store.kvGet(LAST), listAllDeals(), store.renameInfo()]);
   box.textContent = '';
   const h = el('div', 'card-head');
   h.appendChild(el('h2', null, 'Your data'));
@@ -23,6 +24,8 @@ export async function renderDataCard(box, api) {
     info.persisted === true ? 'The browser has agreed not to clear it under storage pressure.' : 'The browser may clear it if the device runs short of space, or (Safari) after seven days without a visit unless the app is on the home screen.',
     last ? `Last backup: ${niceDate(last)}.` : 'No backup made from this device yet.',
   ];
+  // the move from the old name, while its copy is still kept
+  if (moved && moved.copied && !moved.finishedAt) parts.push(`Your data moved here from ${OLD_PRODUCT} on ${niceDate(moved.at)}; the old copy is kept on this device until you make a backup, or for 30 days.`);
   p.textContent = parts.join(' ');
   box.appendChild(p);
   const acts = el('div', 'crm-acts data-acts');
@@ -54,8 +57,13 @@ export async function makeBackup() {
   const c = await current();
   const b = await buildBackup({ ...c, appVersion: VERSION });
   const bytes = new TextEncoder().encode(JSON.stringify(b));
-  const r = await deliver(`Comp Loader backup ${localDate()}.json`, bytes, 'application/json');
-  if (r === 'done') { await store.kvSet(LAST, Date.now()); toast(`Backup saved: ${b.counts.deals} deals, ${mb(bytes.length)}.`); }
+  const r = await deliver(`${PRODUCT} backup ${localDate()}.json`, bytes, 'application/json');
+  if (r === 'done') {
+    await store.kvSet(LAST, Date.now());
+    toast(`Backup saved: ${b.counts.deals} deals, ${mb(bytes.length)}.`);
+    // a backup made since the move from the old name makes the old copy safe to delete
+    store.finishRename().catch(() => {});
+  }
 }
 
 async function restore(file, api) {

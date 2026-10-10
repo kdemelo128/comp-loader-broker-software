@@ -1,7 +1,7 @@
 {
-  "name": "comp-loader-ai-server",
+  "name": "zlatura-ai-server",
   "version": "1.0.0",
-  "description": "Holds the API keys for Comp Loader's AI features: document extraction, the deal assistant, transcription and meeting notes.",
+  "description": "Holds the API keys for Zlatura's AI features: document extraction, the deal assistant, transcription and meeting notes.",
   "private": true,
   "type": "module",
   "license": "MIT",

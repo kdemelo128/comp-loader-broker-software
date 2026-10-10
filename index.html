@@ -20,12 +20,13 @@
 <script>
   /* The theme the person chose (Settings), before anything paints: no flash of the wrong one. */
   try {
-    var t = localStorage.getItem('comp-loader.theme');
+    /* comp-loader.theme: the key's name before the rename, read until app/brand.js has moved it */
+    var t = localStorage.getItem('zlatura.theme') || localStorage.getItem('comp-loader.theme');
     if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
   } catch (e) { /* storage blocked: follow the system */ }
 </script>
-<title>Comp Loader</title>
-<meta name="description" content="A broker's field kit: CoStar comp reports into an Excel comp set, offering memoranda read and underwritten on the spot, and the quick calculators a deal needs. Runs entirely on your device; nothing is uploaded.">
+<title>Zlatura</title>
+<meta name="description" content="Zlatura, a commercial real estate brokerage workspace. Every source. Every assumption. Every number. Offering memoranda read and underwritten, comps, rent rolls, your firm's Excel models and the calculators a deal needs, on your device.">
 <meta name="author" content="Kyle Alexander De Melo">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#F7F6F3" media="(prefers-color-scheme: light)">
@@ -33,10 +34,11 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Comp Loader">
+<meta name="apple-mobile-web-app-title" content="Zlatura">
 <meta name="format-detection" content="telephone=no">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
-<link rel="icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
 <link rel="stylesheet" href="app/styles.css">
 </head>
 <body>
@@ -44,8 +46,8 @@
 <div class="shell" id="shell">
   <nav class="sidebar" aria-label="Sections">
     <a class="brand" href="#home">
-      <span class="brand-mark"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 19V11M10 19V6M15 19v-9M20 19V4"/></svg></span>
-      <span class="brand-name">Comp Loader<small>Brokerage workspace</small></span>
+      <span class="brand-mark"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6h11l-11 12h11M8.75 12h6.5"/></svg></span>
+      <span class="brand-name">Zlatura<small>Brokerage workspace</small></span>
     </a>
     <button class="cmd-trigger" type="button" data-cmd aria-label="Search deals, contacts and tools" aria-keyshortcuts="Control+K Meta+K"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><span class="cmd-label">Search or jump to…</span><kbd>⌘K</kbd></button>
     <button class="tab" type="button" data-view="home" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-7 8 7"/><path d="M6 9.5V20h12V9.5M10 20v-6h4v6"/></svg><span>Home</span></button>
@@ -68,8 +70,8 @@
     <header class="appbar">
       <div class="appbar-in">
         <a class="brand" href="#home">
-          <span class="brand-mark"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 19V11M10 19V6M15 19v-9M20 19V4"/></svg></span>
-          <span class="brand-name">Comp Loader</span>
+          <span class="brand-mark"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6h11l-11 12h11M8.75 12h6.5"/></svg></span>
+          <span class="brand-name">Zlatura</span>
         </a>
         <span class="view-name" id="view-name">Home</span>
         <button class="btn btn-sm btn-gray" id="install" type="button" hidden>Install</button>
@@ -135,7 +137,7 @@
             <div class="card-head"><h2>Excel output</h2><span class="count">what the Excel button makes</span></div>
             <div class="out-row">
               <div class="seg" role="group" aria-label="Excel output">
-                <button type="button" id="out-builtin" aria-pressed="true">Comp Loader workbook</button>
+                <button type="button" id="out-builtin" aria-pressed="true">Zlatura workbook</button>
                 <button type="button" id="out-template" aria-pressed="false">My template</button>
               </div>
             </div>
@@ -276,11 +278,11 @@
 </dialog>
 
 <div class="fatal" id="fatal" hidden>
-  <h2>This browser can&rsquo;t run Comp Loader</h2>
+  <h2>This browser can&rsquo;t run Zlatura</h2>
   <p>It needs a current version of Safari, Chrome, Edge or Firefox. On an iPhone, update iOS in Settings &rarr; General &rarr; Software Update, then open this page again.</p>
 </div>
 <div class="fatal" id="load-error" hidden>
-  <h2>Comp Loader didn&rsquo;t finish loading</h2>
+  <h2>Zlatura didn&rsquo;t finish loading</h2>
   <p>Part of the app could not be downloaded. Check the connection and reload the page. Once it has loaded completely, it works with no connection at all.</p>
 </div>
 
@@ -290,15 +292,15 @@
      run the app; if it does not, the flag is never set. */
   let probe = null;
   probe ??= ({ ok: true })?.ok;
-  window.__compLoaderSyntax = probe;
+  window.__zlaturaSyntax = probe;
 </script>
 <script>
   /* Decided when the page has finished loading, not on a timer: "load" fires
      only after every module has run, however slow the connection. */
   window.addEventListener('load', function () {
-    if (window.__compLoaderReady) return;
+    if (window.__zlaturaReady) return;
     var app = document.getElementById('shell');
-    var which = window.__compLoaderSyntax ? 'load-error' : 'fatal';
+    var which = window.__zlaturaSyntax ? 'load-error' : 'fatal';
     if (app) app.hidden = true;
     document.querySelector('.tabbar').hidden = true;
     document.getElementById(which).hidden = false;

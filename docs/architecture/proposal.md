@@ -1,6 +1,22 @@
 # Zlatura architecture proposal and migration plan
 
-Status: **proposal, awaiting the user's go-ahead.** Nothing in sections 2–5 is
+Status: **approved by the user on 2026-10-10**, with these decisions:
+D-A JSDoc types checked by `tsc --checkJs`, no build step, no switch to full
+TypeScript. D-B typed and extracted money stored as whole cents, computed
+figures in floating point; before shipping, a list of every place a displayed
+cent value changes goes to the user for review. D-C Phase 1 in the order
+below, stopping for review after each checkpoint: (a) rename and migration,
+(b) one engine, fixing the disagreements (WALT: one definition, default the
+Rent roll tab's method, method shown on screen, configurable; net effective
+rent and break-even occupancy: recommend a definition and get approval before
+changing, keeping both labelled where both are legitimate), (c) the
+projection off the main thread with before/after measurements, (d) change
+history, undo and snapshots, (e) the dependency map. A pull request per
+checkpoint; nothing merged by Claude. D-E tagline "Every source. Every
+assumption. Every number." D-F the repository name and Pages URL stay. The
+seven further ideas (§6) are not to be built yet.
+
+Original status line: **proposal, awaiting the user's go-ahead.** Nothing in sections 2–5 is
 built. Read with `docs/baseline-report.md` (what exists) and
 `docs/acceptance-matrix.md` (what the brief asks for and its status).
 

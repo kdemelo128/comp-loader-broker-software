@@ -40,12 +40,12 @@ test('merge: newer wins, nothing on the device is lost', () => {
   const current = {
     deals: [deal('a', 100), deal('b', 300)],
     kv: { 'crm.tasks': [{ id: 't1', title: 'here' }], 'crm.contacts': [{ id: 'c1', name: 'Old', updatedAt: 1 }], 'ai.settings': { url: 'u', token: 'T' } },
-    session: { comps: [] }, local: { 'comp-loader.loan.v1': 'here' },
+    session: { comps: [] }, local: { 'zlatura.loan.v1': 'here' },
   };
   const backup = {
     deals: [deal('a', 200), deal('b', 100), deal('c', 50)],
     kv: { 'crm.tasks': [{ id: 't1', title: 'there' }, { id: 't2', title: 'new' }], 'crm.contacts': [{ id: 'c1', name: 'New', updatedAt: 9 }], 'rr.layouts': [{ id: 'L' }], 'ai.settings': { url: 'other' } },
-    session: { comps: [1] }, local: { 'comp-loader.loan.v1': 'there', 'comp-loader.tools.v1': 'tools' },
+    session: { comps: [1] }, local: { 'zlatura.loan.v1': 'there', 'zlatura.tools.v1': 'tools' },
   };
   const p = planRestore(backup, current);
   assert.deepEqual(p.deals.put.map((d) => d.id), ['a', 'c'], 'a newer copy of a, and c which is new; b is newer here');
@@ -57,7 +57,7 @@ test('merge: newer wins, nothing on the device is lost', () => {
   assert.deepEqual(p.kv['rr.layouts'], [{ id: 'L' }], 'a setting the device lacks is added');
   assert.ok(!('ai.settings' in p.kv), 'the device’s own AI settings are left alone');
   assert.equal(p.session, null, 'the comp set on the device is not overwritten');
-  assert.deepEqual(p.local, { 'comp-loader.tools.v1': 'tools' });
+  assert.deepEqual(p.local, { 'zlatura.tools.v1': 'tools' });
 });
 
 test('replace: the backup wins, and the device’s AI token is kept', () => {
