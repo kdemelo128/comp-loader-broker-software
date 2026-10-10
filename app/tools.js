@@ -91,6 +91,8 @@ export function netEffectiveRent({ rent, sf, months, esc = 0, free = 0, ti = 0, 
   const pvNet = pv - tiTotal - lcTotal;
   return {
     gross, cash, freeRent: gross - cash, ti: tiTotal, lc: lcTotal, net,
+    // present value at the discount rate (monthly, in advance), after TI and commission; the undiscounted net when no rate
+    pv: r ? pvNet : net,
     nerSimple: net / sf / years,
     nerDiscounted: r ? ((pvNet / annuity) * 12) / sf : net / sf / years,
     avgRent: gross / sf / years,

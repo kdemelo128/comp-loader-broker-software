@@ -16,7 +16,7 @@ import {
 } from './kit.js';
 
 let api = null;
-const MEM = 'comp-loader.tools.v1';
+const MEM = 'zlatura.tools.v1';
 const SAVED = 'tools.scenarios';
 let memory = {};
 try { memory = JSON.parse(localStorage.getItem(MEM) || '{}') || {}; } catch { memory = {}; }
@@ -535,12 +535,12 @@ function describeChanges(w, d) {
 async function exportXlsx(t, v, out, d) {
   const { ExcelJS } = await getXlsx();
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'Comp Loader';
+  wb.creator = 'Zlatura';
   const ws = wb.addWorksheet(t.title.slice(0, 31).replace(/[\\/?*[\]:]/g, ' '));
   ws.columns = [{ width: 44 }, { width: 22 }, { width: 22 }, { width: 22 }, { width: 22 }, { width: 22 }, { width: 22 }];
   const bold = { bold: true };
   ws.addRow([t.title]).font = { bold: true, size: 14 };
-  ws.addRow([`Comp Loader Tools · ${localDate()}${d ? ` · deal: ${d.name}` : ''}`]);
+  ws.addRow([`Zlatura Tools · ${localDate()}${d ? ` · deal: ${d.name}` : ''}`]);
   ws.addRow([]);
   ws.addRow(['Inputs']).font = bold;
   for (const [id, label, kind] of t.inputs) {

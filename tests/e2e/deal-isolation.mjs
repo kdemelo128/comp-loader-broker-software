@@ -19,7 +19,7 @@ await page.waitForTimeout(4000);
 await page.fill('#fig-address', '99 Second Property Rd'); await page.press('#fig-address', 'Tab');
 await page.waitForTimeout(1200);
 const counts = await page.evaluate(async () => {
-  const db = await new Promise((r) => { const q = indexedDB.open('comp-loader'); q.onsuccess = () => r(q.result); });
+  const db = await new Promise((r) => { const q = indexedDB.open('zlatura'); q.onsuccess = () => r(q.result); });
   const all = await new Promise((r) => { const q = db.transaction('deals').objectStore('deals').getAll(); q.onsuccess = () => r(q.result); });
   return all.map((d) => [d.name, d.figures.noi, d.visit.photos.length]);
 });

@@ -14,7 +14,7 @@ import { project, rentRollSummary, monthlyAmount, inPlace, dayOf, UNITS } from '
 const ok = (x) => typeof x === 'number' && Number.isFinite(x);
 const serial = (iso) => (iso && dayOf(iso) !== null ? dayOf(iso) + 25569 : null);
 
-export async function buildRentRollWorkbook(ExcelJS, fflate, { deal, rr, app = 'Comp Loader' }) {
+export async function buildRentRollWorkbook(ExcelJS, fflate, { deal, rr, app = 'Zlatura' }) {
   const wb = new ExcelJS.Workbook();
   wb.creator = app;
   wb.created = new Date();

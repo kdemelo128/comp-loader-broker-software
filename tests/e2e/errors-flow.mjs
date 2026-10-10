@@ -4,7 +4,7 @@ const { browser, page, errors } = await phone();
 await page.goto(BASE + '#deal', { waitUntil: 'load' });
 for (const f of ['corrupt.pdf', 'empty.pdf', 'om-encrypted.pdf', 'om-scanned.pdf', 'notes.txt', 'om-large.pdf']) {
   await page.goto(BASE + '#deal', { waitUntil: 'load' });
-  await page.evaluate(() => localStorage.removeItem('comp-loader.deal.current'));
+  await page.evaluate(() => localStorage.removeItem('zlatura.deal.current'));
   await page.reload({ waitUntil: 'load' });
   const t0 = Date.now();
   await page.setInputFiles('#om-file', F + f);

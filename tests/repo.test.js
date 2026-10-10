@@ -74,7 +74,7 @@ test('the offline cache is named for this release, so every release reinstalls i
   assert.equal(app, pkg, 'app/exporters.js VERSION matches package.json');
   assert.equal(sw, pkg, 'sw.js VERSION matches package.json');
   assert.equal(lock, pkg, 'package-lock.json version matches package.json');
-  assert.match(read('sw.js'), /const CACHE = `comp-loader-\$\{VERSION\}`/);
+  assert.match(read('sw.js'), /const CACHE = `zlatura-\$\{VERSION\}`/);
   assert.match(read('sw.js'), /cache: 'reload'/, 'install bypasses the HTTP cache');
 });
 

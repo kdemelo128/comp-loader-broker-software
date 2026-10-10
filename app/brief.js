@@ -153,5 +153,5 @@ export function renderDealBrief(box, { deal, m, comps, photos = [], preparedBy =
   }
   box.appendChild(h(doc, 'p', 'ps-foot',
     'Figures read from the offering memorandum and checked against each other; "derived" figures were worked out from the others. '
-    + 'Verify against the leases, the operating statements and the title before relying on any of them. Compiled with Comp Loader.'));
+    + 'Verify against the leases, the operating statements and the title before relying on any of them. Compiled with Zlatura.'));
 }

@@ -11,6 +11,7 @@ import { openTemplates } from './dealui.js';
 import { editStages } from './home.js';
 import { listTemplates } from './library.js';
 import { VERSION } from './exporters.js';
+import { PRODUCT, TAGLINE, ABOUT_NAME } from './brand.js';
 
 let api = null;
 
@@ -76,7 +77,7 @@ export async function renderSettings() {
   const tl = el('ul', 'set-list');
   const live = templates.filter((t) => !t.archived).length;
   tl.appendChild(row('Template library', live ? `${live} workbook${live === 1 ? '' : 's'} mapped and ready to fill from any deal.` : 'Map your firm’s underwriting or rent roll workbook once, then fill it for any deal.', [btn('Open library', () => openTemplates())]));
-  tl.appendChild(row('Comp workbook output', 'Choose between the Comp Loader workbook and your own comp template on the Comps screen.', [btn('Go to Comps', () => api.showView('comps'))]));
+  tl.appendChild(row('Comp workbook output', 'Choose between the Zlatura comp workbook and your own comp template on the Comps screen.', [btn('Go to Comps', () => api.showView('comps'))]));
   tpl.appendChild(tl);
   stack.appendChild(tpl);
 
@@ -102,9 +103,16 @@ export async function renderSettings() {
   stack.appendChild(data);
 
   // about
-  const about = section('About', 'settings-about', `Comp Loader ${VERSION}`);
+  const about = section('About', 'settings-about', `${PRODUCT} ${VERSION}`);
   const p = el('div', 'about');
-  p.appendChild(el('p', null, 'Everything you add (deals, comps, templates, tasks, contacts, recordings) is kept in this browser on this device. Nothing is uploaded unless you turn AI on and confirm a send.'));
+  p.appendChild(el('p', 'about-tagline', TAGLINE));
+  const nm = el('p');
+  nm.style.marginTop = '8px';
+  nm.append(el('b', null, 'About the name. '), ABOUT_NAME);
+  p.appendChild(nm);
+  const kept = el('p', null, 'Everything you add (deals, comps, templates, tasks, contacts, recordings) is kept in this browser on this device. Nothing is uploaded unless you turn AI on and confirm a send.');
+  kept.style.marginTop = '8px';
+  p.appendChild(kept);
   const k = el('p');
   k.style.marginTop = '8px';
   k.append('Press ', Object.assign(el('kbd', 'kbd', '⌘K'), {}), ' or ', el('kbd', 'kbd', 'Ctrl K'), ' anywhere to search deals, contacts and tools.');

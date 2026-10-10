@@ -259,7 +259,7 @@ export function commission({ price, flatPct, tiers = [], coBrokerPct = 0, houseP
 export function compareLeases(proposals, discount = 8) {
   return proposals.map((p) => {
     const r = netEffectiveRent({ ...p, discount });
-    return r ? { ...p, ...r, landlordPv: r.nerDiscounted * p.sf * (p.months / 12) } : null;
+    return r ? { ...p, ...r, landlordPv: r.pv } : null;
   });
 }
 

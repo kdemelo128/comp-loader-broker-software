@@ -1,7 +1,12 @@
-# Comp Loader
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-dark.svg">
+  <img src="docs/brand/logo-light.svg" alt="Zlatura" width="220">
+</picture>
 
-A broker's field kit that runs in the browser and installs on an iPhone like an
-app. Five places, in a sidebar on a computer and a tab bar on a phone:
+**Every source. Every assumption. Every number.**
+
+Zlatura is a commercial real estate brokerage workspace that runs in the
+browser and installs on an iPhone like an app. Five places, in a sidebar on a computer and a tab bar on a phone:
 
 - **Home** is where the day starts: the deals to continue working on with
   their figures and next step, what needs attention, key dates, the pipeline by
@@ -49,7 +54,7 @@ when a firm runs its own AI server and a broker turns them on (see below).
 ### Your own Excel template
 
 Under **Excel output**, choose **My template** and upload the .xlsx your firm
-uses. Comp Loader finds the row of column headings on each sheet, matches each
+uses. Zlatura finds the row of column headings on each sheet, matches each
 column to a comp figure by its wording ("Sale Price", "Price", "Asking Price"...),
 and shows you the match to correct. From then on the Excel button fills that
 template:
@@ -63,7 +68,7 @@ template:
 - formatting, charts, logos, print setup and every other sheet are untouched:
   the file is edited in place, not rebuilt.
 
-The template is kept on the device. Switch back to **Comp Loader workbook** at
+The template is kept on the device. Switch back to **Zlatura workbook** at
 any time.
 
 ## Deal: reading an offering memorandum
@@ -180,7 +185,7 @@ figure, so an irregular schedule is entered as the lease reads.
 menu as Template library) keeps your firm's own workbooks on the device and
 fills them from any deal.
 
-1. Upload an .xlsx or .xlsm. Comp Loader lists its sheets, named ranges and
+1. Upload an .xlsx or .xlsm. Zlatura lists its sheets, named ranges and
    anything that needs a warning (macros, external links, pivot tables,
    connections, protection). .xls and .xlsb are refused with what to do.
 2. It suggests which cell takes which deal figure (a named range, or the cell
@@ -192,7 +197,9 @@ fills them from any deal.
    merged ranges are never written.
 4. The filled copy keeps formats, formulas, merges, named ranges, hidden sheets
    and macros (an .xlsm stays an .xlsm, its macros byte for byte). An optional
-   **Comp Loader Audit** sheet lists every cell written and its source.
+   **Zlatura Audit** sheet lists every cell written and its source (a
+   workbook filled before the rename has its old *Comp Loader Audit* sheet
+   replaced).
 
 Templates have categories, versions (replace the file, restore an older one),
 duplicate and delete, and export as one file to send to a colleague, who
@@ -270,6 +277,28 @@ shows numbers in Outlook's preview and Protected View and still recalculates.
 - On a deal, a figure worked out from others is labelled "derived", and a
   figure you typed over is labelled "edited", with the OM's own value one tap away.
 
+## About the name
+
+Zlatura joins two words for wealth: *zlato*, gold in Serbian and Croatian, and
+*fartura*, abundance in Brazilian Portuguese.
+
+## Coming from Comp Loader
+
+Zlatura was called Comp Loader until version 4.0. Nothing needs doing:
+
+- The first time 4.0 opens, everything kept on the device under the old name
+  (deals with their photos and recordings, the comp set, templates, tasks,
+  contacts, settings) is copied to Zlatura's storage in one step, all or
+  nothing. Data already under the new name is never overwritten.
+- The old copy is left as it was until a backup has been made since the move,
+  or for 30 days; then it is deleted. **Settings → Your data** says when the
+  move happened while the old copy is still there.
+- Backups, comp projects and template packages made by Comp Loader open in
+  Zlatura, now and later. New ones are written in Zlatura's format, which
+  Comp Loader 3.x cannot read.
+- The web address is unchanged, so the installed app keeps its place on the
+  home screen.
+
 ## Putting it online (first time)
 
 It is a static site: no build step, no server, no keys.
@@ -292,7 +321,7 @@ It is a static site: no build step, no server, no keys.
    (Mac: press **Cmd+Shift+.** to show hidden files. Windows: View → Show →
    Hidden items.)
 3. GitHub Desktop lists the changed files. Type a summary such as
-   `Comp Loader 3.1`, click **Commit to main**, then **Push origin**.
+   `Zlatura 4.0`, click **Commit to main**, then **Push origin**.
 4. GitHub rebuilds the site in a minute or two (the **Actions** tab shows a green
    check when the tests pass). Installed copies offer **Reload** the next time
    they open online.
@@ -352,6 +381,8 @@ index.html            the page shell and start-up checks
 app/styles.css        the design system: colour, type and spacing tokens for
                       light and dark, components, layouts, print
 app/theme.js          light, dark or system appearance, kept on the device
+app/brand.js          the product name, tagline, and the move from the old name
+                      (settings keys, file formats)
 app/command.js        search or jump (⌘K / Ctrl K / "/")
 app/settings.js       the Settings screen
 app/ui.js             the shell (navigation, sheets) and the Comps screen

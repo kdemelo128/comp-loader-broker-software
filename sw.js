@@ -19,8 +19,8 @@
  * it holds offline always belong to the same release, never a mix of the old
  * and the new. The old cache is dropped on activate. The test suite also
  * checks this list against the files on disk. */
-const VERSION = '3.3.0';
-const CACHE = `comp-loader-${VERSION}`;
+const VERSION = '4.0.0';
+const CACHE = `zlatura-${VERSION}`;
 const ASSETS = [
   './',
   'index.html',
@@ -61,6 +61,7 @@ const ASSETS = [
   'app/dealcrm.js',
   'app/home.js',
   'app/backup.js',
+  'app/brand.js',
   'app/backupui.js',
   'app/styles.css',
   'app/theme.js',
@@ -73,6 +74,7 @@ const ASSETS = [
   'vendor/pdf-4.7.76-legacy.worker.min.js',
   'vendor/exceljs-4.4.0.min.js',
   'vendor/fflate-0.8.3.min.js',
+  'icons/favicon.svg',
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/icon-180.png',

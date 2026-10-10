@@ -6,8 +6,8 @@ const F = new URL('./files/', import.meta.url).pathname;
 const { browser, page, errors } = await phone();
 const R = []; const check = (n, c, d = '') => R.push([c ? 'PASS' : 'FAIL', n, d]);
 const go = async (v) => { await page.evaluate((x) => { location.hash = x; }, `#${v}`); await page.waitForTimeout(400); };
-const kvGet = (k) => page.evaluate((key) => new Promise((res) => { const r = indexedDB.open('comp-loader'); r.onsuccess = () => { const g = r.result.transaction('kv').objectStore('kv').get(key); g.onsuccess = () => res(g.result ?? null); }; }), k);
-const dealCount = () => page.evaluate(() => new Promise((res) => { const r = indexedDB.open('comp-loader'); r.onsuccess = () => { const g = r.result.transaction('deals').objectStore('deals').getAll(); g.onsuccess = () => res(g.result.map((d) => ({ name: d.name, photos: (d.visit.photos || []).length, photoBytes: (d.visit.photos || [])[0]?.blob?.size || 0, stage: d.stage }))); }; }));
+const kvGet = (k) => page.evaluate((key) => new Promise((res) => { const r = indexedDB.open('zlatura'); r.onsuccess = () => { const g = r.result.transaction('kv').objectStore('kv').get(key); g.onsuccess = () => res(g.result ?? null); }; }), k);
+const dealCount = () => page.evaluate(() => new Promise((res) => { const r = indexedDB.open('zlatura'); r.onsuccess = () => { const g = r.result.transaction('deals').objectStore('deals').getAll(); g.onsuccess = () => res(g.result.map((d) => ({ name: d.name, photos: (d.visit.photos || []).length, photoBytes: (d.visit.photos || [])[0]?.blob?.size || 0, stage: d.stage }))); }; }));
 
 await page.goto(BASE + '#deal', { waitUntil: 'load' });
 await page.setInputFiles('#om-file', F + 'om-retail.pdf');
@@ -21,7 +21,7 @@ await page.fill('#deal-task-title', 'Order the appraisal');
 await page.press('#deal-task-title', 'Enter');
 await page.waitForTimeout(400);
 // an AI token on the device, which must not go into the backup
-await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('comp-loader'); r.onsuccess = () => { const t = r.result.transaction('kv', 'readwrite'); t.objectStore('kv').put({ url: 'https://ai.example', token: 'DEVICE-SECRET-TOKEN', enabled: true }, 'ai.settings'); t.oncomplete = res; }; }));
+await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('zlatura'); r.onsuccess = () => { const t = r.result.transaction('kv', 'readwrite'); t.objectStore('kv').put({ url: 'https://ai.example', token: 'DEVICE-SECRET-TOKEN', enabled: true }, 'ai.settings'); t.oncomplete = res; }; }));
 await go('home');
 await page.waitForSelector('#home-attention');
 check('Home nudges for a first backup, pointing to Settings', /No backup yet/.test(await page.textContent('#home-attention')));
@@ -33,7 +33,7 @@ const file = `${SHOTS}backup.json`;
 await dl.saveAs(file);
 const text = fs.readFileSync(file, 'utf8');
 const j = JSON.parse(text);
-check('the backup holds the deal, its photo, the task', j.format === 'comp-loader-backup' && j.deals.length === 1 && j.deals[0].visit.photos[0].blob.$blob.length > 1000 && j.kv['crm.tasks'].length === 1, JSON.stringify(j.counts));
+check('the backup holds the deal, its photo, the task', j.format === 'zlatura-backup' && j.deals.length === 1 && j.deals[0].visit.photos[0].blob.$blob.length > 1000 && j.kv['crm.tasks'].length === 1, JSON.stringify(j.counts));
 check('the AI token is not in the backup', !text.includes('DEVICE-SECRET-TOKEN') && j.kv['ai.settings'].url === 'https://ai.example');
 await page.waitForTimeout(300);
 await page.waitForFunction(() => /Last backup:/.test(document.querySelector('#settings-data').textContent));
@@ -42,7 +42,7 @@ check('the last backup date is shown and the nudge is gone', !/No backup yet/.te
 const before = await dealCount();
 
 // wipe the browser's storage entirely, as a lost or reset phone would
-await page.evaluate(() => new Promise((res) => { localStorage.clear(); const r = indexedDB.deleteDatabase('comp-loader'); r.onsuccess = res; r.onerror = res; r.onblocked = res; }));
+await page.evaluate(() => new Promise((res) => { localStorage.clear(); const r = indexedDB.deleteDatabase('zlatura'); r.onsuccess = res; r.onerror = res; r.onblocked = res; }));
 await page.goto(BASE + '#settings', { waitUntil: 'load' });
 await page.reload({ waitUntil: 'load' });
 await page.waitForSelector('#settings-data #backup-file', { state: 'attached' });
@@ -87,7 +87,7 @@ await page.waitForTimeout(300);
 await page.evaluate(() => [...document.querySelectorAll('#deal-root button')].find((b) => b.textContent.includes('Enter figures by hand')).click());
 await page.waitForTimeout(500);
 check('two deals before replacing', (await dealCount()).length === 2);
-await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('comp-loader'); r.onsuccess = () => { const t = r.result.transaction('kv', 'readwrite'); t.objectStore('kv').put({ url: 'https://ai.example', token: 'NEW-DEVICE-TOKEN', enabled: true }, 'ai.settings'); t.oncomplete = res; }; }));
+await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('zlatura'); r.onsuccess = () => { const t = r.result.transaction('kv', 'readwrite'); t.objectStore('kv').put({ url: 'https://ai.example', token: 'NEW-DEVICE-TOKEN', enabled: true }, 'ai.settings'); t.oncomplete = res; }; }));
 await go('settings');
 await page.waitForSelector('#settings-data #backup-file', { state: 'attached' });
 await page.setInputFiles('#backup-file', file);

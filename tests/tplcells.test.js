@@ -148,7 +148,7 @@ test('fill: values in place, formulas, merges, names and hidden sheets kept, an 
   assert.equal(r.getCell('F7').formula, 'IFERROR(E7/C7,"")');
   assert.equal(wb.getWorksheet('Lists').state, 'hidden');
   assert.ok(wb.definedNames.getRanges('InterestRate').ranges.length, 'the named range survives');
-  const a = wb.getWorksheet('Comp Loader Audit');
+  const a = wb.getWorksheet('Zlatura Audit');
   assert.ok(a, 'audit sheet added');
   const rows = [];
   a.eachRow((row) => rows.push(row.values.slice(1)));
@@ -157,7 +157,16 @@ test('fill: values in place, formulas, merges, names and hidden sheets kept, an 
   const again = fillCells(fflate, out, { cellMap: map, values, audit: true }, xml);
   const wb2 = new ExcelJS.Workbook();
   await wb2.xlsx.load(again.bytes);
-  assert.equal(wb2.worksheets.filter((w) => w.name === 'Comp Loader Audit').length, 1);
+  assert.equal(wb2.worksheets.filter((w) => w.name === 'Zlatura Audit').length, 1);
+  // a workbook filled before the rename has a "Comp Loader Audit" sheet: refilling replaces it, under the new name
+  const files = fflate.unzipSync(again.bytes);
+  const wbXml = fflate.strFromU8(files['xl/workbook.xml']);
+  assert.ok(wbXml.includes('name="Zlatura Audit"'));
+  files['xl/workbook.xml'] = fflate.strToU8(wbXml.replace('name="Zlatura Audit"', 'name="Comp Loader Audit"'));
+  const legacy = fillCells(fflate, fflate.zipSync(files), { cellMap: map, values, audit: true }, xml);
+  const wb3 = new ExcelJS.Workbook();
+  await wb3.xlsx.load(legacy.bytes);
+  assert.deepEqual(wb3.worksheets.filter((w) => /Audit$/.test(w.name)).map((w) => w.name), ['Zlatura Audit']);
 });
 
 test('macros survive byte for byte, and the workbook says it has them', async () => {

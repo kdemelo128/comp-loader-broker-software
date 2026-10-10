@@ -1,4 +1,4 @@
-/* ai.js -- talking to the firm's Comp Loader AI server (server/ in this
+/* ai.js -- talking to the firm's Zlatura AI server (server/ in this
  * repository). The page itself holds no API key: it holds the server's
  * address and an access token the firm issues, kept on this device. Nothing
  * is sent unless the broker has turned AI on and confirmed the send. */

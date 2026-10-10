@@ -40,7 +40,7 @@ await page.evaluate(() => [...document.querySelectorAll('#deal-root button')].fi
 await page.waitForTimeout(800);
 console.log('saved deals:', await page.$$eval('#deal-root .list .li', (x) => x.map((b) => b.innerText.replace(/\n/g, ' | '))));
 const counts = await page.evaluate(async () => {
-  const db = await new Promise((r) => { const q = indexedDB.open('comp-loader'); q.onsuccess = () => r(q.result); });
+  const db = await new Promise((r) => { const q = indexedDB.open('zlatura'); q.onsuccess = () => r(q.result); });
   const all = await new Promise((r) => { const q = db.transaction('deals').objectStore('deals').getAll(); q.onsuccess = () => r(q.result); });
   return all.map((d) => [d.name, d.figures.noi, d.visit.photos.length]);
 });

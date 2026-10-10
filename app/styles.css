@@ -1,4 +1,4 @@
-/* styles.css -- the Comp Loader design system and every screen's styles.
+/* styles.css -- the Zlatura design system and every screen's styles.
  *
  * Direction: institutional calm. Warm paper neutrals, ink for primary
  * actions, cobalt only for links, focus and the current place, one brass
@@ -860,6 +860,7 @@ button.src::after { content: ""; position: absolute; inset: -11px -6px; }
 .set-text span { display: block; color: var(--muted); font-size: var(--t-13); margin-top: 2px; line-height: 1.5; }
 .set-ctl { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; }
 .about { padding: 0 var(--s5) var(--s5); color: var(--muted); font-size: var(--t-13); line-height: 1.6; }
+.about-tagline { font: 600 17px/1.35 var(--serif); color: var(--ink); letter-spacing: -.005em; }
 
 /* ===================================================== the command menu */
 dialog.cmdk { border: 0; padding: 0; margin: 10vh auto auto; width: calc(100% - 24px); max-width: 640px; background: transparent; color: var(--ink); overflow: visible; }

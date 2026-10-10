@@ -1,6 +1,6 @@
-# Comp Loader AI server
+# Zlatura AI server
 
-The Comp Loader app is a static page: anyone can read its code, so it can't
+The Zlatura app is a static page: anyone can read its code, so it can't
 hold an API key. This small server holds the keys and does the AI work for the
 app:
 

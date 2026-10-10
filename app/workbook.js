@@ -1383,7 +1383,7 @@ function rentRollTab(wb, rows, asOf) {
 }
 
 /** A workbook holding just the deal: its analysis and its rent roll. */
-export async function buildDealWorkbook(ExcelJS, fflate, { deal, metrics, comps, app = 'Comp Loader' }) {
+export async function buildDealWorkbook(ExcelJS, fflate, { deal, metrics, comps, app = 'Zlatura' }) {
   const wb = new ExcelJS.Workbook();
   wb.creator = app;
   wb.lastModifiedBy = app;
@@ -1416,7 +1416,7 @@ export function byPpsf(a, b) {
 
 /** Build the workbook and return it as bytes ready to download. */
 export async function buildWorkbook(ExcelJS, fflate, {
-  sales, market, subject = {}, label: setLabel, sources = [], app = 'Comp Loader', preparedBy = '', manual = 0,
+  sales, market, subject = {}, label: setLabel, sources = [], app = 'Zlatura', preparedBy = '', manual = 0,
   deal = null,
 }) {
   // the order is the rule, whatever order the comps arrive in

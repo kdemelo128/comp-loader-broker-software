@@ -38,7 +38,7 @@ export async function openAiSettings(api) {
   const s = await ai.getSettings();
   const save = btn('', 'Save');
   const test = btn('btn-gray', 'Test connection');
-  const body = api.sheetOpen({ eyebrow: 'AI', title: 'AI settings', sub: 'Reading documents, the deal assistant and transcription run on your firm’s Comp Loader AI server.', foot: [test, save] });
+  const body = api.sheetOpen({ eyebrow: 'AI', title: 'AI settings', sub: 'Reading documents, the deal assistant and transcription run on your firm’s Zlatura AI server.', foot: [test, save] });
   const p = el('p', 'hint');
   p.textContent = 'When AI is on, the documents, questions or recordings you choose are sent to the server below, which passes them to Anthropic’s API (and recordings to the speech service it is set up with). Nothing is sent without your confirming each time. The app holds no API key: only this server’s address and the access token your firm gives you, kept on this device.';
   body.appendChild(p);
