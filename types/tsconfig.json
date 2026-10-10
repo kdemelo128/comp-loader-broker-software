@@ -1,0 +1,16 @@
+{
+  "//": "The type checker for app/ (JSDoc, checked by tsc). Dev only: nothing here is built or deployed, and the browser never reads it. npm test runs it (tests/types.test.js).",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "target": "es2022",
+    "module": "es2022",
+    "moduleResolution": "bundler",
+    "lib": ["es2022", "dom", "dom.iterable", "webworker.importscripts"],
+    "skipLibCheck": true,
+    "types": []
+  },
+  "include": ["./*.d.ts", "../app/**/*.js", "../tests/types/*.js"]
+}

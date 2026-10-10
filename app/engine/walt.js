@@ -11,7 +11,10 @@ const ok = (x) => typeof x === 'number' && Number.isFinite(x);
 const pos = (x) => ok(x) && x > 0;
 const DAY = 86400000;
 
-/** A date (ISO text, Date or day number) as a whole UTC day number; null if none. */
+/**
+ * A date (ISO text, Date or day number) as a whole UTC day number; null if none.
+ * @param {IsoDate | Date | DayNumber | null | undefined | string} v @returns {DayNumber | null}
+ */
 export function dayNumber(v) {
   if (v === null || v === undefined || v === '') return null;
   if (typeof v === 'number') return Number.isFinite(v) ? Math.floor(v) : null;
@@ -23,6 +26,9 @@ export function dayNumber(v) {
  * items: [{ annual, sf, end, mtm, vacant }]. Returns
  * { income, sf, headline, weight, mtm, asOf } -- WALT in years by income and by
  * SF, and which of the two is the headline under the current convention.
+ * @param {{ annual?: UsdPerYear | null, sf?: Sf | null, end?: string | null, mtm?: boolean, vacant?: boolean }[]} items
+ * @param {{ asOf?: IsoDate | Date | DayNumber | null, weight?: string, mtm?: string }} [opts]
+ * @returns {{ income: Years | null, sf: Years | null, headline: Years | null, weight: string, mtm: string, asOf: DayNumber | null }}
  */
 export function walt(items, { asOf, weight = conv('walt.weight'), mtm = conv('walt.mtm') } = {}) {
   const d = dayNumber(asOf);

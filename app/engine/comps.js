@@ -16,14 +16,20 @@ export function median(xs) {
   return v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
 }
 
-/** Total price over total size, over the pairs where both are above zero. */
+/**
+ * Total price over total size, over the pairs where both are above zero.
+ * @param {Usd[]} prices @param {Sf[]} sizes @returns {UsdPerSf | null}
+ */
 export function weightedPpsf(prices, sizes) {
   let p = 0; let s = 0;
   for (let i = 0; i < prices.length; i++) if (pos(prices[i]) && pos(sizes[i])) { p += prices[i]; s += sizes[i]; }
   return s ? p / s : null;
 }
 
-/** What the comp set says, in the form the deal screen needs. */
+/**
+ * What the comp set says, in the form the deal screen needs.
+ * @returns {{ n: number, weighted: UsdPerSf | null, median: UsdPerSf | null, lo: UsdPerSf | null, hi: UsdPerSf | null, ppsfs: UsdPerSf[], capN: number, medianCap: Pct | null }}
+ */
 export function compBasis(sales) {
   const priced = (sales || []).filter(isPriced);
   const ppsfs = priced.map((c) => c.price / c.bsf);

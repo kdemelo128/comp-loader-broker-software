@@ -41,7 +41,10 @@ const pos = (x) => ok(x) && x > 0;
 
 /* ----------------------------------------------------------------- dates */
 
-/** A UTC day number from 'YYYY-MM-DD' (or a Date); null when it isn't a real date. */
+/**
+ * A UTC day number from 'YYYY-MM-DD' (or a Date); null when it isn't a real date.
+ * @param {IsoDate | Date | DayNumber | string | null | undefined} v @returns {DayNumber | null}
+ */
 export function dayOf(v) {
   if (v === null || v === undefined || v === '') return null;
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : Math.floor(v.getTime() / DAY);
@@ -63,13 +66,19 @@ function parseDay(str) {
   if (back.getUTCFullYear() !== y || back.getUTCMonth() !== mo - 1 || back.getUTCDate() !== d) return null;
   return t / DAY;
 }
-/** 'YYYY-MM-DD' for a UTC day number. */
+/**
+ * 'YYYY-MM-DD' for a UTC day number.
+ * @param {DayNumber} day @returns {IsoDate}
+ */
 export function isoOf(day) {
   let s = ISOS.get(day);
   if (s === undefined) { s = new Date(day * DAY).toISOString().slice(0, 10); if (ISOS.size >= CACHE_MAX) ISOS.clear(); ISOS.set(day, s); }
   return s;
 }
-/** The date `months` calendar months after `iso`, clamped to the month's end (Jan 31 + 1 month = Feb 28/29). */
+/**
+ * The date `months` calendar months after `iso`, clamped to the month's end (Jan 31 + 1 month = Feb 28/29).
+ * @param {IsoDate} iso @param {Months} months @returns {IsoDate | null}
+ */
 export function addMonths(iso, months) {
   const d = dayOf(iso);
   if (d === null) return null;
@@ -78,6 +87,7 @@ export function addMonths(iso, months) {
   const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
   return isoOf(Date.UTC(y, m, Math.min(day, last)) / DAY);
 }
+/** @type {(iso: IsoDate, n: number) => IsoDate | null} */
 export const addDays = (iso, n) => { const d = dayOf(iso); return d === null ? null : isoOf(d + n); };
 const monthStart = (y, m) => Date.UTC(y, m, 1) / DAY;
 const daysIn = (y, m) => new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
@@ -95,11 +105,14 @@ export const UNITS = {
   psf_month: 'per SF per month',
 };
 
-/** Monthly dollars from a period's rate, unit and the space's SF; null when SF is needed and missing. */
+/**
+ * Monthly dollars from a period's rate, unit and the space's SF; null when SF is needed and missing.
+ * @param {RentInUnit} rate @param {RentUnit} unit @param {Sf | null | undefined} sf @returns {UsdPerMonth | null}
+ */
 export function monthlyAmount(rate, unit, sf) {
   if (!ok(rate)) return null;
   switch (unit) {
-    case 'month': return rate;
+    case 'month': return /** @type {UsdPerMonth} */ (/** @type {unknown} */ (rate));
     case 'year': return rate / 12;
     case 'psf_year': return pos(sf) ? (rate * sf) / 12 : null;
     case 'psf_month': return pos(sf) ? rate * sf : null;
@@ -113,6 +126,7 @@ export function monthlyAmount(rate, unit, sf) {
  * the engine reads. `escalation.type` is 'pct' (compounding percent) or
  * 'fixed' (dollars added to the rate, in the rate's own unit). Each step lasts
  * `every` months; the last runs to `end`.
+ * @param {{ start: IsoDate, end: IsoDate, rate: RentInUnit, unit?: RentUnit, escalation?: { type: 'pct' | 'fixed', value: number } | null, every?: Months, source?: string }} a @returns {RentPeriod[]}
  */
 export function generateSteps({ start, end, rate, unit = 'year', escalation = null, every = 12, source = 'documented' }) {
   const s = dayOf(start); const e = dayOf(end);
@@ -207,7 +221,10 @@ function rentOn(L, day) {
   return { monthly: null, period: null };
 }
 
-/** The lease's in-place rent on `asOf`: contract and after abatement, monthly. */
+/**
+ * The lease's in-place rent on `asOf`: contract and after abatement, monthly.
+ * @param {Lease} L @param {IsoDate} asOf @returns {{ monthly: UsdPerMonth, net: UsdPerMonth, period: RentPeriod | null }}
+ */
 export function inPlace(L, asOf) {
   const d = dayOf(asOf);
   if (L.vacant || d === null) return { monthly: 0, net: 0, period: null };
@@ -223,6 +240,7 @@ export function inPlace(L, asOf) {
  * months. Each month: contract rent earned, free rent and abatement, the rent
  * after them, and the share of the month the space is leased. Projected
  * periods (renewals, lease-up) are counted separately from documented ones.
+ * @param {Lease} L @param {IsoDate} from @param {number} n
  */
 export function leaseMonths(L, from, n) {
   const f = new Date(dayOf(from) * DAY);
@@ -275,6 +293,7 @@ export function leaseMonths(L, from, n) {
  * probability the way an appraiser does (expected downtime and expected free
  * rent), repeated until the horizon. Returns new periods, abatements and the
  * leasing costs they bring, all marked 'projected'.
+ * @param {Lease} L @param {RentRollSettings} s @param {IsoDate} horizonEnd
  */
 export function rollover(L, s, horizonEnd) {
   const R = { ...(s.renewal || {}), ...(L.renewal || {}) };
@@ -284,7 +303,10 @@ export function rollover(L, s, horizonEnd) {
   return reLease(L, s, isoOf(endDoc + 1), horizonEnd, R);
 }
 
-/** Vacant space let up: after `leaseUpMonths` it leases at market, then rolls like any other. */
+/**
+ * Vacant space let up: after `leaseUpMonths` it leases at market, then rolls like any other.
+ * @param {Lease} L @param {RentRollSettings} s @param {IsoDate} asOf @param {IsoDate} horizonEnd
+ */
 export function leaseUp(L, s, asOf, horizonEnd) {
   if (!L.vacant) return { periods: [], abatements: [], costs: [] };
   const R = { ...(s.renewal || {}), ...(L.renewal || {}) };
@@ -294,6 +316,7 @@ export function leaseUp(L, s, asOf, horizonEnd) {
   return reLease(L, s, start, horizonEnd, { ...R, probability: 0, downtime: 0 }, true);
 }
 
+/** @param {Lease} L @param {RentRollSettings} s @param {IsoDate} iso @returns {UsdPerMonth | null} */
 function marketMonthlyAt(L, s, iso) {
   const base = ok(L.marketRent) ? L.marketRent : s.marketRent;
   const unit = L.marketUnit || s.marketUnit || 'psf_year';
@@ -365,7 +388,10 @@ function monthsBetween(a, b) {
 
 /* --------------------------------------------------- property projection */
 
-/** Settings every projection starts from; a rent roll's own settings override them. */
+/**
+ * Settings every projection starts from; a rent roll's own settings override them.
+ * @type {RentRollSettings & { renewal: Renewal }}
+ */
 export const DEFAULT_SETTINGS = {
   asOf: null, years: 10, marketRent: null, marketUnit: 'psf_year', marketGrowth: 3,
   opex: null, expenseGrowth: 3, recoverable: null, generalVacancy: 0, reservesPsf: 0,
@@ -376,6 +402,7 @@ export const DEFAULT_SETTINGS = {
 /**
  * A rent roll projected month by month and rolled up by analysis year.
  * `rr` is { settings, leases }. Nothing in `rr` is changed.
+ * @param {RentRoll} rr @param {{ asOf?: IsoDate, years?: Years }} [opts]
  */
 export function project(rr, { asOf: asOfArg, years: yearsArg } = {}) {
   const s = { ...DEFAULT_SETTINGS, ...(rr.settings || {}) };
@@ -390,6 +417,7 @@ export function project(rr, { asOf: asOfArg, years: yearsArg } = {}) {
   const leases = rr.leases || [];
   const totalSf = leases.reduce((x, L) => x + (pos(L.sf) ? L.sf : 0), 0) || s.buildingSf || null;
 
+  /** @type {ProjectionMonth[]} */
   const rows = Array.from({ length: n }, (_, k) => ({
     month: addMonths(from, k), base: 0, projected: 0, vacancy: 0, free: 0, recoveries: 0, pctRent: 0, other: 0, oneTime: 0,
     opex: 0, ti: 0, lc: 0, reserves: 0, occupiedSf: 0,
@@ -508,6 +536,7 @@ function monthIndex(from, iso) {
  * The rent roll as of a date: in-place rent, WALT, expirations, concentration
  * and loss to lease. Documented terms only: projected renewals don't count
  * as leased term.
+ * @param {RentRoll} rr @param {IsoDate} [asOf]
  */
 export function rentRollSummary(rr, asOf) {
   const s = { ...DEFAULT_SETTINGS, ...(rr.settings || {}) };
@@ -543,7 +572,8 @@ export function rentRollSummary(rr, asOf) {
     e.count += 1; e.sf += pos(r.sf) ? r.sf : 0; e.rent += r.annual;
     exp.set(y, e);
   }
-  const expirations = [...exp.values()].sort((a, b) => (a.year === 'No date') - (b.year === 'No date') || a.year - b.year)
+  // (the checker reads a true/false and a year as numbers here, as the sort does)
+  const expirations = [...exp.values()].sort((a, b) => /** @type {any} */ (a.year === 'No date') - /** @type {any} */ (b.year === 'No date') || /** @type {any} */ (a.year) - /** @type {any} */ (b.year))
     .map((e) => ({ ...e, sfPct: totalSf ? (e.sf / totalSf) * 100 : null, rentPct: annual ? (e.rent / annual) * 100 : null }));
   const byTenant = rows.filter((r) => r.occupied).sort((a, b) => b.annual - a.annual)
     .map((r) => ({ tenant: r.tenant, unit: r.unit, annual: r.annual, share: annual ? (r.annual / annual) * 100 : null }));
@@ -576,6 +606,7 @@ export const leaseId = () => `l${Date.now().toString(36)}${(seq++).toString(36)}
  * A rent roll from the rows the OM reader found: one documented period per
  * lease at the rent the OM prints, from its start (or the as-of date) to its
  * expiration. A row with no dates gets no period end and is flagged.
+ * @param {OmRentRow[]} rows @param {{ asOf?: IsoDate, page?: number | null, buildingSf?: Sf | null }} [opts] @returns {RentRoll}
  */
 export function fromOmRows(rows, { asOf, page = null, buildingSf = null } = {}) {
   const leases = (rows || []).map((r) => {

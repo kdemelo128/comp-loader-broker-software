@@ -1,6 +1,6 @@
 # Phase 1 item 2: the typed deal model, with unit types: design for approval
 
-Status: **proposal, written 2026-10-10 against 4.4.0. Nothing is built.**
+Status: **approved 2026-10-10** (all three decisions as recommended) and built in 4.4.1. Original status: proposal, written 2026-10-10 against 4.4.0.
 
 The goal: a number in one unit can't be used where another is expected, for
 example:

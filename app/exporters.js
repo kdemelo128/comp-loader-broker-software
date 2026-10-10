@@ -4,7 +4,7 @@
  * Both take the comps exactly as the workbook would (included, edited, in
  * $/SF order), so the three outputs never disagree. */
 
-export const VERSION = '4.4.0';
+export const VERSION = '4.4.1';
 
 const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
 const ppsf = (c) => (num(c.price) && num(c.bsf) ? c.price / c.bsf : null);
@@ -31,6 +31,7 @@ export function fullAddress(c) {
 
 /* ------------------------------------------------------------------- CSV */
 
+/** @type {[string, (c: any) => any][]} */
 const CSV_COLS = [
   ['Set', (c) => (c.kind === 'sale' ? 'Sale' : 'On market')],
   ['Status', statusOf],
@@ -111,7 +112,10 @@ const h = (doc, tag, cls, text) => {
   return n;
 };
 
-/** Fill `box` with a one-page comp sheet for printing or saving as a PDF. */
+/**
+ * Fill `box` with a one-page comp sheet for printing or saving as a PDF.
+ * @param {any} box @param {{ sales: any[], market: any[], subject?: any, label?: string, preparedBy?: string, today?: Date }} opts
+ */
 export function renderCompSheet(box, { sales, market, subject = {}, label, preparedBy, today = new Date() }) {
   const doc = box.ownerDocument;
   box.textContent = '';

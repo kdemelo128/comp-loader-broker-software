@@ -334,7 +334,10 @@ export function absorption({ vacantSf, sfPerMonth, rentPsf, freeMonths = 0 }) {
   return { months, lostRent: lost, freeRentCost: freeCost, totalCost: lost + freeCost, rows };
 }
 
-/** A rent schedule from a starting rent and bumps, as dated steps with totals. */
+/**
+ * A rent schedule from a starting rent and bumps, as dated steps with totals.
+ * @param {{ start: IsoDate, months: Months, rate: RentInUnit, unit?: RentUnit, sf?: Sf, type?: 'pct' | 'fixed', value?: number, every?: Months }} a
+ */
 export function escalationSchedule({ start, months, rate, unit = 'psf_year', sf, type = 'pct', value = 3, every = 12 }) {
   if (!dayOf(start) || !pos(months) || !ok(rate)) return null;
   const endD = new Date((dayOf(start) * 86400000));
@@ -417,6 +420,7 @@ export function drawSchedule({ totalCost, months, curve = 's', loanToCost = 65, 
  * How much a set of sale comps can bear: how many, how recent, how spread,
  * and a value range for the subject at their $/SF. Never invents distance:
  * the comps carry no coordinates here, so location is left to the broker.
+ * @param {any[]} sales @param {{ subjectSf?: Sf, today?: Date }} [opts]
  */
 export function compSetCheck(sales, { subjectSf, today = new Date() } = {}) {
   const priced = (sales || []).filter(isPriced);
@@ -424,7 +428,7 @@ export function compSetCheck(sales, { subjectSf, today = new Date() } = {}) {
   const q = (p) => { if (!ppsf.length) return null; const i = (ppsf.length - 1) * p; const lo = Math.floor(i); return ppsf[lo] + (ppsf[Math.ceil(i)] - ppsf[lo]) * (i - lo); };
   const mean = ppsf.length ? ppsf.reduce((s, x) => s + x, 0) / ppsf.length : null;
   const sd = ppsf.length > 1 ? Math.sqrt(ppsf.reduce((s, x) => s + (x - mean) ** 2, 0) / (ppsf.length - 1)) : null;
-  const ages = priced.filter((c) => c.date).map((c) => (today - new Date(c.date)) / (365.25 * 86400000) * 12).sort((a, b) => a - b);
+  const ages = priced.filter((c) => c.date).map((c) => (/** @type {any} */ (today) - /** @type {any} */ (new Date(c.date))) / (365.25 * 86400000) * 12).sort((a, b) => a - b);
   const weighted = priced.length ? priced.reduce((s, c) => s + c.price, 0) / priced.reduce((s, c) => s + c.bsf, 0) : null;
   const sizes = priced.map((c) => c.bsf);
   const warnings = [];

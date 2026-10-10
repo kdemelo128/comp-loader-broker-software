@@ -658,7 +658,7 @@ export function rentRoll(pages) {
 /** Read an OM: `pages` is page text from layout.js. */
 export function readOm(pages) {
   const text = pages.join('\n');
-  const fields = { ...choose(candidates(pages)), ...addressOf(pages), ...typeOf(pages) };
+  const fields = /** @type {Record<string, any>} */ ({ ...choose(candidates(pages)), ...addressOf(pages), ...typeOf(pages) });
   // land and building printed in acres, say, both come back in SF; keep acres for display
   if (fields.lot) fields.lot.acres = Math.round((fields.lot.value / 43560) * 1000) / 1000;
   const unpriced = !fields.price && /\b(unpriced|call for (?:offers|pricing)|price upon request|best and final|bid process|call broker|market bid|subject to offer)\b/i.test(text);

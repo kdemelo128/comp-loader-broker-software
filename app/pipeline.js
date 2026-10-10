@@ -72,6 +72,7 @@ export function taskBuckets(tasks, today = isoDay()) {
 /**
  * What to look at first, one line each: overdue tasks, active deals with no
  * open task, and active deals untouched for `staleDays`.
+ * @returns {{ kind: string, text: string, [more: string]: any }[]}
  */
 export function attention(deals, tasks, { today = isoDay(), staleDays = 21 } = {}) {
   const out = [];

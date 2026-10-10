@@ -142,6 +142,7 @@ export function setCurrentRent(L, value, unit, c) {
   (L.periods ||= []).push({ start, end, rate: monthly * 12, unit: 'year', source: 'documented', edited: true, note: 'typed in the rent roll' });
 }
 
+/** @param {RentRoll} rr @param {Partial<Lease>} [extra] @returns {Lease} */
 export function newLease(rr, extra = {}) {
   const n = (rr.leases || []).length + 1;
   return { id: leaseId(), unit: String(100 + n), tenant: '', sf: null, vacant: false, leaseStart: null, rentStart: null, leaseEnd: null, periods: [], abatements: [], oneTime: [], custom: {}, source: { kind: 'typed' }, ...extra };

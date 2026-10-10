@@ -27,6 +27,7 @@ const YEAR = 365.25 * 86400000;
  * roll's as-of date; a Date, ISO text or day). WALT is the engine's one
  * definition (engine/walt.js): month-to-month and undated leases left out
  * unless the convention says otherwise.
+ * @param {OmRentRow[]} rows @param {IsoDate | Date} [asOf] @returns {LeaseStats | null}
  */
 export function leaseStats(rows, asOf = new Date()) {
   if (!rows || !rows.length) return null;
@@ -66,7 +67,10 @@ export function leaseStats(rows, asOf = new Date()) {
   };
 }
 
-/** Years remaining on a single lease, from text like "9.3 Years" or a date like "January 31, 2036". */
+/**
+ * Years remaining on a single lease, from text like "9.3 Years" or a date like "January 31, 2036".
+ * @param {string} text @param {Date} [today] @returns {Years | null}
+ */
 export function yearsLeft(text, today = new Date()) {
   if (!text) return null;
   const s = String(text);
@@ -80,6 +84,13 @@ export function yearsLeft(text, today = new Date()) {
 /* ----------------------------------------------------------- the figures */
 
 export const FIGURES = registry('Deal figures');
+/**
+ * Register a figure: what it is called, its unit and what it reads, and how it
+ * is worked out. The checker holds its result to the unit analyze() declares
+ * for it (types/zlatura.d.ts, Analysis), and its unit label to that unit.
+ * @typedef {{ d: AnalysisInput, loan: Loan, comps: any, today: Date }} FormulaInputs
+ * @type {<K extends keyof AnalysisUnits>(id: K, meta: { label: string, unit: AnalysisUnits[K], reads?: any[], only?: (x: FormulaInputs) => boolean }, calc: (m: Analysis, x: FormulaInputs) => Analysis[K]) => any}
+ */
 const fig = FIGURES.add;
 
 // price, NOI and cap rate: any two give the third, and a derived one is marked
@@ -90,7 +101,7 @@ fig('price', { label: 'Price', unit: '$', reads: ['d.price', { path: 'd.noi', wh
   const capStated = pos(d.cap) ? d.cap : null;
   return noi !== null && capStated && noi > 0 ? noi / (capStated / 100) : null;
 });
-fig('noi', { label: 'NOI', unit: '$', reads: ['d.noi', { path: 'price', when: 'only when no NOI is entered' }, { path: 'd.cap', when: 'only when no NOI is entered' }] }, (m, { d }) => {
+fig('noi', { label: 'NOI', unit: '$/yr', reads: ['d.noi', { path: 'price', when: 'only when no NOI is entered' }, { path: 'd.cap', when: 'only when no NOI is entered' }] }, (m, { d }) => {
   if (ok(d.noi)) return d.noi;
   const capStated = pos(d.cap) ? d.cap : null;
   return m.price !== null && capStated ? m.price * capStated / 100 : null;
@@ -100,12 +111,12 @@ fig('cap', { label: 'Cap rate', unit: '%', reads: ['capCalc', { path: 'd.cap', w
 
 fig('ppsf', { label: 'Price per SF', unit: '$/SF', reads: ['price', 'd.bsf'] }, (m, { d }) => div(m.price, d.bsf));
 fig('perUnit', { label: 'Price per unit', unit: '$/unit', reads: ['price', 'd.units'] }, (m, { d }) => div(m.price, d.units));
-fig('perLandSf', { label: 'Price per land SF', unit: '$/SF', reads: ['price', 'd.lot_sf'] }, (m, { d }) => div(m.price, d.lot_sf));
-fig('noiPsf', { label: 'NOI per SF', unit: '$/SF', reads: ['noi', 'd.bsf'] }, (m, { d }) => div(m.noi, d.bsf));
+fig('perLandSf', { label: 'Price per land SF', unit: '$/land SF', reads: ['price', 'd.lot_sf'] }, (m, { d }) => div(m.price, d.lot_sf));
+fig('noiPsf', { label: 'NOI per SF', unit: '$/SF/yr', reads: ['noi', 'd.bsf'] }, (m, { d }) => div(m.noi, d.bsf));
 fig('grossMultiple', { label: 'Gross income multiple', unit: 'x', reads: ['price', 'd.gross'] }, (m, { d }) => div(m.price, d.gross));
 fig('expenseRatio', { label: 'Expense ratio', unit: '%', reads: ['d.opex', 'd.gross'] }, (m, { d }) => (pos(d.opex) && pos(d.gross) ? (d.opex / d.gross) * 100 : null));
-fig('opexPsf', { label: 'Expenses per SF', unit: '$/SF', reads: ['d.opex', 'd.bsf'] }, (m, { d }) => div(d.opex, d.bsf));
-fig('taxPsf', { label: 'Taxes per SF', unit: '$/SF', reads: ['d.taxes', 'd.bsf'] }, (m, { d }) => div(d.taxes, d.bsf));
+fig('opexPsf', { label: 'Expenses per SF', unit: '$/SF/yr', reads: ['d.opex', 'd.bsf'] }, (m, { d }) => div(d.opex, d.bsf));
+fig('taxPsf', { label: 'Taxes per SF', unit: '$/SF/yr', reads: ['d.taxes', 'd.bsf'] }, (m, { d }) => div(d.taxes, d.bsf));
 fig('age', { label: 'Age', unit: 'years', reads: ['d.year', 'today'] }, (m, { d, today }) => (pos(d.year) ? today.getFullYear() - d.year : null));
 // measured from the rent roll's own as-of date when it has one, as the Rent roll tab is
 fig('leases', { label: 'Rent roll figures', unit: 'record', reads: ['d.rentRoll', 'd.rentRollAsOf', { path: 'today', when: 'only when the rent roll has no as-of date' }] }, (m, { d, today }) => leaseStats(d.rentRoll, d.rentRollAsOf || today));
@@ -118,10 +129,10 @@ fig('occSource', { label: 'Where occupancy comes from', unit: 'text', reads: ['d
 
 // financing as entered
 fig('loan', { label: 'Loan amount', unit: '$', reads: ['price', 'loan.ltv'] }, (m, { loan: L }) => (pos(m.price) && pos(L.ltv) ? m.price * L.ltv / 100 : null));
-fig('debtService', { label: 'Annual debt service', unit: '$', reads: ['loan', 'loan.rate', 'loan.amort', 'loan.io'] }, (m, { loan: L }) => (m.loan ? debtService(m.loan, L.rate, L.amort, L.io) : null));
+fig('debtService', { label: 'Annual debt service', unit: '$/yr', reads: ['loan', 'loan.rate', 'loan.amort', 'loan.io'] }, (m, { loan: L }) => (m.loan ? debtService(m.loan, L.rate, L.amort, L.io) : null));
 fig('dscr', { label: 'DSCR', unit: 'x', reads: ['noi', 'debtService'] }, (m) => div(m.noi, m.debtService));
 fig('debtYield', { label: 'Debt yield', unit: '%', reads: ['loan', 'noi'] }, (m) => (m.loan && m.noi !== null ? (m.noi / m.loan) * 100 : null));
-fig('cashFlow', { label: 'Cash flow after debt service', unit: '$', reads: ['noi', 'debtService'] }, (m) => (m.noi !== null && m.debtService !== null ? m.noi - m.debtService : null));
+fig('cashFlow', { label: 'Cash flow after debt service', unit: '$/yr', reads: ['noi', 'debtService'] }, (m) => (m.noi !== null && m.debtService !== null ? m.noi - m.debtService : null));
 fig('closing', { label: 'Closing costs', unit: '$', reads: ['price', 'loan.closing'] }, (m, { loan: L }) => (pos(m.price) && ok(L.closing) ? m.price * L.closing / 100 : 0));
 fig('equity', { label: 'Equity needed', unit: '$', reads: ['price', 'loan', 'closing'] }, (m) => (pos(m.price) ? m.price - (m.loan || 0) + m.closing : null));
 fig('cashOnCash', { label: 'Cash-on-cash', unit: '%', reads: ['cashFlow', 'equity'] }, (m) => (m.cashFlow !== null && pos(m.equity) ? (m.cashFlow / m.equity) * 100 : null));
@@ -151,8 +162,8 @@ fig('ladder', { label: 'Value across cap rates', unit: 'table', reads: ['cap', '
 
 // against the comps: only when there are sale comps
 const withComps = ({ comps }) => !!(comps && comps.n);
-fig('vsWeighted', { label: 'Price per SF against the comps (weighted)', unit: '%', only: withComps, reads: ['ppsf', 'comps.weighted'] }, (m, { comps }) => (m.ppsf && comps.weighted ? (m.ppsf / comps.weighted - 1) * 100 : null));
-fig('vsMedian', { label: 'Price per SF against the comps (median)', unit: '%', only: withComps, reads: ['ppsf', 'comps.median'] }, (m, { comps }) => (m.ppsf && comps.median ? (m.ppsf / comps.median - 1) * 100 : null));
+fig('vsWeighted', { label: 'Price per SF against the comps (weighted)', unit: '% change', only: withComps, reads: ['ppsf', 'comps.weighted'] }, (m, { comps }) => (m.ppsf && comps.weighted ? (m.ppsf / comps.weighted - 1) * 100 : null));
+fig('vsMedian', { label: 'Price per SF against the comps (median)', unit: '% change', only: withComps, reads: ['ppsf', 'comps.median'] }, (m, { comps }) => (m.ppsf && comps.median ? (m.ppsf / comps.median - 1) * 100 : null));
 fig('percentile', { label: 'Price per SF percentile among the comps', unit: '%', only: withComps, reads: ['ppsf', 'comps.ppsfs'] }, (m, { comps }) => (m.ppsf ? (comps.ppsfs.filter((x) => x <= m.ppsf).length / comps.ppsfs.length) * 100 : null));
 fig('valueAtWeighted', { label: 'Value at the comps’ weighted $/SF', unit: '$', only: withComps, reads: ['d.bsf', 'comps.weighted'] }, (m, { d, comps }) => (pos(d.bsf) && comps.weighted ? d.bsf * comps.weighted : null));
 fig('valueAtMedianCap', { label: 'Value at the comps’ median cap rate', unit: '$', only: withComps, reads: ['noi', 'comps.medianCap'] }, (m, { comps }) => (m.noi !== null && m.noi > 0 && comps.medianCap ? m.noi / (comps.medianCap / 100) : null));
@@ -299,7 +310,7 @@ rule('thinDscr', 'Debt-service coverage below 1.25x', ['dscr'], (m, i, C) => {
  * Deal screen), `comps` is compBasis() of the sale comps or null.
  */
 export function evaluate(d, comps, today) {
-  const m = { derived: {}, checks: [], questions: [] };
+  const m = /** @type {Analysis} */ (/** @type {unknown} */ ({ derived: {}, checks: [], questions: [] }));
   const x = { d, loan: d.loan || {}, comps, today };
   for (const F of FIGURES.list) if (!F.only || F.only(x)) m[F.id] = F.calc(m, x);
   for (const R of RULES.list) R.calc(m, x, m.checks, m.questions);

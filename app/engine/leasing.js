@@ -11,6 +11,9 @@
 const ok = (x) => typeof x === 'number' && Number.isFinite(x);
 const pos = (x) => ok(x) && x > 0;
 
+/**
+ * @param {{ rent: UsdPerSfYear, sf: Sf, months: Months, esc?: Pct, free?: Months, ti?: UsdPerSf, lc?: Pct, discount?: Pct }} lease
+ */
 export function netEffectiveRent({ rent, sf, months, esc = 0, free = 0, ti = 0, lc = 0, discount = 0 }) {
   if (!pos(rent) || !pos(sf) || !pos(months)) return null;
   const n = Math.round(months);

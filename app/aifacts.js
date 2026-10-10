@@ -32,6 +32,7 @@ export function sourceLabel(s) {
 /**
  * ctx: { deal, fields: [{ key, label, kind }], m (analysis), scenario,
  * rrSum, comps, issues } -> [{ id, label, value, source }].
+ * @param {{ deal: any, fields: any, m?: Partial<Analysis>, scenario?: any, rrSum?: any, comps?: any, issues?: any[] }} a
  */
 export function buildFacts({ deal, fields, m = {}, scenario = null, rrSum = null, comps = null, issues = [] }) {
   const out = [];
@@ -41,6 +42,7 @@ export function buildFacts({ deal, fields, m = {}, scenario = null, rrSum = null
     if (v === null || v === undefined || v === '' || (typeof v === 'number' && !ok(v))) continue;
     add(f.label, show(f.kind, v), sourceLabel(deal.sources && deal.sources[f.key]));
   }
+/** @type {[keyof Analysis, string, (x: number) => string][]} */
   const calc = [
     ['cap', 'Cap rate on the asking price (NOI ÷ price)', (x) => pct(x)], ['ppsf', 'Price per SF', money2], ['perUnit', 'Price per unit', money],
     ['noiPsf', 'NOI per SF', money2], ['expenseRatio', 'Expense ratio', (x) => pct(x, 1)], ['loan', 'Loan at the broker’s terms', money],
@@ -48,7 +50,7 @@ export function buildFacts({ deal, fields, m = {}, scenario = null, rrSum = null
     ['equity', 'Equity needed, with closing costs', money], ['cashOnCash', 'Cash-on-cash, year 1', (x) => pct(x, 1)], ['breakEven', 'Break-even occupancy', (x) => pct(x, 1)],
     ['termLeft', 'Lease term remaining, years', (x) => x.toFixed(1)],
   ];
-  for (const [k, label, fmt] of calc) if (ok(m[k])) add(label, fmt(m[k]), 'calculated from the figures above');
+  for (const [k, label, fmt] of calc) if (ok(m[k])) add(label, fmt(/** @type {number} */ (m[k])), 'calculated from the figures above');
   if (deal.loan) {
     const L = deal.loan;
     add('Loan terms assumed', `${ok(L.ltv) ? `${L.ltv}% LTV` : 'LTV not set'}, ${ok(L.rate) ? `${L.rate}% rate` : 'rate not set'}, ${L.io ? 'interest only' : `${L.amort || '?'}-year amortization`}`, 'assumption (the broker’s loan terms)');

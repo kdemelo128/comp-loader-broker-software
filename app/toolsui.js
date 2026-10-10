@@ -446,6 +446,7 @@ function open(t) {
   async function scenarios() {
     const all = (await kvGet(SAVED)) || {};
     const list = all[t.id] || [];
+    /** @type {any[]} */
     const items = [{ label: 'Save these inputs as…', sub: 'A named scenario for this tool, kept on this device', value: { act: 'save' }, primary: true }];
     if (list.length) items.push('-');
     for (const s of list) items.push({ label: s.name, sub: `Saved ${niceDate(s.at)}`, value: { act: 'pick', s } });

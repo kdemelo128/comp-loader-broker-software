@@ -1360,6 +1360,7 @@ function renderScenario(m) {
   for (const x of ['', 'Deal', 'Scenario']) tr0.appendChild(el('th', null, x));
   t.appendChild(tr0);
   const A = dealRun; const B = run;
+  /** @type {[string, (r: any) => string][]} */
   const rows = [
     ['Price', (r) => money0(r.inputs.price)],
     ['NOI, year 1', (r) => money0(r.m.noi)],
@@ -1919,6 +1920,7 @@ export function dealForTools() {
  * confirmed. Figures written are tagged as typed (with the tool named), loan
  * terms replace the deal's, and hold assumptions go to the What-if scenario,
  * never to the deal's own figures.
+ * @param {{ figures?: Record<string, any>, loan?: Record<string, any>, live?: Record<string, any> }} what @param {string} toolTitle
  */
 export function applyFromTools({ figures = {}, loan = {}, live = {} }, toolTitle) {
   if (!deal) return false;
@@ -2317,7 +2319,6 @@ function undoKeys(e) {
 
 const KIND_WORD = { create: 'created', edit: 'edit', import: 'import', tool: 'from Tools', ai: 'from AI', restore: 'restored', rounding: 'rounding (a record; not undone)', undo: 'undo', redo: 'redo', snapshot: 'snapshot' };
 const when = (at) => new Date(at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
-/** Every change to the open deal, newest first, with Undo to here. */
 /** The inputs a history entry changed, for its "What it changed": { ids, lease (when one lease) }. */
 function inputsOfEntry(e) {
   if (e.changes === null) return { ids: ['leases', ...LEASE_FIELDS.map(([k]) => `lease.${k}`)], lease: null }; // too large to keep step by step: an import
@@ -2327,6 +2328,7 @@ function inputsOfEntry(e) {
   return { ids, lease: leases.length === 1 ? leases[0] : null };
 }
 
+/** Every change to the open deal, newest first, with Undo to here. */
 async function openHistory() {
   const d = deal;
   if (!d) return;

@@ -119,6 +119,7 @@ export function renderRentRollWorkspace(box, deal, compsApi, onChange, hooks = {
   const outputs = el('div', 'rr-out');
   box.appendChild(outputs);
 
+  /** @type {{ n: number, reveal: (i?: number) => void, revealId?: (id: string) => void }} */
   let grid = { n: 0, reveal: () => {}, revealId: () => {} };
   let gridStop = null;
 
@@ -761,7 +762,10 @@ async function exportWorkbook(deal, rr) {
 
 /* --------------------------------------------------------------- import */
 
-/** Which field a rent-roll column heading names. */
+/**
+ * Which field a rent-roll column heading names.
+ * @type {[string, RegExp][]}
+ */
 export const IMPORT_FIELDS = [
   ['unit', /^(unit|suite|ste|space|apt|apartment|unit\s*#|suite\s*#)\b/i],
   ['tenant', /tenant|lessee|occupant|resident|name/i],
@@ -927,6 +931,7 @@ export function rowsToLeases(rr, table, mapping) {
       marketRent: num(at(row, 'marketRent')), deposit: num(at(row, 'deposit')), source: { kind: 'import', file: table.sheet },
     });
     if (!vacant) {
+      /** @type {[RentInUnit, RentUnit] | null} */
       const rate = ok(annual) ? [annual, 'year'] : ok(monthly) ? [monthly, 'month'] : ok(psf) && pos(L.sf) ? [psf, 'psf_year'] : null;
       if (rate) {
         const start = L.leaseStart || asOf;
@@ -1065,7 +1070,7 @@ function scheduleSheet(rr, L, changed) {
     gen.appendChild(gg);
     const ga = el('div', 'view-actions'); ga.style.marginTop = '8px';
     const build = (replace) => {
-      const steps = generateSteps({ start: gv.start, end: gv.end, rate: parseNum(gv.rate), unit: gv.unit, escalation: { type: gv.type, value: parseNum(gv.value) }, every: parseNum(gv.every) || 12 });
+      const steps = generateSteps({ start: gv.start, end: gv.end, rate: parseNum(gv.rate), unit: /** @type {RentUnit} */ (gv.unit), escalation: { type: /** @type {'pct' | 'fixed'} */ (gv.type), value: parseNum(gv.value) }, every: parseNum(gv.every) || 12 });
       if (!steps.length) { toast('Enter a start, an end after it, and a starting rent.'); return; }
       if (replace) L.periods = steps; else L.periods.push(...steps);
       edit();

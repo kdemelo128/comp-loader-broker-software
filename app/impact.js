@@ -128,7 +128,10 @@ const L_RENT = ['lease.rent', 'lease.sf', 'lease.status', 'leases', 'rr.settings
 const L_AMOUNT = ['lease.rent', SF_IN_RENT, 'lease.status', 'leases', 'rr.settings.asOf'];
 const L_END = [...L_RENT, 'lease.leaseEnd'];
 const L_MARKET = ['lease.marketRent', 'rr.settings.marketRent', 'rr.settings.marketUnit', ...L_RENT];
-/** rentRollSummary(): every key it returns, with what it reads. */
+/**
+ * rentRollSummary(): every key it returns, with what it reads.
+ * @type {Record<string, [string, (string | { path: string, when: string, active?: (d: any) => boolean })[]]>}
+ */
 export const RR_SUMMARY = {
   rows: ['Each lease’s row: rent, rent per SF, years left, loss to lease', ['lease.unit', 'lease.tenant', 'lease.abatements', 'lease.marketRent', 'rr.settings.marketRent', 'rr.settings.marketUnit', ...L_END]],
   totalSf: ['Total SF (rent roll)', ['lease.sf', 'leases']],
@@ -159,7 +162,10 @@ for (const [k, [label, reads]] of Object.entries(RR_SUMMARY)) node(`rr.${k}`, { 
 const ROLL = [...L_END, 'lease.renewal', 'lease.leaseUpMonths', 'lease.marketRent', 'rr.settings.years', 'rr.settings.renewal', 'rr.settings.marketRent', 'rr.settings.marketUnit',
   'rr.settings.marketGrowth', { path: 'rr.settings.leaseUpMonths', when: 'only for a vacant unit without its own lease-up months' }];
 const OCCUPIED = [...ROLL, 'lease.abatements'];
-/** Each line of a projected year (lease.js project(): `annual[]`), with what it reads. */
+/**
+ * Each line of a projected year (lease.js project(): `annual[]`), with what it reads.
+ * @type {Record<string, [string, (string | { path: string, when?: string, active?: (d: any) => boolean })[]]>}
+ */
 export const PROJ_LINES = {
   base: ['Contract rent (documented)', ['lease.rent', SF_IN_RENT, 'lease.status', 'leases', 'rr.settings.asOf', 'rr.settings.years']],
   projected: ['Projected rent (renewals, lease-up)', ROLL],
@@ -189,6 +195,7 @@ for (const [k, [label, reads]] of Object.entries(PROJ_LINES)) {
 /* ------------------------------------------------------------- scenarios */
 
 // what a scenario starts from (deal.js scenarioBase), and the assumption that replaces each
+/** @type {[keyof ScenarioOver, string[]][]} */
 const SCN_BASE = [
   ['price', ['fig.price']], ['noi', ['fig.noi']], ['ltv', ['loan.ltv']], ['rate', ['loan.rate']], ['amort', ['loan.amort']],
   ['io', ['loan.io']], ['closing', ['loan.closing']], ['exitCap', ['fig.cap']],

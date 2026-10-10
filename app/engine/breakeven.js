@@ -15,6 +15,10 @@ export const BREAK_EVEN_LABEL = {
   egi: 'Break-even, share of current income',
 };
 
+/**
+ * @param {{ gpr?: UsdPerYear, gross?: UsdPerYear, occ?: Pct, opex?: UsdPerYear, debtService?: UsdPerYear, otherIncome?: UsdPerYear }} parts
+ * @returns {{ value: Pct, basis: string, label: string, need: UsdPerYear, cushion: Points } | null}
+ */
 export function breakEvenOccupancy({ gpr, gross, occ, opex, debtService = 0, otherIncome = 0 }) {
   if (!ok(opex)) return null;
   const need = opex + (ok(debtService) ? debtService : 0) - (ok(otherIncome) ? otherIncome : 0);
