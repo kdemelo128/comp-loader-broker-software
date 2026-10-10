@@ -53,3 +53,18 @@ test('the date caches give the same answers as working each date out', async () 
     assert.equal(isoOf(Date.UTC(2031, 11, 31) / 86400000), '2031-12-31');
   }
 });
+
+test('a projection that fails says why, and is tried again only once the rent roll changes', async () => {
+  const { projectionError } = await import('../app/projector.js');
+  const bad = roll(150000);
+  bad.leases.push(null); // a lease the projection can't read
+  assert.equal(projectionError(bad), null, 'not tried yet');
+  await assert.rejects(projectionLater(bad));
+  const why = projectionError(bad);
+  assert.ok(typeof why === 'string' && why.length > 0, 'the reason is kept');
+  await assert.rejects(projectionLater(bad), (e) => e.message === why); // the same rent roll: the same answer, not run again
+  assert.equal(projectionNow(bad), null);
+  bad.leases.pop(); // fixed
+  assert.equal(projectionError(bad), null, 'a changed rent roll has no failure against it');
+  assert.deepEqual(await projectionLater(bad), projectionSummary(project(roll(150000))));
+});

@@ -1,5 +1,20 @@
 # Changelog
 
+## 4.2.1: a failed projection says so (on the development branch; not merged or deployed)
+
+- **What if:** with NOI taken from the rent roll, a projection that failed
+  left the panel on "Working out NOI year by year…" indefinitely, and every
+  redraw asked again. It now says the projection couldn't be worked out and
+  why, and shows no returns on another basis. Saved scenarios on that basis
+  say the same.
+- **Retries:** a failure is remembered by the rent roll's content, like a
+  result, so the same rent roll isn't retried on every redraw. Any change to
+  the rent roll tries again.
+- **Tests:** `tests/projector.test.js` has a new failure test.
+  `bigroll-flow` serves a worker that always fails and checks What if, a
+  saved scenario and the Rent roll tab. Those What if checks fail on 4.2.0
+  (3 of them) and pass now.
+
 ## 4.2.0: a 500-lease rent roll at speed (on the development branch; not merged or deployed)
 
 Phase 1, checkpoint (c). On a 500-lease rent roll (medians, this container's

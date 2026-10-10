@@ -9,13 +9,16 @@
  * person asked for (exports, the brief); it shares the same results.
  *
  * Results are kept for the last few distinct inputs, keyed by the rent roll's
- * content, so a stale answer can never be shown for a changed rent roll. If a
- * worker can't be started (an old browser), the work runs on the main thread
- * after the screen has drawn. */
+ * content, so a stale answer can never be shown for a changed rent roll. A
+ * failure is kept the same way (projectionError), so a screen can say what
+ * went wrong instead of waiting, and only a changed rent roll is tried again.
+ * If a worker can't be started (an old browser), the work runs on the main
+ * thread after the screen has drawn. */
 import { project, projectionSummary } from './lease.js';
 
 const KEEP = 8;
 const done = new Map(); // key -> summary, oldest first
+const failed = new Map(); // key -> the error's message, oldest first
 const running = new Map(); // key -> promise
 const waiting = new Map(); // job id -> { resolve, reject }
 let worker = null;
@@ -24,10 +27,16 @@ let next = 1;
 
 const keyOf = (rr, opts) => JSON.stringify([rr.settings || null, rr.leases || [], opts || {}]);
 
-function remember(key, result) {
-  done.delete(key);
-  done.set(key, result);
-  while (done.size > KEEP) done.delete(done.keys().next().value);
+function remember(key, result, into = done) {
+  into.delete(key);
+  into.set(key, result);
+  while (into.size > KEEP) into.delete(into.keys().next().value);
+}
+
+/** Why the projection of exactly this rent roll failed, or null if it hasn't. */
+export function projectionError(rr, opts = {}) {
+  const key = keyOf(rr, opts);
+  return failed.has(key) ? failed.get(key) : null;
 }
 
 function startWorker() {
@@ -78,6 +87,7 @@ export function projectionSync(rr, opts = {}) {
 export function projectionLater(rr, opts = {}) {
   const key = keyOf(rr, opts);
   if (done.has(key)) return Promise.resolve(done.get(key));
+  if (failed.has(key)) return Promise.reject(new Error(failed.get(key)));
   if (running.has(key)) return running.get(key);
   // a copy of the rent roll as it is now: later edits don't reach a job already sent
   const input = structuredClone({ settings: rr.settings, leases: rr.leases || [] });
@@ -89,7 +99,11 @@ export function projectionLater(rr, opts = {}) {
     const id = next++;
     waiting.set(id, { resolve, reject, fallback: () => local().then(resolve, reject) });
     try { w.postMessage({ id, rr: input, opts }); } catch { waiting.delete(id); local().then(resolve, reject); }
-  }) : local()).then((r) => { remember(key, r); running.delete(key); return r; }, (e) => { running.delete(key); throw e; });
+  }) : local()).then((r) => { remember(key, r); running.delete(key); return r; }, (e) => {
+    remember(key, String((e && e.message) || e), failed);
+    running.delete(key);
+    throw e;
+  });
   running.set(key, p);
   return p;
 }
