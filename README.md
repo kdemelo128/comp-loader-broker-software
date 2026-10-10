@@ -463,6 +463,16 @@ the old apps taken from git by `tests/tools/make-old-backup.mjs`.
 `tests/e2e/migrate-flow.mjs` restores and opens those deals beside the
 previous release and checks they are stored and shown the same.
 
+`tests/t12.test.js` reads eight invented operating statements
+(`tests/t12-layouts.js`: account-system exports, negative expenses, a CSV
+with subtotals, a property manager's workbook, nine months, a Total column
+that disagrees, multifamily, retail NNN) and checks every category total
+against figures worked out by hand. `tests/t12-noi.test.js` holds the NOI
+three ways flags and the Review Queue's items. Real T-12s are never
+committed: keep them in `private/` (git-ignored) and run
+`node tests/tools/t12-local.mjs`, which prints only their structure (lines,
+how they were placed, checks), never an amount or a name.
+
 `tests/shortcuts.test.js` holds the keyboard shortcut list (`app/shortcuts.js`, the `?` sheet)
 to the code: every key a keydown handler in `app/` answers to must be on it.
 

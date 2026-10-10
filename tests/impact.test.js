@@ -20,12 +20,13 @@ import { richRentRoll, changesFor, tryChange } from './impact-cases.js';
 import { FIGURES, RULES } from '../app/engine/figures.js';
 import { registry } from '../app/engine/graph.js';
 import {
-  nodes, readersOf, traceAnalysis, findLoop, inputOfPath, affects, figId, checkId, DELIVERABLES, NOT_CALCULATED, FIELD_READS,
+  nodes, readersOf, traceAnalysis, analysisInput, findLoop, inputOfPath, affects, figId, checkId, DELIVERABLES, NOT_CALCULATED, FIELD_READS,
   RR_SUMMARY, PROJ_LINES, SCENARIO_PARTS, scenariosOf,
 } from '../app/impact.js';
 import { analyze, runScenario, compBasis } from '../app/deal.js';
 import { rentRollSummary, project, projectionSummary } from '../app/lease.js';
 import { DEAL_FIELDS } from '../app/dealfields.js';
+import { importStatement } from '../app/t12.js';
 
 const ALL = cases();
 const N = nodes();
@@ -185,10 +186,30 @@ for (const [label, rrOf] of [['rents per SF', richRentRoll], ['rents a year', ye
   assert.deepEqual([...new Set(missing)], []);
 });
 
+// a T-12 (invented): each line the same every month, so its NOI is easy to see; far enough from the OM's and the rent roll's to warn
+const T12_ROWS = [['Line', ...['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((m) => `${m} 2025`), 'Total'],
+  ['Base Rent', 60000], ['Expense Recoveries', 9000], ['Real Estate Taxes', 9000], ['Insurance', 2000], ['Repairs & Maintenance', 4000], ['Utilities', 3000]]
+  .map((r, i) => ({ r: i + 1, cells: i ? [r[0], ...Array(12).fill(r[1]), r[1] * 12] : r }));
+export const t12Deal = () => ({ name: 'With a T-12', figures: { price: 9e6, noi: 5.5e5, bsf: 32000, occ: 92, gross: 950000, opex: 310000, taxes: 120000 }, loan: { ltv: 65, rate: 6.75, amort: 30, closing: 2 }, rr: richRentRoll(), live: {}, scenarios: [], targets: {}, t12: importStatement(T12_ROWS, { file: 'invented.xlsx' }) });
+
+test('a deal with a T-12: its lines, the OM’s figures and the rent roll move only what the map lists', async () => {
+  const deal = t12Deal();
+  const missing = [];
+  for (const ch of changesFor(deal, { leases: 2 })) {
+    if (!/^(t12|figures\.(noi|gross|opex|taxes)|lease\.rent|rr\.settings\.opex)$/.test(ch.input)) continue;
+    const r = await tryChange(deal, ch, {});
+    for (const k of r.missing) missing.push(`changing ${ch.label} moved ${k}, but the map doesn't say so`);
+    for (const k of r.moved) { if (!seenMoving.has(k)) seenMoving.set(k, new Set()); seenMoving.get(k).add(ch.input); }
+  }
+  assert.deepEqual([...new Set(missing)], []);
+  for (const id of ['check.noiOmT12', 'check.noiT12RentRoll', 'check.noiOmRentRoll']) assert.ok((seenMoving.get(id) || new Set()).has('t12'), `${id} moved by the T-12`);
+});
+
 test('each formula’s declared reads are each read on some deal, and each input it reads is seen to move it', () => {
   const traced = new Map();
   const rr = richRentRoll();
-  const more = [{ d: { price: 9e6, noi: 6e5, bsf: 32000, rentRoll: [{ sf: 1000, annual: 50000, end: '2030-01-01T00:00:00.000Z' }], rentRollAsOf: rr.settings.asOf } }];
+  const more = [{ d: { price: 9e6, noi: 6e5, bsf: 32000, rentRoll: [{ sf: 1000, annual: 50000, end: '2030-01-01T00:00:00.000Z' }], rentRollAsOf: rr.settings.asOf } },
+    { d: analysisInput(t12Deal(), { project: (r, o) => projectionSummary(project(r, o)) }) }];
   for (const c of [...ALL, ...more]) for (const [id, s] of traceAnalysis(c.d, c.comps || null).reads) { if (!traced.has(id)) traced.set(id, new Set()); for (const p of s) traced.get(id).add(p); }
   const unread = [];
   const unmoved = [];

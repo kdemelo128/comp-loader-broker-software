@@ -229,6 +229,15 @@ export function changesFor(deal, { leases = 3 } = {}) {
     for (const [k, fn] of Object.entries(SETTING_CHANGES)) add(`rr.settings.${k}`, `setting ${k}`, (d) => fn(d.rr.settings));
     add('leases', 'a lease removed', (d) => { d.rr.leases.splice(1, 1); });
     add('leases', 'a lease added', (d) => { d.rr.leases.push({ ...structuredClone(d.rr.leases[0]), id: 'added', unit: '999', tenant: 'Newco', sf: 1500 }); });
+  }
+  if (deal.t12) {
+    // as the T-12 card and the Review Queue change it: a line put in another category, a line still to review, the statement removed
+    add('t12', 'a T-12 expense line moved below the line', (d) => { const l = d.t12.lines.find((x) => x.category === 'repairs'); l.category = 'capex'; l.how = 'you'; });
+    add('t12', 'a T-12 line sent back for review', (d) => { const l = d.t12.lines.find((x) => x.category === 'insurance'); l.category = null; l.how = 'review'; });
+    add('t12', 'the T-12 removed', (d) => { delete d.t12; });
+  }
+  if (hasRentRoll(deal)) {
+    // (the OM's rent roll table is read only by a deal with no rent roll of its own)
   } else if ((deal.rentRoll || []).length) {
     add('rentRoll', 'the OM’s rent roll row changed', (d) => { d.rentRoll = d.rentRoll.map((r, i) => (i === 0 ? { ...r, annual: (r.annual || 1000) * 1.5, sf: (r.sf || 100) + 250 } : r)); });
   }

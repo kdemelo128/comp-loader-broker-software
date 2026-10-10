@@ -6,6 +6,7 @@
  * from them: in-place rent, expirations, concentration, and the projection
  * through NOI. Every change goes through `onChange`, which saves the deal. */
 
+import { cellValue, csvRows, unreadable, isCsv } from './sheetread.js';
 import { waltMethod } from './engine/walt.js';
 import {
   project, rentRollSummary, validateRentRoll, validateLease, generateSteps, monthlyAmount, inPlace, rollover,
@@ -804,9 +805,9 @@ async function importDialog(rr, changed) {
 
 /** The rows of the first sheet that looks like a rent roll: [{ headers, rows, sheet }]. */
 async function readTable(file) {
-  if (/\.xls$/i.test(file.name)) throw new Error('That is an old .xls file. Open it in Excel and save it as .xlsx (or CSV), then import it.');
-  if (/\.xlsm$/i.test(file.name)) throw new Error('That workbook has macros. Save a copy as .xlsx or CSV to import its rent roll.');
-  if (/\.csv$/i.test(file.name) || file.type === 'text/csv') return parseCsv(await file.text());
+  const no = unreadable(file, 'rent roll');
+  if (no) throw new Error(no);
+  if (isCsv(file)) return parseCsv(await file.text());
   const { ExcelJS } = await getXlsx();
   const wb = new ExcelJS.Workbook();
   try { await wb.xlsx.load(await file.arrayBuffer()); } catch { throw new Error('That file could not be opened as an Excel workbook. It may be damaged, password protected or not really .xlsx.'); }
@@ -826,27 +827,8 @@ async function readTable(file) {
   if (!best) throw new Error('No rent roll was found: it needs a row of headings such as Unit, Tenant, SF and Rent.');
   return best;
 }
-function cellValue(v) {
-  if (v === null || v === undefined) return null;
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  if (typeof v === 'object') {
-    if ('result' in v) return cellValue(v.result);
-    if ('richText' in v) return v.richText.map((x) => x.text).join('');
-    if ('text' in v) return v.text;
-  }
-  return v;
-}
 function parseCsv(text) {
-  const rows = [];
-  let row = []; let cur = ''; let q = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (q) { if (ch === '"' && text[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; continue; }
-    if (ch === '"') q = true;
-    else if (ch === ',') { row.push(cur); cur = ''; } else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = ''; } else cur += ch;
-  }
-  if (cur || row.length) { row.push(cur); rows.push(row); }
-  const t = headerAndRows(rows.filter((r) => r.some((x) => String(x).trim())), 'CSV');
+  const t = headerAndRows(csvRows(text).filter((r) => r.some((x) => String(x).trim())), 'CSV');
   if (!t) throw new Error('No rent roll was found: it needs a row of headings such as Unit, Tenant, SF and Rent.');
   return t;
 }

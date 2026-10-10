@@ -17,7 +17,7 @@ import { conv } from './engine/conventions.js';
 import { quantizeDeal } from './engine/money.js';
 import { analyze, runScenario, scenarioAnswers } from './deal.js';
 import { DEAL_SECTIONS } from './dealfields.js';
-import { analysisInput, fieldContext, inputOfPath, LEASE_FIELDS, RR_SETTINGS } from './impact.js';
+import { analysisInput, fieldContext, inputOfPath, hasRentRoll, LEASE_FIELDS, RR_SETTINGS } from './impact.js';
 import { openImpact, affectsButton } from './impactui.js';
 import * as store from './store.js';
 import { undoState, inverseOf, mediaRefs, withBytes, applyChanges, placeOf, snapshotData, restoreInto, diffDeal, SNAPSHOTS } from './history.js';
@@ -27,6 +27,7 @@ import { projectionNow, projectionLater, projectionSync, projectionError } from 
 import { legacyRows } from './rentroll.js';
 import { pending as stepsDue, applyStep } from './migrate.js';
 import { renderRentRollWorkspace } from './rentrollui.js';
+import { renderT12Card } from './t12ui.js';
 import { openLibrary } from './libraryui.js';
 import { openAiSettings, readWithAi, openAssistant, transcribeNote, openTranscript } from './aiui.js';
 import { crossChecks } from './reconcile.js';
@@ -135,7 +136,8 @@ function exampleDeal() {
 /* ------------------------------------------------------------- the maths */
 
 /** What the analysis reads of a deal (impact.js: one definition, shared with the dependency map). */
-function figuresFor(d) { return analysisInput(d); }
+/* the rent roll's year 1 NOI, for the NOI three ways, from a projection already worked out (renderT12 asks for one) */
+function figuresFor(d) { return analysisInput(d, { project: (rr, o) => projectionNow(rr, o) }); }
 
 /** For the command menu: "What does … affect?" for every input of the open deal, or nothing with no deal open. */
 export function impactCommands() {
@@ -222,7 +224,7 @@ export async function listAllDeals() {
   return out.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 }
 /** Change a deal that may not be open (its stage, from Home), through the same copy the Deal screen uses. */
-export async function updateDeal(id, fn) {
+export async function updateDeal(id, fn, meta = null) {
   let d = opened.get(id);
   if (!d) {
     const r = recovered(id, await store.loadDeal(id));
@@ -230,8 +232,8 @@ export async function updateDeal(id, fn) {
     if (!d) return null;
     opened.set(id, d);
   }
-  fn(d);
-  touch(d);
+  if ((await fn(d)) === false) return d;
+  touch(d, meta);
   if (d === deal) render();
   return d;
 }
@@ -693,6 +695,9 @@ function renderDeal(r) {
   comps.id = 'deal-comps';
   main.appendChild(comps);
   main.appendChild(figuresCard());
+  const t12 = el('section', 'card t12-card');
+  t12.id = 'deal-t12';
+  main.appendChild(t12);
   main.appendChild(financeCard());
   const ladder = el('section', 'card');
   ladder.id = 'deal-ladder';
@@ -740,6 +745,32 @@ function showPane(key, { focus = true } = {}) {
   if (focus) { const t = $(`tab-${key}`); if (t) t.scrollIntoView({ block: 'nearest' }); }
 }
 
+/* ------------------------------------------------------------------- T-12 */
+
+function drawT12() {
+  const box = $('deal-t12');
+  if (!box || !deal) return;
+  const d = deal;
+  renderT12Card(box, {
+    deal: d,
+    touch: (meta) => touch(d, meta),
+    snapshot: (reason) => snapshotBefore(d, reason),
+    redraw: () => { if (deal === d) { renderDerived(); document.dispatchEvent(new CustomEvent('reviewchange')); } },
+    // the deal's own figures changed (Use the T-12's figures, the T-12 removed): the whole screen, so their tags follow
+    rerender: () => { if (deal === d) { render(); document.dispatchEvent(new CustomEvent('reviewchange')); } },
+    sheetOpen: api.sheetOpen,
+    openReview: () => api.showView('review'),
+    rrNoi1: () => {
+      if (!hasRentRoll(d)) return null;
+      const P = projectionNow(d.rr, { years: 1 });
+      if (P) return P.annual[0] ? P.annual[0].noi : null;
+      // worked out in the worker, then everything that compares it is drawn again
+      projectionLater(d.rr, { years: 1 }).then(() => { if (deal === d) renderDerived(); }, () => { /* the comparison is left out */ });
+      return undefined;
+    },
+  });
+}
+
 /* --------------------------------------------------------------- rent roll */
 
 /** Record one migration step (app/migrate.js) the deal has just had, as the code that preceded the registry did. */
@@ -785,6 +816,7 @@ function rentRollChanged(meta = null) {
  * inputs themselves are left alone so the keyboard stays where it was. */
 function renderDerived() {
   if (!deal || !$('deal-tiles')) return;
+  drawT12();
   const { m, comps } = metrics();
   const f = deal.figures;
 
@@ -1038,6 +1070,11 @@ function sourceTag(key) {
     return t;
   }
   if (!s) return el('span', 'src none', '');
+  if (s.t12 && !s.hand) {
+    const t = el('span', 'src t12', 'T-12');
+    t.title = s.line || 'From the T-12';
+    return t;
+  }
   if (s.ai && !s.hand) {
     const b = el('button', `src ai${s.verified ? '' : ' unchecked'}`, `AI${s.page ? ` p.${s.page}` : ''}`);
     b.type = 'button';

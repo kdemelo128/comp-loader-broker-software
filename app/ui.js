@@ -40,6 +40,7 @@ import { initSettings } from './settings.js';
 import { initCommand } from './command.js';
 import { initTheme } from './theme.js';
 import { initShortcuts } from './shortcuts.js';
+import { initReview } from './reviewui.js';
 
 window.__zlaturaReady = true;
 
@@ -62,7 +63,7 @@ const monthsAgo = (c) => (c.date ? (Date.now() - new Date(c.date).getTime()) / 8
 
 /* ------------------------------------------------------------- the shell */
 
-const VIEWS = ['home', 'comps', 'deal', 'tools', 'settings'];
+const VIEWS = ['home', 'comps', 'deal', 'tools', 'review', 'settings'];
 let currentView = 'home';
 function showView(name, { push = true } = {}) {
   if (!VIEWS.includes(name)) name = 'home';
@@ -1495,6 +1496,7 @@ initSettings(compsApi);
 initCommand(compsApi);
 initTheme();
 initShortcuts(compsApi);
+initReview();
 
 restoreSubject();
 renderAll();

@@ -17,6 +17,7 @@
 
 import { FIGURES, RULES } from './engine/figures.js';
 import { DEAL_FIELDS, DEAL_INPUTS } from './dealfields.js';
+import { t12ForAnalysis } from './t12.js';
 import { legacyRows, setCurrentRent } from './rentroll.js';
 import { analyze, runScenario, scenarioAnswers } from './deal.js';
 import { rentRollSummary, project } from './lease.js';
@@ -57,6 +58,7 @@ input('targets', 'What-if targets (cap rate, IRR, value)');
 input('conventions', 'Calculation conventions (Settings)');
 input('preparedBy', 'Prepared by (Settings)');
 input('example', 'Fictional sample (an example deal)');
+input('t12', 'The T-12 operating statement (its lines, their categories, its months)');
 
 /** Lease fields, as a person edits them. `status` covers vacant and month to month; `rent` the rent periods. */
 export const LEASE_FIELDS = [
@@ -102,6 +104,11 @@ function fromEngine(R) {
   if (p === 'today') return [];
   if (p === 'd.rentRoll') return LEASES_IN_ANALYSIS.map((x) => (typeof x === 'string' ? keep(x) : { ...x, when: R.when || x.when }));
   if (p === 'd.rentRollAsOf') return [keep('rr.settings.asOf')];
+  // the T-12, and the OM's own figures it is compared with (kept as they were before "Use the T-12's figures")
+  if (p === 'd.t12') return [keep('t12')];
+  if (p === 'd.t12Om') return ['noi', 'gross', 'opex', 'taxes'].map((k) => ({ ...R, path: `figures.${k}`, when: 'only for a deal with a T-12' }));
+  if (p === 'd.t12OmNoi') return [{ ...R, path: 'figures.noi', when: 'only for a deal with a T-12' }];
+  if (p === 'd.rrNoi1') return [{ ...R, path: 'proj.noi', when: 'only for a deal with a T-12 and a rent roll' }];
   if (p.startsWith('d.')) return [keep(`figures.${p.slice(2)}`)];
   if (p.startsWith('loan.')) return [keep(p)];
   if (p === 'comps' || p.startsWith('comps.')) return [keep('comps')];
@@ -200,11 +207,12 @@ const SCN_BASE = [
   ['price', ['fig.price']], ['noi', ['fig.noi']], ['ltv', ['loan.ltv']], ['rate', ['loan.rate']], ['amort', ['loan.amort']],
   ['io', ['loan.io']], ['closing', ['loan.closing']], ['exitCap', ['fig.cap']],
 ];
-// the scenario's own analysis reads the deal's other figures too (runScenario analyses the deal with the scenario's price, NOI and loan)
+// the scenario's own analysis reads the deal's other figures too (runScenario analyses the deal with the scenario's price, NOI and loan),
+// and, on a deal with a T-12, the T-12 and the rent roll's year 1 its NOI checks compare
 const SCN_ALSO = () => {
   const replaced = new Set(['figures.price', 'figures.noi', 'figures.cap', 'figures.occ']);
   const set = new Set(['figures.gross', 'figures.opex', 'loan.minDscr', 'loan.minDy']);
-  for (const F of [...FIGURES.list, ...RULES.list]) for (const R of F.reads) for (const x of fromEngine(R)) if (x.path.startsWith('figures.') || x.path.startsWith('lease') || x.path.startsWith('rr.') || x.path === 'rentRoll' || x.path === 'conventions') if (!replaced.has(x.path)) set.add(x.path);
+  for (const F of [...FIGURES.list, ...RULES.list]) for (const R of F.reads) for (const x of fromEngine(R)) if (x.path.startsWith('figures.') || x.path.startsWith('lease') || x.path.startsWith('rr.') || ['rentRoll', 'conventions', 't12', 'proj.noi'].includes(x.path)) if (!replaced.has(x.path)) set.add(x.path);
   return [...set];
 };
 const SCN_OTHER = SCN_ALSO();
@@ -417,6 +425,7 @@ export function inputOfPath(steps) {
     return NODES.has(`lease.${f}`) ? { input: `lease.${f}`, lease: c.id } : null;
   }
   if (a === 'rentRoll') return { input: 'rentRoll' };
+  if (a === 't12') return { input: 't12' };
   if (a === 'scenarios') return { input: 'scenarios' };
   if (a === 'targets') return { input: 'targets' };
   if (a === 'visit') return { input: 'visit' };
@@ -429,11 +438,24 @@ export function inputOfPath(steps) {
 /* ======================================================== on this deal, now */
 
 /** What the analysis reads of a deal (as dealui has always passed it). */
-export function analysisInput(d) {
+export function analysisInput(d, { project = null } = {}) {
   // one source: with a rent roll, the analysis reads its rows from it (not a stored copy that could lag behind),
   // and WALT and its other figures are measured from its own as-of date
   const rr = hasRentRoll(d) ? d.rr : null;
-  return { ...d.figures, rentRoll: rr ? legacyRows(rr) : d.rentRoll, loan: d.loan, rentRollAsOf: rr && rr.settings ? rr.settings.asOf : null };
+  const out = { ...d.figures, rentRoll: rr ? legacyRows(rr) : d.rentRoll, loan: d.loan, rentRollAsOf: rr && rr.settings ? rr.settings.asOf : null };
+  // a deal with a T-12: its totals, and the OM's figures as they were before the T-12's were used; and the
+  // rent roll's year 1 NOI when `project` gives it (a projection already worked out; none, and that pair isn't compared)
+  const t = t12ForAnalysis(d.t12);
+  if (t) {
+    const before = d.t12.applied && d.t12.applied.before;
+    const f = d.figures || {};
+    out.t12 = t;
+    out.t12Om = before ? { ...before } : { noi: f.noi ?? null, gross: f.gross ?? null, opex: f.opex ?? null, taxes: f.taxes ?? null };
+    out.t12OmNoi = out.t12Om.noi;
+    const P = rr && project ? project(rr, { years: 1 }) : null;
+    out.rrNoi1 = P && P.annual && P.annual[0] ? P.annual[0].noi : null;
+  }
+  return out;
 }
 export const hasRentRoll = (d) => !!(d && d.rr && Array.isArray(d.rr.leases) && d.rr.leases.length);
 
@@ -558,7 +580,7 @@ export function groupOf(id) {
  * gives a projection ({ annual }); the screens pass the worker's cache.
  */
 export function fieldContext(d, { comps = null, preparedBy = '', today = new Date(), projectFn = (rr, o) => project(rr, o) } = {}) {
-  const m = analyze(analysisInput(d), comps);
+  const m = analyze(analysisInput(d, { project: projectFn }), comps);
   const rr = d.rr && d.rr.leases.length ? d.rr : null;
   const hold = Number.isFinite((d.live || {}).hold) ? d.live.hold : 5;
   const series = (d.live || {}).noiBasis === 'rentroll' && rr && Number.isFinite(rr.settings.opex) ? projectFn(rr, { years: hold + 1 }).annual.map((y) => y.noi) : null;
@@ -585,7 +607,7 @@ function seriesFor(d, over, projectFn) {
  */
 export function valuesOf(d, { comps = null, today = new Date(), projectFn = (rr, o) => project(rr, o), preparedBy = '' } = {}) {
   const out = new Map();
-  const a = analysisInput(d);
+  const a = analysisInput(d, { project: projectFn });
   const m = analyze(a, comps, today);
   for (const F of FIGURES.list) if (F.id in m) out.set(figId(F.id), m[F.id]);
   out.set('fig.derived.price', !!m.derived.price);

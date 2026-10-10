@@ -13,6 +13,7 @@ import { registry } from './graph.js';
 import { debtService, sizeLoan } from './debt.js';
 import { walt } from './walt.js';
 import { breakEvenOccupancy } from './breakeven.js';
+import { NOI_GAP } from './conventions.js';
 
 const ok = (x) => typeof x === 'number' && Number.isFinite(x);
 const pos = (x) => ok(x) && x > 0;
@@ -300,6 +301,63 @@ rule('thinDscr', 'Debt-service coverage below 1.25x', ['dscr'], (m, i, C) => {
   if (m.dscr !== null && m.dscr < 1.25) {
     C.push({ level: 'warn', text: `At these loan terms the debt-service coverage is ${m.dscr.toFixed(2)}x, below the 1.25x most lenders want.` });
   }
+});
+
+/* -------------------------------------------- NOI three ways (a T-12) */
+
+/* Only on a deal with a T-12 (approved 2026-10-10: no OM against rent roll
+ * comparison without one, so deals without a T-12 give the results they did).
+ * `d.t12` is what the analysis reads of it (impact.js analysisInput): its NOI,
+ * EGI, expenses and taxes, how many months, the period and the lines still to
+ * review. `d.t12Om` is the OM's own NOI, gross income, expenses and taxes,
+ * kept as they were before "Use the T-12's figures". `d.rrNoi1` is the rent
+ * roll projection's year 1 NOI, a forecast, when it has been worked out. */
+const MON3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const period = (t) => (/^\d{4}-\d{2}$/.test(t.from || '') && /^\d{4}-\d{2}$/.test(t.to || '') ? `, ${MON3[+t.from.slice(5) - 1]} ${t.from.slice(0, 4)} to ${MON3[+t.to.slice(5) - 1]} ${t.to.slice(0, 4)}` : '');
+const gap = (a, b) => { const base = Math.max(Math.abs(a), Math.abs(b)); return base ? (Math.abs(a - b) / base) * 100 : 0; };
+const t12Ready = (t) => !!t && t.months === 12 && !t.unassigned && ok(t.noi);
+/** One pair compared: nothing within 2%, a note to 5%, a warning above. */
+function noiPair(C, a, b, say, why) {
+  if (!ok(a.v) || !ok(b.v)) return;
+  const g = gap(a.v, b.v);
+  if (g < NOI_GAP.agree) return;
+  const dir = a.v < b.v ? 'below' : 'above';
+  const cause = g > NOI_GAP.warn && why ? why(a, b) : '';
+  C.push({ level: g > NOI_GAP.warn ? 'warn' : 'info', text: `${say(a)} is ${g.toFixed(1)}% ${dir} ${say(b, true)}.${cause ? ` ${cause}` : ''}` });
+}
+rule('noiOmT12', 'OM NOI against the T-12’s', ['d.t12', 'd.t12Om'], (m, { d }, C) => {
+  const t = d.t12;
+  if (!t) return;
+  if (t.months && t.months < 12) { C.push({ level: 'info', text: `The T-12 has only ${t.months} month${t.months === 1 ? '' : 's'}, so its NOI isn’t compared with the OM’s or the rent roll’s.` }); return; }
+  if (t.unassigned) { C.push({ level: 'info', text: 'Some T-12 lines are still to review (Review), so its NOI isn’t compared yet.' }); return; }
+  const om = d.t12Om;
+  if (!t12Ready(t) || !om) return;
+  noiPair(C, { v: t.noi, k: 't12' }, { v: om.noi, k: 'om' },
+    (x, obj) => (x.k === 't12' ? `The T-12’s NOI (${usd(x.v)}${period(t)})` : `${obj ? 'the' : 'The'} OM’s (${usd(x.v)})`),
+    () => {
+      // where the gap comes from, of what the OM states: the largest part first
+      const parts = [];
+      if (ok(om.gross)) parts.push({ what: 'effective gross income', a: t.egi, b: om.gross });
+      if (ok(om.opex)) parts.push({ what: 'operating expenses', a: t.opex, b: om.opex, tax: ok(om.taxes) && ok(t.taxes) ? { a: t.taxes, b: om.taxes } : null });
+      else if (ok(om.taxes) && ok(t.taxes)) parts.push({ what: 'real estate taxes', a: t.taxes, b: om.taxes });
+      parts.sort((p, q) => Math.abs(q.a - q.b) - Math.abs(p.a - p.b));
+      const say = (p, i) => `${p.what}, ${usd(p.a)} in the T-12 against ${usd(p.b)}${i ? '' : ' in the OM'}${p.tax ? ` (real estate taxes ${usd(p.tax.a)} against ${usd(p.tax.b)})` : ''}`;
+      const s = parts.length ? `Most of the gap: ${parts.map(say).join('; then ')}.` : '';
+      return `${s}${om.noi > t.noi ? `${s ? ' ' : ''}The OM’s NOI may be pro forma, or leave out expenses.` : ''}`;
+    });
+});
+rule('noiT12RentRoll', 'T-12 NOI against the rent roll’s forward-looking year 1', ['d.t12', 'd.rrNoi1'], (m, { d }, C) => {
+  const t = d.t12;
+  if (!t12Ready(t)) return;
+  noiPair(C, { v: t.noi, k: 't12' }, { v: d.rrNoi1, k: 'rr' },
+    (x, obj) => (x.k === 't12' ? `The T-12’s NOI (${usd(x.v)})` : `${obj ? 'the' : 'The'} rent roll’s forward-looking year 1 (${usd(x.v)})`),
+    () => 'The rent roll’s year 1 is a projection, not an actual: check its operating expenses, vacancy and the leases’ rents.');
+});
+rule('noiOmRentRoll', 'OM NOI against the rent roll’s forward-looking year 1 (a deal with a T-12)', ['d.t12', 'd.t12OmNoi', 'd.rrNoi1'], (m, { d }, C) => {
+  if (!d.t12) return;
+  noiPair(C, { v: d.t12OmNoi, k: 'om' }, { v: d.rrNoi1, k: 'rr' },
+    (x, obj) => (x.k === 'om' ? `The OM’s NOI (${usd(x.v)})` : `${obj ? 'the' : 'The'} rent roll’s forward-looking year 1 (${usd(x.v)})`),
+    () => 'The rent roll’s year 1 is a projection, not an actual.');
 });
 
 /* ------------------------------------------------------------ evaluation */
