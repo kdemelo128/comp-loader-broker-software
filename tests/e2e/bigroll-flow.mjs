@@ -6,7 +6,9 @@
  *   - search, + Unit and the totals see every row, drawn or not;
  *   - the projection comes from the worker, still arrives if the worker can't
  *     load (worked out on the page instead), and offline;
- *   - axe finds nothing on the windowed grid. */
+ *   - axe finds nothing on the windowed grid;
+ *   - a projection that fails is reported on What if, its saved scenarios and
+ *     the Rent roll tab, instead of “working out” for ever. */
 import fs from 'fs';
 import { createRequire } from 'module';
 import { phone, BASE } from './lib.mjs';
@@ -116,6 +118,28 @@ check('if the worker can’t load, the projection is worked out on the page', fa
 const otherErrors = B.errors.filter((e) => !/projector-worker\.js/.test(e));
 check('and nothing else goes wrong', otherErrors.length === 0, otherErrors.join(' | '));
 await B.browser.close();
+
+/* ------------------- the projection fails: What if says so, it doesn't wait */
+const C = await phone(DESK);
+await C.ctx.route('**/projector-worker.js', (r) => r.fulfill({ contentType: 'text/javascript', body: "self.onmessage = (e) => self.postMessage({ id: e.data.id, error: 'a test failure' });" }));
+await C.page.goto(`${BASE}#deal`, { waitUntil: 'load' });
+await C.page.setInputFiles('#om-file', `${F}om-retail.pdf`);
+await C.page.waitForSelector('#deal-tiles .tile');
+await C.page.click('#tab-whatif');
+await C.page.selectOption('#scn-noiBasis', 'rentroll');
+const shown = await C.page.waitForSelector('#scn-error', { timeout: 15000 }).then(() => C.page.textContent('#scn-error'), () => '');
+check('What if: a failed rent roll projection shows an error, not “working out”', /couldn’t be worked out/.test(shown) && /a test failure/.test(shown), shown);
+check('and no returns on another basis', (await C.page.textContent('#scn-out')).trim() === '' && !/Working out/.test(await C.page.textContent('#scn-notes')));
+C.page.once('dialog', (d) => d.accept('Rent roll case'));
+await C.page.click('#pane-whatif button:has-text("Save scenario")');
+await C.page.waitForTimeout(400);
+check('a saved scenario on that basis says the same', /couldn’t be worked out/.test(await C.page.textContent('#scn-saved')), await C.page.textContent('#scn-saved'));
+await C.page.click('#tab-rentroll');
+const rrMsg = await C.page.waitForFunction(() => /couldn’t be worked out/.test(document.querySelector('#deal-rentroll .rr-projection')?.textContent || ''), null, { timeout: 15000 }).then(() => true, () => false);
+check('the Rent roll tab says so too', rrMsg);
+const otherC = C.errors.filter((e) => !/projector-worker/.test(e));
+check('no other errors', otherC.length === 0, otherC.join(' | '));
+await C.browser.close();
 
 for (const [s, nm, x] of R) console.log(s, '|', nm, x ? `| ${x}` : '');
 console.log('PASS', R.filter((x) => x[0] === 'PASS').length, 'FAIL', R.filter((x) => x[0] === 'FAIL').length, 'errors', errors);

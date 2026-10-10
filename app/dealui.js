@@ -19,7 +19,7 @@ import { analyze, runScenario, scenarioAnswers } from './deal.js';
 import * as store from './store.js';
 import { renderDealBrief, dealSummaryText, placeLine } from './brief.js';
 import { fromOmRows, project, rentRollSummary } from './lease.js';
-import { projectionNow, projectionLater, projectionSync } from './projector.js';
+import { projectionNow, projectionLater, projectionSync, projectionError } from './projector.js';
 import { emptyRentRoll, layoutFromPreset, presetFor, MARKET_UNIT, legacyRows } from './rentroll.js';
 import { renderRentRollWorkspace } from './rentrollui.js';
 import { openLibrary } from './libraryui.js';
@@ -1218,7 +1218,7 @@ function scenarioCard() {
 /**
  * The rent roll's NOI for each year of the hold and the year after, or null.
  * For the screen (`screen`), the projection comes from the worker: if it isn't
- * ready, PENDING, and the deal redraws once it is.
+ * ready, PENDING, and the deal redraws once it is; if it failed, { error }.
  */
 const PENDING = 'pending';
 function rentRollSeries(hold, { screen = false } = {}) {
@@ -1228,18 +1228,23 @@ function rentRollSeries(hold, { screen = false } = {}) {
   if (!screen) return projectionSync(rr, { years }).annual.map((y) => y.noi);
   const P = projectionNow(rr, { years });
   if (P) return P.annual.map((y) => y.noi);
+  const error = projectionError(rr, { years });
+  if (error) return { error };
   redrawWhenProjected(projectionLater(rr, { years }));
   return PENDING;
 }
-/** Redraw the deal once a projection it waits on arrives: once, however many parts asked, and only if the same deal is open. */
+const seriesFailed = (x) => !!(x && x.error);
+const seriesProblem = (x) => `The rent roll projection couldn’t be worked out, so there are no returns on NOI from the rent roll: ${x.error}. Check the rent roll for a lease the projection can’t read, or choose another NOI basis above.`;
+/** Redraw the deal once a projection it waits on arrives or fails: once, however many parts asked, and only if the same deal is open. */
 let redrawQueued = false;
 function redrawWhenProjected(promise) {
   const d = deal;
-  promise.then(() => {
+  const redraw = () => {
     if (redrawQueued || deal !== d) return;
     redrawQueued = true;
     queueMicrotask(() => { redrawQueued = false; if (deal === d) renderDerived(); });
-  }, () => { /* the screen says the projection is still being worked out */ });
+  };
+  promise.then(redraw, redraw); // a failure redraws too: the screen then says what went wrong
 }
 
 function renderScenario(m) {
@@ -1248,7 +1253,8 @@ function renderScenario(m) {
   const hold = Number.isFinite(deal.live.hold) ? deal.live.hold : 5;
   const series = deal.live.noiBasis === 'rentroll' ? rentRollSeries(hold, { screen: true }) : null;
   const waiting = series === PENDING;
-  const ctx = { noiSeries: waiting ? null : series };
+  const broken = seriesFailed(series);
+  const ctx = { noiSeries: waiting || broken ? null : series };
   const run = runScenario(figuresFor(deal), m, deal.live, ctx);
   const base = run.base;
   // inputs: drawn once, then only their state changes, so the keyboard stays put
@@ -1285,10 +1291,11 @@ function renderScenario(m) {
 
   const nb = $('scn-notes');
   nb.textContent = '';
-  if (waiting) {
-    // NOI year by year from the rent roll is still being worked out: say so rather than show figures on another basis
-    const p = el('p', 'hint-sm', 'Working out NOI year by year from the rent roll projection…');
+  if (waiting || broken) {
+    // NOI year by year from the rent roll is still being worked out, or couldn't be: say so rather than show figures on another basis
+    const p = el('p', broken ? 'hint-sm warn-text' : 'hint-sm', broken ? seriesProblem(series) : 'Working out NOI year by year from the rent roll projection…');
     p.style.padding = '0 16px 8px';
+    if (broken) p.id = 'scn-error';
     nb.appendChild(p);
     $('scn-out').textContent = '';
     $('scn-answers').textContent = '';
@@ -1383,11 +1390,11 @@ function renderSavedScenarios(m) {
   list.style.cssText = 'margin:0 16px 14px;background:var(--surface-2);border-radius:13px';
   for (const sc of deal.scenarios) {
     const series = sc.over.noiBasis === 'rentroll' ? rentRollSeries(Number.isFinite(sc.over.hold) ? sc.over.hold : 5, { screen: true }) : null;
-    const r = series === PENDING ? null : runScenario(figuresFor(deal), m, sc.over, { noiSeries: series });
+    const r = series === PENDING || seriesFailed(series) ? null : runScenario(figuresFor(deal), m, sc.over, { noiSeries: series });
     const row = el('div', 'li');
     const main = el('div', 'li-main');
     main.appendChild(el('div', 'li-title', sc.name));
-    const sub = el('div', 'li-sub', r ? [short(r.inputs.price), `${pct(r.m.capCalc)} cap`, `${times(r.m.dscr)} DSCR`, `${pct(r.returns?.leveredIrr, 1)} levered IRR`].join(' · ') : 'Working out NOI from the rent roll projection…');
+    const sub = el('div', 'li-sub', r ? [short(r.inputs.price), `${pct(r.m.capCalc)} cap`, `${times(r.m.dscr)} DSCR`, `${pct(r.returns?.leveredIrr, 1)} levered IRR`].join(' · ') : seriesFailed(series) ? 'The rent roll projection couldn’t be worked out' : 'Working out NOI from the rent roll projection…');
     sub.style.whiteSpace = 'normal';
     main.appendChild(sub);
     row.appendChild(main);
