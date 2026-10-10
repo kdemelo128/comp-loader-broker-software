@@ -1,5 +1,94 @@
 # Changelog
 
+## 4.1.0: one calculation engine (on the development branch; not merged or deployed)
+
+Phase 1, checkpoint (b). Each figure that was worked out in more than one
+place now comes from one function in `app/engine/`, with the definitions
+approved on 2026-10-10. Every figure that changed, before and after, is in
+`docs/proposals/checkpoint-b-results.md`.
+
+### One definition each
+
+- **WALT** everywhere (Overview, Rent roll tab, brief, AI facts, WALT tool):
+  - measured from the rent roll's as-of date, weighted by income, with
+    month-to-month leases left out, in whole days of 365.25 a year;
+  - the label says how, e.g. "WALT 3.9 yrs by income", with the full method
+    on hover;
+  - the Overview used to measure from today and count month-to-month rent at
+    0 years: 2.7 → 3.9 years on the test case.
+- **Debt service** amortizes over whole months everywhere, including the
+  workbook's PMT formulas (`ROUND(years*12,0)`). At 27.4 years on
+  $4,192,500: $336,150 → $336,079 a year. Whole and half years are
+  unchanged.
+- **Net effective rent:**
+  - the comp workbook's Lease Comps formula now matches the NER tool:
+    escalations compound at each anniversary, free months at the rent in
+    force then. The example row goes $80.50 → $81.60;
+  - labels say what the figure is net of ("free rent and TI", or "free rent,
+    TI and commissions");
+  - "Discounted net effective" is now "Net effective rent, discounted";
+  - the Lease Comps tab still has no commission column, and its note says
+    so.
+- **Break-even occupancy:**
+  - one function for the deal and the tool, which names its basis: GPR,
+    estimated from gross income and occupancy "(est.)", or share of current
+    income;
+  - the tool gains optional gross income and occupancy inputs for when there
+    is no GPR.
+- **No price from a zero or negative NOI:**
+  - the price shows "—" with a warning, on the deal and in Quick value;
+  - it used to derive −$833,333 from −$50,000 at 6%.
+- **Comps** count toward $/SF only with a price and size both above zero,
+  everywhere, including the comp workbook's summary formulas.
+- **Median comp age** in the comp-set check is the true median.
+
+### Money
+
+- Totals are stored in whole cents; rates per SF or per unit are stored to
+  four decimals. Computed figures stay in floating point.
+- New values are rounded as they are saved.
+- Values already on the device are rounded once, when 4.1 first opens, and
+  after a backup is restored. This covers deals, typed and edited comp
+  prices, and the Tools' saved inputs and scenarios.
+- Every value rounded is logged with where it was, the old value and the new
+  one. Settings → Your data shows the count and the full list.
+- Values are kept as rounded numbers, not integer cents, so the saved-data
+  shape is unchanged.
+
+### Calculation conventions
+
+- Settings → Calculation conventions lists every convention the engine
+  uses.
+- WALT weighting (income or area) and month-to-month treatment (left out or
+  counted at 0 years) can be set there; the rest are listed.
+
+### Fixed while checking
+
+- **The Overview's WALT read the deal's older flat copy of the rent roll.**
+  After a lease edit it could disagree with the Rent roll tab. It now uses
+  the lease rent roll.
+- **The NER tool treated a part month of free rent (2.5 months) as a whole
+  one (3).** Found when LibreOffice's recalculation of the new formula
+  disagreed with the engine.
+
+### Correction
+
+- The Phase 0 report (D9) said the loan sizing tool's equity figure was never
+  shown. It is shown, labelled "Equity needed … before closing costs".
+- It was kept, not removed as approved on that wrong premise. The user
+  decides.
+
+### Tests
+
+- `tests/engine.test.js`: 11 known-answer tests, with values worked out
+  independently. 9 fail on 4.0.0.
+- `tests/money.test.js`: 5 tests of the rounding and its log.
+- The browser flow `engine-flow`.
+- `tests/e2e/make_engine_check.mjs`: LibreOffice recalculates the new NER,
+  PMT and comp formulas against the engine.
+- `tests/tools/golden.mjs`: records every displayed figure and workbook cell,
+  and diffs two versions of the app.
+
 ## 4.0.0: Zlatura (on the development branch; not merged or deployed)
 
 Comp Loader is now **Zlatura**. *Every source. Every assumption. Every

@@ -13,7 +13,7 @@ const mb = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max
 
 /** The card, drawn into `box`. */
 export async function renderDataCard(box, api) {
-  const [info, last, deals, moved] = await Promise.all([store.storageInfo(), store.kvGet(LAST), listAllDeals(), store.renameInfo()]);
+  const [info, last, deals, moved, rounding] = await Promise.all([store.storageInfo(), store.kvGet(LAST), listAllDeals(), store.renameInfo(), store.roundingLog()]);
   box.textContent = '';
   const h = el('div', 'card-head');
   h.appendChild(el('h2', null, 'Your data'));
@@ -28,6 +28,18 @@ export async function renderDataCard(box, api) {
   if (moved && moved.copied && !moved.finishedAt) parts.push(`Your data moved here from ${OLD_PRODUCT} on ${niceDate(moved.at)}; the old copy is kept on this device until you make a backup, or for 30 days.`);
   p.textContent = parts.join(' ');
   box.appendChild(p);
+  // every stored value the money rounding changed (4.1: totals to cents, rates to four decimals), with old and new
+  if (rounding.length) {
+    const r = el('p', 'hint-sm data-hint');
+    r.id = 'rounding-note';
+    r.append(`${rounding.length} stored value${rounding.length === 1 ? ' was' : 's were'} rounded when money began to be kept to whole cents (rates per SF or unit to four decimals). `);
+    const show = el('button', 'linkish', 'See each one, old and new');
+    show.type = 'button';
+    show.id = 'rounding-show';
+    show.addEventListener('click', () => showRounding(api, rounding));
+    r.appendChild(show);
+    box.appendChild(r);
+  }
   const acts = el('div', 'crm-acts data-acts');
   const bk = el('button', 'btn btn-sm', 'Back up everything');
   bk.type = 'button';
@@ -44,6 +56,24 @@ export async function renderDataCard(box, api) {
   acts.append(bk, rs, fi);
   box.appendChild(acts);
   box.appendChild(el('p', 'hint-sm data-hint', 'The backup is one file with every deal (photos and recordings included), the comp set, templates, tasks, contacts and settings. It holds confidential deal information: keep it somewhere safe. Your AI access token is not included.'));
+}
+
+/** The rounding log, every value with where it is, its old and its new value. */
+function showRounding(api, entries) {
+  const body = api.sheetOpen({ eyebrow: 'Your data', title: 'Values rounded', sub: 'Money is kept to whole cents, and rates per SF or per unit to four decimals. These stored values had more decimals than that and were rounded once.' });
+  const t = el('table', 'mini');
+  t.id = 'rounding-table';
+  const head = el('tr');
+  for (const x of ['Where', 'Field', 'Was', 'Now']) head.appendChild(el('th', null, x));
+  t.appendChild(head);
+  for (const e of entries) {
+    const tr = el('tr');
+    tr.append(el('td', null, e.where), el('td', null, e.path), el('td', 'n', String(e.old)), el('td', 'n', String(e.new)));
+    t.appendChild(tr);
+  }
+  const wrap = el('div', 'scroll');
+  wrap.appendChild(t);
+  body.appendChild(wrap);
 }
 
 async function current() {
@@ -92,6 +122,8 @@ async function restore(file, api) {
     for (const [k, val] of Object.entries(plan.kv)) if (!(await store.kvSet(k, val))) throw new Error('storage is full or blocked');
     if (v === 'replace' && !plan.session) await store.clearSession();
     else if (plan.session) await store.saveSession(plan.session);
+    // what the backup brought in is rounded as stored money is (whole cents, rates to four decimals), and logged
+    await store.migrateMoney();
     try { for (const [k, val] of Object.entries(plan.local)) localStorage.setItem(k, val); } catch { /* fine */ }
   } catch (e) {
     toast(`The restore stopped part way: ${e.message}. Reload and check; the backup file is unchanged.`, null, 10000);

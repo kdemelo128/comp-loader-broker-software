@@ -78,13 +78,17 @@ export const MORE_TOOLS = [
   {
     id: 'breakeven', group: 'Valuation', title: 'Break-even occupancy', color: '#B91C1C', icon: '<path d="M4 20h16M6 16l4-6 4 3 4-7"/>',
     desc: 'The occupancy at which income just covers expenses and debt service.',
-    inputs: [['gpr', 'Gross potential rent (100% let)', 'money', '1.2m'], ['opex', 'Operating expenses', 'money', '400k'], ['debtService', 'Annual debt service', 'money', '350k'], ['otherIncome', 'Other income not tied to occupancy', 'money', '0']],
-    explain: 'Break-even = (expenses + debt service − other income) ÷ potential gross rent.',
-    fromDeal: (d) => ({ gpr: d.figures.gpr, opex: d.figures.opex, debtService: d.m.debtService }),
+    inputs: [['gpr', 'Gross potential rent (100% let)', 'money', '1.2m'], ['opex', 'Operating expenses', 'money', '400k'], ['debtService', 'Annual debt service', 'money', '350k'], ['otherIncome', 'Other income not tied to occupancy', 'money', '0'],
+      ['gross', 'Gross income (EGI), if no GPR', 'money', 'optional'], ['occ', 'Occupancy it was earned at %, if no GPR', 'pct', 'optional']],
+    explain: 'Break-even = (expenses + debt service − other income not tied to occupancy) ÷ gross potential rent. Without GPR it is estimated from gross income scaled up from the occupancy it was earned at, and labelled so; with neither GPR nor occupancy it is only a share of current income.',
+    fromDeal: (d) => ({ gpr: d.figures.gpr, opex: d.figures.opex, debtService: d.m.debtService, gross: d.figures.gross, occ: d.m.occ }),
     run: (v) => {
       const r = breakEven(v);
-      if (!r) return { lines: [['Enter potential rent and expenses', '—']] };
-      return { lines: [['Break-even occupancy', pct(r.occupancy, 1), true], ['Cushion below full occupancy', pct(r.cushion, 1)], ['Income needed', money0(r.need)]], warnings: r.occupancy > 100 ? ['Above 100%: the property does not cover its costs even fully let.'] : [] };
+      if (!r) return { lines: [['Enter potential rent (or gross income) and expenses', '—']] };
+      const warnings = r.occupancy > 100 ? ['Above 100%: the property does not cover its costs even fully let.'] : [];
+      if (r.basis === 'egi-occ') warnings.push('Estimated: no gross potential rent, so gross income is scaled up from the occupancy it was earned at.');
+      if (r.basis === 'egi') warnings.push('Without gross potential rent or occupancy this is a share of current income, not an occupancy.');
+      return { lines: [[r.label, pct(r.occupancy, 1), true], ['Cushion below full occupancy', r.basis === 'egi' ? '—' : pct(r.cushion, 1)], ['Income needed', money0(r.need)]], warnings };
     },
   },
   {

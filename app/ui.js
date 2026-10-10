@@ -16,6 +16,9 @@
 
 // first: moves settings kept under the old name before any module reads them
 import { PRODUCT } from './brand.js';
+import { isPriced } from './engine/comps.js';
+import { toCents } from './engine/money.js';
+import { setConventions } from './engine/conventions.js';
 import { pdfPages } from './pdftext.js';
 import { loadComps, ppsf, mdy, MAX_COMPS } from './costar.js';
 import { buildWorkbook, byPpsf } from './workbook.js';
@@ -203,6 +206,8 @@ function recompute() {
 
 /** Record a change to one comp, so a rebuild reapplies it. */
 function setField(c, field, value) {
+  // a typed price is kept to whole cents (engine/money.js)
+  if (field === 'price') value = toCents(value);
   c[field] = value;
   if (c.manual) return;
   const e = (state.edits[c.key] ||= {});
@@ -396,7 +401,7 @@ function actions(c, kind) {
 
 function footer(comps, kind) {
   const live = comps.filter(included);
-  const priced = live.filter((c) => c.price && c.bsf);
+  const priced = live.filter(isPriced);
   const totalP = priced.reduce((s, c) => s + c.price, 0);
   const totalSf = priced.reduce((s, c) => s + c.bsf, 0);
   const vals = priced.map((c) => c.price / c.bsf).sort((a, b) => a - b);
@@ -781,6 +786,7 @@ function flushSession() {
   const at = changedAt;
   store.saveSession({
     version: store.VERSION,
+    moneyVersion: store.MONEY_VERSION,
     savedAt: at,
     docs: state.docs,
     edits: state.edits,
@@ -1071,7 +1077,7 @@ function copyTable() {
         int(c.bsf), ppsf(c) ? money2(ppsf(c)) : '', c.cap ? pct(c.cap) : '',
       ].join('\t'));
     });
-    const priced = live.filter((c) => c.price && c.bsf);
+    const priced = live.filter(isPriced);
     if (priced.length) {
       const tp = priced.reduce((s, c) => s + c.price, 0);
       const ts = priced.reduce((s, c) => s + c.bsf, 0);
@@ -1473,6 +1479,8 @@ restoreSession();
   if (out === 'template' && state.template) state.output = 'template';
   refreshOutput();
 })();
+// the calculation conventions chosen in Settings (WALT weighting, month-to-month leases)
+store.kvGet('conventions').then((v) => { if (v) { setConventions(v); document.dispatchEvent(new CustomEvent('conventionchange')); } });
 // the old database from before the rename: deleted once a backup has been made since the move, or after 30 days
 setTimeout(() => { store.finishRename().catch(() => {}); }, 4000);
 showView(VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home', { push: false });

@@ -5,6 +5,9 @@
  * them; the tests check the arithmetic. */
 
 import { debtService, sizeLoan, leaseStats } from './deal.js';
+import { netEffectiveRent } from './engine/leasing.js';
+
+export { netEffectiveRent };
 
 const ok = (x) => typeof x === 'number' && Number.isFinite(x);
 const pos = (x) => ok(x) && x > 0;
@@ -15,12 +18,15 @@ export function quickValue({ price, noi, cap, bsf, units }) {
   let n = ok(noi) ? noi : null;
   let c = pos(cap) ? cap : null;
   let solved = null;
-  if (p === null && n !== null && c) { p = n / (c / 100); solved = 'price'; } else if (n === null && p && c) { n = p * c / 100; solved = 'noi'; } else if (c === null && p && n !== null) { c = (n / p) * 100; solved = 'cap'; }
+  const warnings = [];
+  // no price from a zero or negative NOI (the same rule as the deal)
+  if (p === null && n !== null && c && n <= 0) warnings.push(`The NOI is ${n === 0 ? 'zero' : 'negative'}, so no price is worked out from the cap rate.`);
+  if (p === null && n !== null && n > 0 && c) { p = n / (c / 100); solved = 'price'; } else if (n === null && p && c) { n = p * c / 100; solved = 'noi'; } else if (c === null && p && n !== null) { c = (n / p) * 100; solved = 'cap'; }
   // all three typed: nothing is solved, and a cap rate that isn't NOI over price is said so, not overwritten
   const capCalc = p && n !== null ? (n / p) * 100 : null;
   const mismatch = solved === null && c !== null && capCalc !== null && Math.abs(capCalc - c) >= 0.01 ? capCalc - c : null;
   return {
-    price: p, noi: n, cap: c, solved, capCalc, mismatch,
+    price: p, noi: n, cap: c, solved, capCalc, mismatch, warnings,
     ppsf: p && pos(bsf) ? p / bsf : null,
     perUnit: p && pos(units) ? p / units : null,
     noiPsf: n !== null && pos(bsf) ? n / bsf : null,
@@ -71,35 +77,6 @@ export function offerTool({ ask, noi, targetCap, bsf, targetPpsf, price, commiss
  * The simple figure spreads the net over the term; the discounted one is the
  * level rent with the same present value (rent paid monthly in advance).
  */
-export function netEffectiveRent({ rent, sf, months, esc = 0, free = 0, ti = 0, lc = 0, discount = 0 }) {
-  if (!pos(rent) || !pos(sf) || !pos(months)) return null;
-  const n = Math.round(months);
-  const r = ok(discount) && discount > 0 ? discount / 100 / 12 : 0;
-  let gross = 0; let cash = 0; let pv = 0;
-  for (let i = 0; i < n; i++) {
-    const m = (rent * sf / 12) * (1 + (esc || 0) / 100) ** Math.floor(i / 12);
-    gross += m;
-    const paid = i < (free || 0) ? 0 : m;
-    cash += paid;
-    pv += paid / (1 + r) ** i;
-  }
-  const tiTotal = (ti || 0) * sf;
-  const lcTotal = gross * (lc || 0) / 100;
-  const net = cash - tiTotal - lcTotal;
-  const years = n / 12;
-  const annuity = r ? ((1 - (1 + r) ** -n) / r) * (1 + r) : n;
-  const pvNet = pv - tiTotal - lcTotal;
-  return {
-    gross, cash, freeRent: gross - cash, ti: tiTotal, lc: lcTotal, net,
-    // present value at the discount rate (monthly, in advance), after TI and commission; the undiscounted net when no rate
-    pv: r ? pvNet : net,
-    nerSimple: net / sf / years,
-    nerDiscounted: r ? ((pvNet / annuity) * 12) / sf : net / sf / years,
-    avgRent: gross / sf / years,
-    concessionPct: gross ? ((gross - net) / gross) * 100 : null,
-  };
-}
-
 const DAY = 86400000;
 
 /** 1031 exchange deadlines from the day the relinquished property closed. */
@@ -124,5 +101,6 @@ export function waltTool(rows, today = new Date()) {
     tenant: r.tenant, sf: pos(r.sf) ? r.sf : null, annual: pos(r.annual) ? r.annual : null,
     end: r.end ? new Date(r.end) : null, vacant: !pos(r.annual) && /vacant/i.test(r.tenant || ''),
   }));
+  // the engine's WALT, measured from today (whole days)
   return leaseStats(clean, today);
 }

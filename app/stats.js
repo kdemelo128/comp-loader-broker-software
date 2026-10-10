@@ -25,21 +25,10 @@ export function percentile(a, p) {
 
 export const median = (a) => percentile(a, 0.5);
 
-/** SF-weighted dollars per square foot: total price over total size.
- *  Only pairs where both numbers are present contribute, so an unpriced
- *  listing cannot add size to the denominator without adding to the numerator. */
-export function weightedPpsf(prices, sizes) {
-  let p = 0;
-  let s = 0;
-  for (let i = 0; i < prices.length; i++) {
-    const pr = prices[i];
-    const sz = sizes[i];
-    if (typeof pr === 'number' && typeof sz === 'number' && Number.isFinite(pr) && Number.isFinite(sz)) {
-      p += pr; s += sz;
-    }
-  }
-  return s ? p / s : null;
-}
+/** SF-weighted dollars per square foot: total price over total size, over the
+ *  comps with both above zero (engine/comps.js), so an unpriced listing cannot
+ *  add size to the denominator without adding to the numerator. */
+export { weightedPpsf } from './engine/comps.js';
 
 /** Weighted mean of any series (Excel SUMPRODUCT/SUMIF pair). */
 export function weightedMean(values, weights) {

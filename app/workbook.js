@@ -23,6 +23,7 @@
  *   CoStar Notes     the full notes behind each comp
  */
 import { addRentRollTabs } from './rrbook.js';
+import { netEffectiveRent, nerExcel } from './engine/leasing.js';
 import * as S from './stats.js';
 import { ZONING, zoningInfo, MOCO_NOTE } from './zoning.js';
 import { cleanPackage } from './package.js';
@@ -181,6 +182,7 @@ const statusOf = (c) => {
 };
 
 const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
+const pos = (x) => typeof x === 'number' && Number.isFinite(x) && x > 0;
 const pctOf = (x) => (num(x) === null ? null : x / 100);
 
 /* MIN and MAX over a range holding no numbers return 0 in Excel, not an error,
@@ -196,6 +198,8 @@ const agg = (mode, rng) => (mode === 'MIN' || mode === 'MAX'
  * are tested for blank before the operation, which is what keeps an unpriced
  * listing out of the survey instead of scoring it at $0/SF. */
 const rate = (a, b) => `IFERROR(IF(OR(${a}="",${b}=""),"",${a}/${b}),"")`;
+/** A price per unit of size: blank unless both are above zero (engine/comps.js: only priced comps count). */
+const perSize = (a, b) => `IFERROR(IF(OR(${a}="",${b}="",N(${a})<=0,N(${b})<=0),"",${a}/${b}),"")`;
 const prod = (a, b) => `IFERROR(IF(OR(${a}="",${b}=""),"",${a}*${b}),"")`;
 
 /* ----------------------------------------------------------------- geometry */
@@ -323,16 +327,16 @@ function compGrid(wb, g, name, cols, comps, kind, tabColor, meta) {
     }
     v(ws, `K${r}`, num(c.price), MONEY, { align: 'right' });
     v(ws, `L${r}`, num(c.bsf), SF, { align: 'right' });
-    f(ws, `M${r}`, rate(`K${r}`, `L${r}`), ppsf, MONEY2, { align: 'right', bold: true });
+    f(ws, `M${r}`, perSize(`K${r}`, `L${r}`), ppsf, MONEY2, { align: 'right', bold: true });
     v(ws, `N${r}`, pctOf(c.cap), PCT2, { align: 'center' });
     v(ws, `O${r}`, pctOf(c.occ), OCC, { align: 'center' });
     v(ws, `P${r}`, num(c.lot_sf), SF, { align: 'right' });
     v(ws, `Q${r}`, num(c.lot_ac), FAR_FMT, { align: 'center' });
-    f(ws, `R${r}`, rate(`K${r}`, `P${r}`), num(c.price) && num(c.lot_sf) ? c.price / c.lot_sf : '', MONEY2, { align: 'right' });
+    f(ws, `R${r}`, perSize(`K${r}`, `P${r}`), pos(c.price) && pos(c.lot_sf) ? c.price / c.lot_sf : '', MONEY2, { align: 'right' });
     v(ws, `S${r}`, num(c.far), FAR_FMT, { align: 'center' });
     f(ws, `T${r}`, farLookup(g, `H${r}`), far ?? '', FAR_FMT, { align: 'center' });
     f(ws, `U${r}`, prod(`P${r}`, `T${r}`), bldbl ?? '', SF, { align: 'right' });
-    f(ws, `V${r}`, rate(`K${r}`, `U${r}`), num(c.price) && bldbl ? c.price / bldbl : '', MONEY2, { align: 'right' });
+    f(ws, `V${r}`, perSize(`K${r}`, `U${r}`), pos(c.price) && pos(bldbl) ? c.price / bldbl : '', MONEY2, { align: 'right' });
     v(ws, `W${r}`, num(c.year), '0;;"-"', { align: 'center' });
     f(ws, `X${r}`, `IF(W${r}="","",YEAR(TODAY())-W${r})`, num(c.year) !== null ? meta.year - c.year : '', '0;;"-"', { align: 'center' });
     v(ws, `Y${r}`, c.bclass || null, null, { align: 'center' });
@@ -386,28 +390,29 @@ function compGrid(wb, g, name, cols, comps, kind, tabColor, meta) {
   const bppsf = ratio(prices, bldbls);
   // SUMPRODUCT over an empty set is 0 in Excel, so the cache is 0 too and the
   // number format renders it as a dash
-  const gated = (series, gate) => series.reduce(
-    (a, x, i) => a + (typeof x === 'number' && typeof gate[i] === 'number' ? x : 0), 0);
+  // price-per-size totals count a comp only with both above zero (engine/comps.js)
+  const gatedPos = (series, gate) => series.reduce((a, x, i) => a + (pos(x) && pos(gate[i]) ? x : 0), 0);
 
   const R = (n) => `${n}$${FIRST}:${n}$${LAST}`;
   const guard = (a, b) => `--ISNUMBER(${R(a)}),--ISNUMBER(${R(b)})`;
+  const guardPos = (a, b) => `${guard(a, b)},--(${R(a)}>0),--(${R(b)}>0)`;
   const wrow = LAST + 1;
 
   band(ws, wrow, span, 'SURVEY — SF-WEIGHTED');
-  f(ws, `K${wrow}`, `IFERROR(SUMPRODUCT(${guard('K', 'L')},${R('K')}),"")`, gated(prices, sizes), MONEY, { bold: true });
-  f(ws, `L${wrow}`, `IFERROR(SUMPRODUCT(${guard('K', 'L')},${R('L')}),"")`, gated(sizes, prices), SF, { bold: true });
+  f(ws, `K${wrow}`, `IFERROR(SUMPRODUCT(${guardPos('K', 'L')},${R('K')}),"")`, gatedPos(prices, sizes), MONEY, { bold: true });
+  f(ws, `L${wrow}`, `IFERROR(SUMPRODUCT(${guardPos('K', 'L')},${R('L')}),"")`, gatedPos(sizes, prices), SF, { bold: true });
   f(ws, `M${wrow}`, rate(`K${wrow}`, `L${wrow}`), S.weightedPpsf(prices, sizes), MONEY2, { bold: true });
   f(ws, `N${wrow}`, `IFERROR(SUMPRODUCT(${guard('N', 'K')},${R('N')},${R('K')})/SUMPRODUCT(${guard('N', 'K')},${R('K')}),"")`,
     S.weightedMean(caps, caps.map((c, i) => (c === null ? null : prices[i]))), PCT2, { bold: true });
   f(ws, `O${wrow}`, `IFERROR(SUMPRODUCT(${guard('O', 'L')},${R('O')},${R('L')})/SUMPRODUCT(${guard('O', 'L')},${R('L')}),"")`,
     S.weightedMean(occs, occs.map((o, i) => (o === null ? null : sizes[i]))), OCC, { bold: true });
-  f(ws, `P${wrow}`, `IFERROR(SUMPRODUCT(${guard('K', 'P')},${R('P')}),"")`, gated(lots, prices), SF, { bold: true });
+  f(ws, `P${wrow}`, `IFERROR(SUMPRODUCT(${guardPos('K', 'P')},${R('P')}),"")`, gatedPos(lots, prices), SF, { bold: true });
   // each ratio gates its numerator on its own denominator, so a comp missing a
   // lot size cannot put its price over a smaller base
-  f(ws, `R${wrow}`, `IFERROR(SUMPRODUCT(${guard('K', 'P')},${R('K')})/SUMPRODUCT(${guard('K', 'P')},${R('P')}),"")`,
+  f(ws, `R${wrow}`, `IFERROR(SUMPRODUCT(${guardPos('K', 'P')},${R('K')})/SUMPRODUCT(${guardPos('K', 'P')},${R('P')}),"")`,
     S.weightedPpsf(prices, lots), MONEY2, { bold: true });
-  f(ws, `U${wrow}`, `IFERROR(SUMPRODUCT(${guard('K', 'U')},${R('U')}),"")`, gated(bldbls, prices), SF, { bold: true });
-  f(ws, `V${wrow}`, `IFERROR(SUMPRODUCT(${guard('K', 'U')},${R('K')})/SUMPRODUCT(${guard('K', 'U')},${R('U')}),"")`,
+  f(ws, `U${wrow}`, `IFERROR(SUMPRODUCT(${guardPos('K', 'U')},${R('U')}),"")`, gatedPos(bldbls, prices), SF, { bold: true });
+  f(ws, `V${wrow}`, `IFERROR(SUMPRODUCT(${guardPos('K', 'U')},${R('K')})/SUMPRODUCT(${guardPos('K', 'U')},${R('U')}),"")`,
     S.weightedPpsf(prices, bldbls), MONEY2, { bold: true });
 
   const AGG = { MEDIAN: S.median, MIN: S.min, MAX: S.max };
@@ -617,7 +622,7 @@ function summaryTab(wb, g, sales, market, subject, meta, trend, A) {
       f(ws, `E${r}`, `IFERROR(MEDIAN(${rng}),"")`, S.median(data), fmt, { bold: true });
       f(ws, `F${r}`, `IFERROR(AVERAGE(${rng}),"")`, S.mean(data), fmt);
       if (metric === '$/SF') {
-        f(ws, `G${r}`, `IFERROR(SUMPRODUCT(--ISNUMBER(${K}),--ISNUMBER(${Lr}),${K})/SUMPRODUCT(--ISNUMBER(${K}),--ISNUMBER(${Lr}),${Lr}),"")`,
+        f(ws, `G${r}`, `IFERROR(SUMPRODUCT(--ISNUMBER(${K}),--ISNUMBER(${Lr}),--(${K}>0),--(${Lr}>0),${K})/SUMPRODUCT(--ISNUMBER(${K}),--ISNUMBER(${Lr}),--(${K}>0),--(${Lr}>0),${Lr}),"")`,
           S.weightedPpsf(prices, sizes), fmt, { bold: true });
       } else if (metric === 'Cap Rate' || metric === 'Occupancy') {
         const w = metric === 'Cap Rate' ? K : Lr;
@@ -1022,11 +1027,8 @@ function leaseTab(wb, meta) {
   v(ws, `M${ex}`, 0.03, PCT1, { italic: true, color: GREY, align: 'center' });
   v(ws, `N${ex}`, 3, '0', { italic: true, color: GREY, align: 'center' });
   v(ws, `O${ex}`, 25, MONEY2, { italic: true, color: GREY, align: 'right' });
-  const ner = (base, esc, term, free, ti) => {
-    const avg = base * (1 + esc * ((term / 12 - 1) / 2));
-    return (avg * ((term - free) / 12) - ti) / (term / 12);
-  };
-  f(ws, `P${ex}`, nerFormula(ex), ner(75, 0.03, 120, 3, 25), MONEY2, { align: 'right', color: GREY });
+  // the engine's net effective rent (engine/leasing.js), the same definition as the Tools' NER
+  f(ws, `P${ex}`, nerExcel(ex), netEffectiveRent({ rent: 75, sf: 1, months: 120, esc: 3, free: 3, ti: 25 }).nerSimple, MONEY2, { align: 'right', color: GREY });
   v(ws, `Q${ex}`, 'CoStar / broker', null, { italic: true, color: GREY, size: 8 });
   v(ws, `R${ex}`, 'Delete this example row before sending the file out.', null, { italic: true, color: GREY, size: 8, wrap: true });
 
@@ -1040,7 +1042,7 @@ function leaseTab(wb, meta) {
     ws.getCell(`M${r}`).numFmt = PCT1;
     ws.getCell(`O${r}`).numFmt = MONEY2;
     f(ws, `J${r}`, `IF(OR(H${r}="",I${r}=""),"",EDATE(H${r},I${r}))`, '', DATE, { align: 'center' });
-    f(ws, `P${r}`, nerFormula(r), '', MONEY2, { align: 'right' });
+    f(ws, `P${r}`, nerExcel(r), '', MONEY2, { align: 'right' });
     ws.getCell(`L${r}`).dataValidation = {
       type: 'list', allowBlank: true, formulae: ['"NNN,NN,N,Full Service,Modified Gross,Gross,Absolute Net"'],
     };
@@ -1061,16 +1063,11 @@ function leaseTab(wb, meta) {
   });
 
   note(ws, `A${sr + 6}`,
-    'Net effective rent spreads the escalated base rent over the full term, nets out free rent and tenant improvements, '
-    + 'and is not discounted to a present value — enough to rank deals against each other, not a substitute for a cash-flow '
-    + 'model. Compare like with like: a full-service rent is not a NNN rent until operating expenses are netted out of it.', span);
+    'Net effective rent: the base rent over the full term, with each escalation compounding at the lease anniversary, '
+    + 'less the free months at the rent then in force and the TI allowance, divided by the term in years. There is no '
+    + 'commission column, so it is net of free rent and TI only, and not discounted to a present value (the Tools give '
+    + 'both). Compare like with like: a full-service rent is not a NNN rent until operating expenses are netted out of it.', span);
   return ws;
-}
-
-function nerFormula(r) {
-  return `IF(OR(K${r}="",I${r}=""),"",`
-    + `(K${r}*(1+IF(M${r}="",0,M${r})*((I${r}/12-1)/2))*((I${r}-IF(N${r}="",0,N${r}))/12)`
-    + `-IF(O${r}="",0,O${r}))/(I${r}/12))`;
 }
 
 /* ---------------------------------------------- zoning, audit trail, notes */
@@ -1274,7 +1271,8 @@ function dealTab(wb, deal, m, comps, meta) {
   lin(31, 'Interest only', L.io ? 'Yes' : 'No', null);
   ws.getCell('B31').dataValidation = { type: 'list', allowBlank: false, formulae: ['"Yes,No"'] };
   lin(32, 'Closing costs (% of price)', pc(L.closing) ?? 0, PCT1);
-  const ds = 'IF(B33="","",IF(B31="Yes",B33*B29,-PMT(B29/12,B30*12,B33)*12))';
+  // monthly payments over whole months (engine/debt.js)
+  const ds = 'IF(B33="","",IF(B31="Yes",B33*B29,-PMT(B29/12,ROUND(B30*12,0),B33)*12))';
   out(33, 'Loan amount', 'IF(OR(B5="",B28=""),"",B5*B28)', m.loan, MONEY);
   out(34, 'Annual debt service', `IFERROR(${ds},"")`, m.debtService, MONEY);
   out(35, 'Debt-service coverage (DSCR)', rate('B6', 'B34'), m.dscr, '0.00"x";;"-"', { bold: true });
@@ -1290,7 +1288,7 @@ function dealTab(wb, deal, m, comps, meta) {
   band(ws, 42, 6, 'LOAN SIZING — THE LARGEST LOAN THE PROPERTY SUPPORTS');
   lin(43, 'Minimum DSCR', n(L.minDscr), '0.00"x"');
   lin(44, 'Minimum debt yield', pc(L.minDy), PCT1);
-  const k = 'IF(B31="Yes",B29,-PMT(B29/12,B30*12,1)*12)';
+  const k = 'IF(B31="Yes",B29,-PMT(B29/12,ROUND(B30*12,0),1)*12)';
   const T = m.maxLoan ? m.maxLoan.tests : {};
   out(45, 'Loan at the LTV', 'IF(OR(B5="",B28=""),"",B5*B28)', T.LTV ?? null, MONEY);
   out(46, 'Loan at the minimum DSCR', `IFERROR(IF(OR(B6="",B43=""),"",B6/B43/(${k})),"")`, T.DSCR ?? null, MONEY);

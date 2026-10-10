@@ -10,7 +10,8 @@
 import { quickValue, loanTool, offerTool, netEffectiveRent, exchangeDates, waltTool } from './tools.js';
 import { MORE_TOOLS, GROUPS } from './toolsdefs.js';
 import { dealForTools, applyFromTools } from './dealui.js';
-import { kvGet, kvSet } from './store.js';
+import { kvGet, kvSet, logRounding, MONEY_VERSION } from './store.js';
+import { quantizeToolInput, quantizeToolValues } from './engine/money.js';
 import {
   $, el, svg, parseNum, parsePct, int, money0, money2, pct, signed, times, yrs, niceDate, toast, copyText, actionSheet, getXlsx, deliver, printed, XLSX, localDate,
 } from './kit.js';
@@ -36,13 +37,13 @@ const TOOLS = [
     fromDeal: (d) => ({ price: d.m.price, noi: d.m.noi, cap: null, bsf: d.figures.bsf, units: d.figures.units }),
     run: (v) => {
       const r = quickValue(v);
-      return [
+      return { warnings: r.warnings, lines: [
         ['Price', money0(r.price), r.solved === 'price', r.solved === 'price' ? 'NOI ÷ cap rate' : null],
         ['NOI', money0(r.noi), r.solved === 'noi', r.solved === 'noi' ? 'price × cap rate' : null],
         ['Cap rate', pct(r.cap), r.solved === 'cap', r.solved === 'cap' ? 'NOI ÷ price' : null],
         ...(ok(r.mismatch) ? [['NOI ÷ price', pct(r.capCalc), true, `not the ${pct(r.cap)} typed: ${Math.abs(r.mismatch).toFixed(2)} points apart`]] : []),
         ['Price per SF', money2(r.ppsf)], ['Price per unit', money0(r.perUnit)], ['NOI per SF', money2(r.noiPsf)],
-      ];
+      ] };
     },
   },
   {
@@ -98,8 +99,8 @@ const TOOLS = [
       const r = netEffectiveRent(v);
       if (!r) return [['Enter rent, size and term', '—']];
       return [
-        ['Net effective rent', `${money2(r.nerSimple)}/SF`, true, 'net rent spread evenly over the term'],
-        ['Discounted net effective', `${money2(r.nerDiscounted)}/SF`, true, ok(v.discount) && v.discount > 0 ? `level rent with the same value at ${pct(v.discount, 1)}` : 'add a discount rate'],
+        ['Net effective rent', `${money2(r.nerSimple)}/SF`, true, `net of ${r.netOf}, spread evenly over the term`],
+        ['Net effective rent, discounted', `${money2(r.nerDiscounted)}/SF`, true, ok(v.discount) && v.discount > 0 ? `level rent with the same present value at ${pct(v.discount, 1)}, net of ${r.netOf}` : 'add a discount rate'],
         ['Average face rent', `${money2(r.avgRent)}/SF`], ['Total face rent', money0(r.gross)], ['Free rent', money0(r.freeRent)],
         ['TI', money0(r.ti)], ['Commissions', money0(r.lc)], ['Concessions', pct(r.concessionPct, 1), false, 'of face rent'],
       ];
@@ -351,7 +352,8 @@ function open(t) {
   }
   if (t.note) body.appendChild(el('p', 'hint-sm', t.note));
 
-  const values = () => Object.fromEntries(Object.entries(inputs).map(([id, [i, kind]]) => [id, readInput(kind, kind === 'bool' ? i.checked : i.value)]));
+  // money typed into a tool is kept as the engine keeps it: totals to cents, rates per SF or unit to four decimals
+  const values = () => Object.fromEntries(Object.entries(inputs).map(([id, [i, kind, label]]) => [id, quantizeToolInput(kind, label, readInput(kind, kind === 'bool' ? i.checked : i.value))]));
   const setValues = (v) => {
     for (const [id, [i, kind]] of Object.entries(inputs)) {
       if (!(id in v)) continue;
@@ -386,9 +388,9 @@ function open(t) {
     for (const tb of out.tables) tables.appendChild(drawTable(tb));
     if (send) send.disabled = !d || !t.toDeal(current, out);
   };
-  for (const [i, kind] of Object.values(inputs)) {
+  for (const [i, kind, label] of Object.values(inputs)) {
     i.addEventListener(kind === 'select' ? 'change' : 'input', update);
-    if (!['date', 'bool', 'select'].includes(kind)) i.addEventListener('change', () => { const v = readInput(kind, i.value); if (v !== null) i.value = showInput(kind, v); });
+    if (!['date', 'bool', 'select'].includes(kind)) i.addEventListener('change', () => { const v = quantizeToolInput(kind, label, readInput(kind, i.value)); if (v !== null) i.value = showInput(kind, v); });
   }
   update();
 
@@ -623,7 +625,7 @@ function openWalt(t) {
   let lines = [];
   const update = () => {
     remember();
-    const s = waltTool(mem.rows.map((r) => ({ tenant: r.tenant, sf: parseNum(r.sf), annual: parseNum(r.annual), end: r.end || null })));
+    const s = waltTool(mem.rows.map((r) => ({ tenant: r.tenant, sf: parseNum(r.sf), annual: quantizeToolInput('money', 'Annual rent', parseNum(r.annual)), end: r.end || null })));
     lines = s ? [
       ['WALT by income', yrs(s.waltIncome), true], ['WALT by SF', yrs(s.waltSf)], ['Occupancy by SF', pct(s.occupancy, 1)],
       ['Rent expiring within 12 months', pct(s.roll12Pct, 0)], ['Rent expiring within 24 months', pct(s.roll24Pct, 0)],
@@ -683,4 +685,21 @@ export function openToolById(id) {
 export function initTools(compsApi) {
   api = compsApi;
   render();
+  roundSavedInputs();
+}
+
+/** Saved Tools inputs and scenarios from before 4.1, rounded once like other stored money; each change logged. */
+async function roundSavedInputs() {
+  if (memory.__moneyVersion >= MONEY_VERSION) return;
+  const changes = [];
+  for (const t of TOOLS) if (memory[t.id] && !t.rows) changes.push(...quantizeToolValues(memory[t.id], t.inputs, `${t.title}: `));
+  memory.__moneyVersion = MONEY_VERSION;
+  remember();
+  const all = (await kvGet(SAVED)) || {};
+  let n = 0;
+  for (const t of TOOLS) {
+    for (const sc of all[t.id] || []) { const c = quantizeToolValues(sc.values, t.inputs, `${t.title}, scenario “${sc.name}”: `); changes.push(...c); n += c.length; }
+  }
+  if (n) await kvSet(SAVED, all);
+  await logRounding(changes, 'Tools');
 }

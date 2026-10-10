@@ -6,6 +6,7 @@
  * from them: in-place rent, expirations, concentration, and the projection
  * through NOI. Every change goes through `onChange`, which saves the deal. */
 
+import { waltMethod } from './engine/walt.js';
 import {
   project, rentRollSummary, validateRentRoll, validateLease, generateSteps, monthlyAmount, inPlace, rollover,
   dayOf, isoOf, addDays, addMonths, UNITS, DEFAULT_SETTINGS,
@@ -110,7 +111,9 @@ export function renderRentRollWorkspace(box, deal, compsApi, onChange) {
     const tile = (k, v, s, cls) => { const x = el('div', `tile${cls ? ` ${cls}` : ''}`); x.appendChild(el('div', 'k', k)); x.appendChild(el('div', 'v', v)); if (s) x.appendChild(el('div', 's', s)); tiles.appendChild(x); };
     tile('In-place rent', sum.annualRent ? short(sum.annualRent) : '—', sum.annualRent ? `${money0(sum.monthlyRent)} a month` : 'add rents to the units');
     tile('Occupancy', pct(sum.occupancy, 1), sum.totalSf ? `${int(sum.leasedSf)} of ${int(sum.totalSf)} SF` : 'needs SF', ok(sum.occupancy) && sum.occupancy < 85 ? 'warn' : '');
-    tile('WALT', yrs(sum.waltIncome), ok(sum.waltSf) ? `${yrs(sum.waltSf)} by SF` : 'by income');
+    // the headline WALT is the one Settings picks; the other basis is shown beside it
+    const other = sum.waltWeight === 'sf' ? (ok(sum.waltIncome) ? ` · ${yrs(sum.waltIncome)} by income` : '') : (ok(sum.waltSf) ? ` · ${yrs(sum.waltSf)} by area` : '');
+    tile('WALT', yrs(sum.walt), `${waltMethod()}${other}`);
     tile('Loss to lease', ok(sum.lossToLease) ? short(sum.lossToLease) : '—', ok(sum.lossToLeasePct) ? `${pct(sum.lossToLeasePct, 1)} below market` : 'set market rents');
     if (sum.top) tile('Largest tenant', pct(sum.top.share, 1), `${sum.top.tenant || sum.top.unit} of rent`, sum.top.share > 40 ? 'warn' : '');
     drawIssues();

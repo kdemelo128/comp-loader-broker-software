@@ -3,6 +3,8 @@
  * from (an OM page, typed, AI-read, calculated, the rent roll, a scenario
  * assumption, the comps). Pure, no DOM. */
 
+import { waltMethod } from './engine/walt.js';
+
 const ok = (x) => typeof x === 'number' && Number.isFinite(x);
 const money = (n) => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString('en-US')}`;
 const money2 = (n) => `$${n.toFixed(2)}`;
@@ -57,7 +59,7 @@ export function buildFacts({ deal, fields, m = {}, scenario = null, rrSum = null
     if (ok(rrSum.occupancy)) add('Rent roll: occupancy by SF', pct(rrSum.occupancy, 1), src);
     add('Rent roll: in-place annual rent', money(rrSum.annualRent), src);
     if (ok(rrSum.avgRentPsf)) add('Rent roll: average rent per SF', money2(rrSum.avgRentPsf), src);
-    if (ok(rrSum.waltIncome)) add('Rent roll: WALT by income, years', rrSum.waltIncome.toFixed(1), src);
+    if (ok(rrSum.walt)) add(`Rent roll: WALT ${waltMethod()}, years`, rrSum.walt.toFixed(1), src);
     if (rrSum.top) add('Rent roll: largest tenant', `${rrSum.top.tenant} (${ok(rrSum.top.share) ? pct(rrSum.top.share, 1) : '?'} of rent)`, src);
     for (const e of (rrSum.expirations || []).slice(0, 4)) add(`Rent roll: leases expiring in ${e.year}`, `${e.count}, ${money(e.rent)} of rent${ok(e.rentPct) ? ` (${pct(e.rentPct, 1)})` : ''}`, src);
     if (ok(rrSum.lossToLeasePct)) add('Rent roll: loss to lease', pct(rrSum.lossToLeasePct, 1), `${src} against the market rents entered`);

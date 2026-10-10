@@ -7,6 +7,8 @@
  * (with its page), a figure the broker typed, the app's arithmetic, the rent
  * roll, or a scenario assumption. */
 
+import { waltMethod } from './engine/walt.js';
+
 const ok = (x) => typeof x === 'number' && Number.isFinite(x);
 
 /** Where a deal figure came from, in words. */
@@ -28,7 +30,7 @@ const fig = (key, label, type, re, exact) => ({
 });
 const calc = (key, label, type, re, get, why, exact) => ({
   key, label, type, re, exact, group: 'Calculated',
-  get: (ctx) => { const v = get(ctx); return { value: ok(v) || typeof v === 'string' ? v : null, source: why }; },
+  get: (ctx) => { const v = get(ctx); return { value: ok(v) || typeof v === 'string' ? v : null, source: typeof why === 'function' ? why() : why }; },
 });
 
 export const DEAL_FIELDS = [
@@ -67,7 +69,7 @@ export const DEAL_FIELDS = [
   calc('cashOnCash', 'Cash-on-cash (year 1)', 'pct', /^cash[- ]on[- ]cash( return)?$/, ({ m }) => m.cashOnCash, 'calculated: cash flow ÷ equity'),
   calc('rrRent', 'In-place rent (rent roll)', 'money', /^(in[- ]place|current|annual(ized)?) (base )?rent$|^total annual rent$/, ({ rrSum }) => rrSum && rrSum.annualRent, 'rent roll: rent in force on its as-of date'),
   calc('rrOcc', 'Occupancy (rent roll, by SF)', 'pct', /^occupancy \(rent roll\)$|^leased %$/, ({ rrSum }) => rrSum && rrSum.occupancy, 'rent roll: leased SF ÷ total SF'),
-  calc('walt', 'WALT (years)', 'dec', /^walt( \(?years\)?)?$|^weighted average lease term$/, ({ rrSum }) => rrSum && rrSum.waltIncome, 'rent roll: by income'),
+  calc('walt', 'WALT (years)', 'dec', /^walt( \(?years\)?)?$|^weighted average lease term$/, ({ rrSum }) => rrSum && rrSum.walt, () => `rent roll: WALT ${waltMethod()}`),
   calc('rrNoi1', 'NOI, year 1 (rent roll projection)', 'money', /^year 1 noi$|^noi year 1$|^projected noi$/, ({ rrProj }) => rrProj && rrProj.annual[0] && rrProj.annual[0].noi, 'rent roll projection, year 1'),
   calc('exitCap', 'Exit cap rate', 'pct', /^(exit|terminal|residual|reversion) cap( rate)?$/, ({ scenario }) => scenario && scenario.inputs.exitCap, 'scenario assumption'),
   calc('hold', 'Hold period (years)', 'int', /^hold( period)?( \(?years\)?)?$|^investment horizon$/, ({ scenario }) => scenario && scenario.inputs.hold, 'scenario assumption'),

@@ -29,6 +29,7 @@ trap 'kill $SERVER 2>/dev/null || true' EXIT
 sleep 1
 # another server already on the port would be tested in its place, from wherever it serves
 if ! kill -0 "$SERVER" 2>/dev/null; then echo "Port 8080 is in use: stop whatever holds it and run again." >&2; exit 2; fi
-FLOWS=${1:-"workflows rentroll-flow template-flow tools-flow ai-flow home-flow shell-flow rename-flow backup-flow a11y-flow live-flow voice-flow final-e2e deal-persistence deal-isolation comps-reload errors-flow pwa-flow tpl-flow comps-flow mobile-audit"}
+FLOWS=${1:-"workflows rentroll-flow template-flow tools-flow ai-flow home-flow shell-flow rename-flow engine-flow backup-flow a11y-flow live-flow voice-flow final-e2e deal-persistence deal-isolation comps-reload errors-flow pwa-flow tpl-flow comps-flow mobile-audit"}
 for f in $FLOWS; do echo "===== $f"; node "$f.mjs"; done
+node make_engine_check.mjs files/engine-check.xlsx
 for x in files/*.xlsx files/*.xlsm; do case "$x" in *acme-template.xlsx) continue;; esac; echo "===== recalc $x"; python3 -W ignore recalc.py "$x"; done

@@ -1,6 +1,9 @@
 # Checkpoint (b): definitions and the whole-cents list, for approval
 
-Status: **proposal; nothing here is implemented.** Prepared 2026-10-10 on
+Status: **approved 2026-10-10 and implemented in 4.1.0** (results, every
+changed figure and the known-answer tests: `checkpoint-b-results.md`). One
+correction: D9 below is wrong, as the loan tool *does* show its equity; it was
+kept (results §5). Original status: proposal; nothing here was implemented. Prepared 2026-10-10 on
 `main` at `9197b1b` (Zlatura 4.0.0). Every number below was computed in this
 session, by the app's own functions and, for the definitions, independently in
 Python; the cents list comes from `tests/tools/cents-audit.mjs`.

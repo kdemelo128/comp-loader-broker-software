@@ -9,7 +9,10 @@
 
 import { debtService, balanceAfter, sizeLoan, irr, holdReturns } from './deal.js';
 import { generateSteps, monthlyAmount, dayOf } from './lease.js';
-import { netEffectiveRent } from './tools.js';
+import { netEffectiveRent } from './engine/leasing.js';
+import { monthlyPayment, amortMonths } from './engine/debt.js';
+import { breakEvenOccupancy } from './engine/breakeven.js';
+import { isPriced, median } from './engine/comps.js';
 
 const ok = (x) => typeof x === 'number' && Number.isFinite(x);
 const pos = (x) => ok(x) && x > 0;
@@ -26,9 +29,9 @@ export function amortization({ loan, rate, amortYears = 30, termYears = 10, ioYe
   const i = rate / 100 / 12;
   const months = Math.round(termYears * 12);
   const io = Math.min(months, Math.round(nz(ioYears) * 12));
-  const n = Math.round(nz(amortYears) * 12);
+  const n = amortMonths(amortYears) || 0;
   if (months > io && !pos(n)) return null;
-  const pmtAmort = i === 0 ? loan / n : (loan * i) / (1 - (1 + i) ** -n);
+  const pmtAmort = monthlyPayment(loan, rate, n) ?? 0;
   let bal = loan;
   const rows = [];
   for (let k = 1; k <= months; k++) {
@@ -139,11 +142,10 @@ export function noiBridge({ gpr, vacancyPct = 0, creditPct = 0, concessions = 0,
   };
 }
 
-/** Break-even occupancy: the share of potential income that covers expenses and debt service. */
-export function breakEven({ gpr, opex, debtService: ds = 0, otherIncome = 0 }) {
-  if (!pos(gpr) || !ok(opex)) return null;
-  const need = opex + nz(ds) - nz(otherIncome);
-  return { occupancy: (need / gpr) * 100, need, cushion: 100 - (need / gpr) * 100 };
+/** Break-even occupancy, the engine's one definition (engine/breakeven.js), with its basis named. */
+export function breakEven({ gpr, gross, occ, opex, debtService: ds = 0, otherIncome = 0 }) {
+  const r = breakEvenOccupancy({ gpr, gross, occ, opex, debtService: nz(ds), otherIncome: nz(otherIncome) });
+  return r ? { occupancy: r.value, need: r.need, cushion: r.cushion, basis: r.basis, label: r.label } : null;
 }
 
 /** A two-way table: `fn(x, y)` for every row value x and column value y. */
@@ -417,7 +419,7 @@ export function drawSchedule({ totalCost, months, curve = 's', loanToCost = 65, 
  * the comps carry no coordinates here, so location is left to the broker.
  */
 export function compSetCheck(sales, { subjectSf, today = new Date() } = {}) {
-  const priced = (sales || []).filter((c) => pos(c.price) && pos(c.bsf));
+  const priced = (sales || []).filter(isPriced);
   const ppsf = priced.map((c) => c.price / c.bsf).sort((a, b) => a - b);
   const q = (p) => { if (!ppsf.length) return null; const i = (ppsf.length - 1) * p; const lo = Math.floor(i); return ppsf[lo] + (ppsf[Math.ceil(i)] - ppsf[lo]) * (i - lo); };
   const mean = ppsf.length ? ppsf.reduce((s, x) => s + x, 0) / ppsf.length : null;
@@ -427,14 +429,15 @@ export function compSetCheck(sales, { subjectSf, today = new Date() } = {}) {
   const sizes = priced.map((c) => c.bsf);
   const warnings = [];
   if (priced.length < 3) warnings.push(`Only ${priced.length} priced sale comp${priced.length === 1 ? '' : 's'}: too few to lean on.`);
-  if (ages.length && ages[Math.floor(ages.length / 2)] > 24) warnings.push('The median comp sold more than two years ago.');
+  const medianAge = median(ages);
+  if (medianAge !== null && medianAge > 24) warnings.push('The median comp sold more than two years ago.');
   if (sd !== null && mean && sd / mean > 0.3) warnings.push(`The $/SF spread is wide (coefficient of variation ${Math.round((sd / mean) * 100)}%): the comps may not be alike.`);
   if (pos(subjectSf) && sizes.length && (subjectSf < Math.min(...sizes) * 0.5 || subjectSf > Math.max(...sizes) * 2)) warnings.push('The subject is far outside the comps’ size range.');
   const capN = (sales || []).filter((c) => pos(c.cap)).length;
   if (capN < 3) warnings.push(`${capN} comp${capN === 1 ? '' : 's'} report a cap rate.`);
   return {
     n: priced.length, capN, low: ppsf[0] ?? null, p25: q(0.25), median: q(0.5), p75: q(0.75), high: ppsf[ppsf.length - 1] ?? null, weighted,
-    cv: sd !== null && mean ? (sd / mean) * 100 : null, medianAgeMonths: ages.length ? ages[Math.floor(ages.length / 2)] : null,
+    cv: sd !== null && mean ? (sd / mean) * 100 : null, medianAgeMonths: medianAge,
     value: pos(subjectSf) ? { p25: q(0.25) * subjectSf, median: q(0.5) * subjectSf, weighted: weighted * subjectSf, p75: q(0.75) * subjectSf } : null,
     warnings,
   };
