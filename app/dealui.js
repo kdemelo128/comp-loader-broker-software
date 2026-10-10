@@ -292,19 +292,20 @@ function touch(d = deal, meta = null) {
     badge();
   }
 }
+const stored = new Set(); // deals storage has a copy of: a new deal's first save isn't delayed, so its first edits are entries of their own
 function queueSave(d) {
   if (pending && pending !== d) saveNow(pending);
   pending = d;
   writeRecovery(d);
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(flushDeal, 400);
+  saveTimer = setTimeout(flushDeal, stored.has(d.id) ? 400 : 0);
 }
 function saveNow(d) {
   const at = d.updatedAt;
   const meta = pendingMeta.get(d.id) || null;
   pendingMeta.delete(d.id);
   return store.saveDeal(d, meta).then((ok) => {
-    if (ok) clearRecovery(d.id, at);
+    if (ok) { clearRecovery(d.id, at); stored.add(d.id); }
     else if (meta) noteChange(d, meta); // not saved: the next save carries the label
     if (d === deal) refreshUndo();
     return ok;
@@ -373,6 +374,7 @@ async function openDeal(id, { quiet = false } = {}) {
   }
   deal = { ...newDeal(), ...d, visit: { ...newDeal().visit, ...(d.visit || {}) } };
   opened.set(deal.id, deal);
+  stored.add(deal.id);
   try { localStorage.setItem(CUR_KEY, deal.id); } catch { /* fine */ }
   // a copy that missed the rounding (a recovery copy from before 4.1): round it now, and log what changed
   let rounded = false;

@@ -145,6 +145,9 @@ test('an entry: what changed, labelled, with photo bytes kept out of it and remo
 
 test('the first save of a deal is its creation; an entry bigger than the limit keeps no change list', () => {
   assert.equal(historyEntry(null, { id: 'd' }).entry.kind, 'create');
+  // a deal restored onto a device: its first entry carries the restore's label but isn't an action to undo
+  const r = historyEntry(null, { id: 'd' }, { kind: 'restore', label: 'Restored from the backup of Oct 10, 2026' }).entry;
+  assert.equal(r.kind, 'create'); assert.equal(r.label, 'Restored from the backup of Oct 10, 2026');
   const big = { id: 'd', rr: { leases: Array.from({ length: 900 }, (_, i) => ({ id: `l${i}`, unit: String(i), note: 'x'.repeat(300) })) } };
   const { entry } = historyEntry({ id: 'd', rr: { leases: [] } }, big, { kind: 'import', snapshot: 's1' });
   assert.ok(JSON.stringify(withoutBytes(big)).length > ENTRY_MAX);

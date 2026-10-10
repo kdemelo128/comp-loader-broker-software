@@ -18,9 +18,15 @@ const settle = () => page.waitForTimeout(700); // the save (400 ms) and the butt
 const noi = () => page.inputValue('#fig-noi').then((v) => v.replace(/[^\d.]/g, ''));
 const db = (fn) => page.evaluate(`new Promise((res) => { const r = indexedDB.open('zlatura'); r.onsuccess = () => (${fn})(r.result, res); })`);
 
+// an edit straight after reading an OM is its own step, not folded into the deal's creation
 await page.goto(`${BASE}#deal`, { waitUntil: 'load' });
 await page.setInputFiles('#om-file', `${F}om-retail.pdf`);
 await page.waitForSelector('#deal-tiles .tile');
+await page.fill('#loan-closing', '3.25');
+await page.press('#loan-closing', 'Tab');
+await settle();
+check('an edit made right after reading an OM can be undone', /^Undo: Loan: Closing: 2 → 3\.25/.test(await undoLabel()), await undoLabel());
+await page.click('#deal-undo');
 await settle();
 check('a deal just read has nothing to undo', (await page.isDisabled('#deal-undo')) && (await undoLabel()) === 'Nothing to undo', await undoLabel());
 check('the database is at version 2', (await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('zlatura'); r.onsuccess = () => { res(r.result.version); r.result.close(); }; }))) === 2);

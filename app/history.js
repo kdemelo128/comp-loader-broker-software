@@ -292,7 +292,8 @@ const newId = () => `h${Date.now().toString(36)}${Math.random().toString(36).sli
  */
 export function historyEntry(before, after, meta = {}, now = Date.now()) {
   const m = meta || {};
-  if (!before) return { entry: { id: newId(), at: now, kind: m.kind || 'create', label: m.label || 'Deal created', changes: [] }, removed: [] };
+  // a deal's first entry is where its history starts (made, read from an OM, or restored onto this device): not an action to undo
+  if (!before) return { entry: { id: newId(), at: now, kind: 'create', label: m.label || 'Deal created', changes: [] }, removed: [] };
   const changes = diffDeal(recordable(before), recordable(after));
   if (!changes.length && !(m.rounded && m.rounded.length) && !m.always) return null;
   const stored = withoutBytes(changes);
