@@ -11,6 +11,31 @@ import { waltMethod } from './engine/walt.js';
 
 const ok = (x) => typeof x === 'number' && Number.isFinite(x);
 
+/* What a deal's figures list shows, in the order a broker reads an OM: each
+ * input a person can type or the OM reader can fill, by section. */
+export const DEAL_SECTIONS = [
+  ['The offering', [
+    ['price', 'Asking price', 'money'], ['noi', 'NOI, in place', 'money'], ['cap', 'Cap rate stated', 'pct'],
+    ['occ', 'Occupancy', 'pct'], ['noi_pf', 'NOI, pro forma', 'money'], ['cap_pf', 'Cap rate, pro forma', 'pct'],
+    ['price_psf', 'Price per SF stated', 'money2'], ['price_unit', 'Price per unit stated', 'money'],
+  ]],
+  ['The property', [
+    ['address', 'Address', 'text'], ['city', 'City', 'text'], ['state', 'State', 'text'], ['zip', 'ZIP', 'text'],
+    ['ptype', 'Property type', 'text'], ['bsf', 'Building SF', 'int'], ['lot_sf', 'Land SF', 'int'], ['units', 'Units', 'int'],
+    ['year', 'Year built', 'year'], ['renovated', 'Renovated', 'year'], ['stories', 'Stories', 'int'], ['zoning', 'Zoning', 'text'], ['parking', 'Parking', 'text'],
+  ]],
+  ['Income and expenses', [
+    ['gpr', 'Gross potential rent', 'money'], ['gross', 'Gross income (EGI)', 'money'], ['opex', 'Operating expenses', 'money'], ['taxes', 'Real estate taxes', 'money'],
+  ]],
+  ['Lease', [
+    ['tenant', 'Tenant', 'text'], ['guarantor', 'Guarantor', 'text'], ['lease_type', 'Lease type', 'text'],
+    ['lease_exp', 'Lease expiration', 'text'], ['term_left', 'Term remaining', 'text'], ['increases', 'Rent increases', 'text'],
+    ['options', 'Renewal options', 'text'],
+  ]],
+];
+/** The same, flat: { key, label, kind, section }. */
+export const DEAL_INPUTS = DEAL_SECTIONS.flatMap(([section, rows]) => rows.map(([key, label, kind]) => ({ key, label, kind, section })));
+
 /** Where a deal figure came from, in words. */
 export function sourceOf(deal, key, m) {
   if (m && m.derived && m.derived[key]) return 'calculated from the other figures';

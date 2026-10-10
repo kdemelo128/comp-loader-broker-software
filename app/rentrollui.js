@@ -17,6 +17,8 @@ import {
 } from './rentroll.js';
 import { kvGet, kvSet } from './store.js';
 import { projectionNow, projectionLater } from './projector.js';
+import { LEASE_FIELDS } from './impact.js';
+import { affectsButton } from './impactui.js';
 import {
   el, svg, parseNum, parsePct, int, dec, money0, money2, pct, short, yrs, toast, actionSheet, getXlsx, deliver, XLSX,
 } from './kit.js';
@@ -66,6 +68,8 @@ export function renderRentRollWorkspace(box, deal, compsApi, onChange, hooks = {
   const changed = (redraw = true, meta = null) => { onChange(meta); if (redraw) refresh(); };
   // an automatic snapshot of the deal before a bulk change (the deal's history keeps it); its id, or null
   changed.snapshot = (reason) => (hooks.snapshot ? hooks.snapshot(reason) : null);
+  // "what this affects" (the dependency map), opened by the deal screen
+  changed.affects = (ids, opts) => (hooks.affects ? hooks.affects(ids, opts) : null);
 
   const head = el('div', 'card-head');
   head.appendChild(el('h2', null, 'Rent roll'));
@@ -244,10 +248,11 @@ export function renderRentRollWorkspace(box, deal, compsApi, onChange, hooks = {
       menu.setAttribute('aria-label', `More for unit ${L.unit || ri + 1}`);
       menu.addEventListener('click', async () => {
         const v = await actionSheet(`Unit ${L.unit || ''} ${L.tenant ? `· ${L.tenant}` : ''}`, [
-          { label: 'Lease schedule', value: 'sched' }, { label: 'Duplicate', value: 'dup' },
+          { label: 'Lease schedule', value: 'sched' }, { label: 'What this lease affects', value: 'affects' }, { label: 'Duplicate', value: 'dup' },
           { label: L.vacant ? 'Mark occupied' : 'Mark vacant', value: 'vac' }, '-', { label: 'Delete unit', value: 'del', danger: true },
         ]);
         if (v === 'sched') scheduleSheet(rr, L, changed);
+        else if (v === 'affects') changed.affects(LEASE_INPUTS, { leaseId: L.id, title: `Unit ${L.unit || ri + 1}${L.tenant && !L.vacant ? ` (${L.tenant})` : ''}` });
         else if (v === 'dup') { rr.leases.splice(rr.leases.indexOf(L) + 1, 0, duplicateLease(L)); changed(); }
         else if (v === 'vac') { L.vacant = !L.vacant; L.status = L.vacant ? 'Vacant' : 'Occupied'; changed(); }
         else if (v === 'del') {
@@ -556,7 +561,9 @@ function settingsForm(deal, rr, changed) {
       obj[key] = v;
       changed();
     });
-    f.append(lab, i);
+    const id2 = obj === s ? `rr.settings.${key}` : 'rr.settings.renewal';
+    f.append(lab, i, affectsButton(`What changing ${label.replace(/[,%].*$/, '').trim().toLowerCase()} affects`, () => changed.affects([id2])));
+    f.classList.add('has-affects');
     g.appendChild(f);
   };
   field(s, 'asOf', 'As of', 'date');
@@ -693,6 +700,11 @@ function applyLayout(rr, cols) {
   rr.columns = [...JSON.parse(JSON.stringify(cols)), ...keep];
 }
 
+/** The lease field a grid column sets, as the dependency map names it. */
+const COLUMN_INPUT = (c) => (c.custom ? 'lease.custom' : { monthly: 'lease.rent', annual: 'lease.rent', psf: 'lease.rent', share: 'lease.recovery', recovery: 'lease.recovery' }[c.key]
+  || (LEASE_INPUTS.includes(`lease.${c.key}`) ? `lease.${c.key}` : null));
+const LEASE_INPUTS = LEASE_FIELDS.map(([k]) => `lease.${k}`);
+
 /* ------------------------------------------------------------- more menu */
 
 async function moreMenu(deal, rr, changed) {
@@ -700,12 +712,20 @@ async function moreMenu(deal, rr, changed) {
     { label: 'Import from Excel or CSV…', sub: 'a rent roll sheet with a header row', value: 'import' },
     { label: 'Export rent roll and cash flow (Excel)', value: 'xlsx' },
     { label: 'Export CSV', sub: 'the grid as shown', value: 'csv' },
+    { label: 'What a column affects…', sub: 'every figure, scenario and export that moves with it', value: 'affects' },
     '-',
     { label: 'Clear the rent roll', value: 'clear', danger: true, disabled: !rr.leases.length },
   ]);
   if (v === 'import') importDialog(rr, changed);
   else if (v === 'xlsx') exportWorkbook(deal, rr);
   else if (v === 'csv') exportCsv(deal, rr);
+  else if (v === 'affects') {
+    // the columns a person types into, each to the lease field it sets
+    const cols = visibleColumns(rr.columns).filter((c) => c.set && COLUMN_INPUT(c));
+    const k = await actionSheet('What does a column affect?', cols.map((c) => ({ label: c.label, value: c.key })));
+    const col = cols.find((c) => c.key === k);
+    if (col) changed.affects([COLUMN_INPUT(col)], { title: `the ${col.label.charAt(0).toLowerCase()}${col.label.slice(1)} column` });
+  }
   else if (v === 'clear') {
     const old = rr.leases;
     rr.leases = [];
@@ -724,7 +744,7 @@ async function exportCsv(deal, rr) {
   const cols = visibleColumns(rr.columns);
   const lines = [cols.map((x) => csvCell(x.label)).join(',')];
   for (const L of rr.leases) lines.push(cols.map((x) => { const v = x.get(L, c); return csvCell(ok(v) ? Math.round(v * 100) / 100 : v); }).join(','));
-  await deliver(`Rent roll - ${fileName(deal)}.csv`, new TextEncoder().encode(`${lines.join('\r\n')}\r\n`), 'text/csv');
+  await deliver(`Rent roll - ${fileName(deal)}.csv`, new TextEncoder().encode(`${lines.join('\r\n')}\r\n`), 'text/csv', { map: 'rr-csv' });
 }
 const fileName = (deal) => (deal.name || deal.figures?.address || 'Deal').replace(/[^\w\s-]+/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -733,7 +753,7 @@ async function exportWorkbook(deal, rr) {
     const libs = await getXlsx();
     const { buildRentRollWorkbook } = await import('./rrbook.js');
     const bytes = await buildRentRollWorkbook(libs.ExcelJS, libs.fflate, { deal, rr });
-    if (await deliver(`Rent roll - ${fileName(deal)}.xlsx`, bytes, XLSX) === 'done') toast('Rent roll workbook ready: the rent roll, every lease period, and the cash flow by year.');
+    if (await deliver(`Rent roll - ${fileName(deal)}.xlsx`, bytes, XLSX, { map: 'rr-workbook' }) === 'done') toast('Rent roll workbook ready: the rent roll, every lease period, and the cash flow by year.');
   } catch (err) {
     toast(`The workbook could not be built: ${err.message || err}`);
   }

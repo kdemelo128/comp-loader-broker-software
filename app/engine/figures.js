@@ -179,6 +179,7 @@ export const RULES = registry('Checks and questions', { after: FIGURES });
 const rule = (id, label, reads, calc) => RULES.add(id, { label, unit: 'check', reads }, calc);
 
 rule('noPriceFromLoss', 'No price from a zero or negative NOI', ['d.price', 'd.noi', 'd.cap'], (m, { d }, C) => {
+  if (pos(d.price)) return;
   const noi = ok(d.noi) ? d.noi : null;
   const capStated = pos(d.cap) ? d.cap : null;
   if (!pos(d.price) && noi !== null && capStated && noi <= 0) {

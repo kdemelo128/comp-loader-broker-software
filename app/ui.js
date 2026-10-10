@@ -848,7 +848,7 @@ async function saveProject() {
     windowMonths: state.windowMonths,
   });
   try {
-    const done = await deliver(`${projectName()}.json`, new TextEncoder().encode(body), 'application/json');
+    const done = await deliver(`${projectName()}.json`, new TextEncoder().encode(body), 'application/json', { map: 'none: the comp set (a deal sent to Comps as the subject is a copy made then)' });
     // the project holds the text of every report, which is licensed CoStar material
     if (done === 'done') toast('Project saved. It contains the text of your CoStar reports, so share it only with people covered by your CoStar licence.');
   } catch (err) {
@@ -974,7 +974,7 @@ async function exportCsv() {
   // a byte-order mark tells Excel the file is UTF-8, so names like "Pastore’s" survive
   const bytes = new TextEncoder().encode(`﻿${compsCsv(sales, market)}`);
   try {
-    const done = await deliver(`${projectName()}.csv`, bytes, 'text/csv');
+    const done = await deliver(`${projectName()}.csv`, bytes, 'text/csv', { map: 'none: the comp set (a deal sent to Comps as the subject is a copy made then)' });
     if (done === 'done') {
       toast('CSV ready. In Google My Maps, choose Import and pick the Full Address column to place every comp on a map.');
     }
@@ -987,7 +987,7 @@ function printSheet() {
   const { sales, market } = includedSorted();
   const subject = readSubject();
   renderCompSheet($('print-sheet'), { sales, market, subject, label: setLabel(), preparedBy: subject.preparedBy || '' });
-  printed(`Comp sheet: ${setLabel() || 'comps'}`);
+  printed(`Comp sheet: ${setLabel() || 'comps'}`, { map: 'none: the comp set (a deal sent to Comps as the subject is a copy made then)' });
   window.print();
 }
 
@@ -1039,7 +1039,7 @@ async function exportWorkbook({ share = false } = {}) {
   refreshCounts();
   try {
     const { bytes, name, report } = await buildFile();
-    const done = await deliver(name, bytes, XLSX, { share });
+    const done = await deliver(name, bytes, XLSX, { share, map: 'none: the comp set (a deal sent to Comps as the subject is a copy made then)' });
     if (done === 'done') {
       if (report) {
         const where = report.sheets.map((s) => `${s.rows} on ${s.name}`).join(', ');
@@ -1234,7 +1234,7 @@ async function templateMenu() {
   ]);
   if (v === 'map') mapTemplate();
   else if (v === 'replace') $('tpl-file').click();
-  else if (v === 'download') deliver(state.template.name, state.template.bytes, XLSX).catch(deliveryError);
+  else if (v === 'download') deliver(state.template.name, state.template.bytes, XLSX, { map: 'none: a comps template as uploaded' }).catch(deliveryError);
   else if (v === 'remove') {
     const old = state.template;
     state.template = null;

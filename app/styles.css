@@ -1131,3 +1131,26 @@ dialog.sheet[open] { animation: up .26s var(--ease); }
 /* the deal's history */
 .history-list .li { align-items: flex-start; }
 .history-list .hist-rounding .li-title, .history-list .hist-create .li-title { color: var(--muted); }
+
+/* ---- what this affects (the dependency map) ---- */
+.affects-btn { width: 26px; height: 26px; border-radius: 6px; color: var(--faint); }
+.affects-btn:hover, .affects-btn:focus-visible { color: var(--accent); background: var(--accent-soft); }
+.figs .fl-cell { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.figs .fl-cell .fl { min-width: 0; }
+.field.has-affects { position: relative; }
+.field.has-affects > .affects-btn { position: absolute; top: -6px; right: -4px; width: 24px; height: 24px; }
+.field.has-affects > label { padding-right: 24px; }
+.tile-link { cursor: pointer; }
+.tile-link:hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.tile-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.impact .impact-trial { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 var(--s4); }
+.impact .impact-trial label { font: 600 var(--t-13)/1.2 var(--ui); color: var(--muted); }
+.impact .impact-trial input { width: 140px; }
+.impact .impact-head { display: flex; align-items: center; gap: 6px; margin: var(--s4) 0 var(--s1); }
+.impact .impact-list > li { min-height: 44px; padding-left: 0; padding-right: 0; }
+.impact .impact-list > li + li::before { left: 0; }
+.impact .impact-list .li-sub { white-space: normal; }
+.impact .impact-same .li-title { color: var(--muted); font-weight: 500; }
+.impact .impact-could { margin-top: var(--s4); }
+.impact .impact-could > summary { cursor: pointer; font: 600 var(--t-13)/1.4 var(--ui); color: var(--muted); }
+.impact .impact-from { margin-bottom: var(--s3); }

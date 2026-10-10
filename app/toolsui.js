@@ -565,7 +565,7 @@ async function exportXlsx(t, v, out, d) {
   ws.addRow([]);
   ws.addRow(['Results are the values shown on screen when exported; they do not recalculate in Excel.']);
   const bytes = new Uint8Array(await wb.xlsx.writeBuffer());
-  await deliver(`${t.title.replace(/[^\w]+/g, '-').replace(/-+$/, '')}-${localDate()}.xlsx`, bytes, XLSX);
+  await deliver(`${t.title.replace(/[^\w]+/g, '-').replace(/-+$/, '')}-${localDate()}.xlsx`, bytes, XLSX, { map: 'none: a tool’s own inputs (filled from a deal, they are a copy made then)' });
 }
 
 function printTool(t, v, out, d) {
@@ -603,7 +603,7 @@ function printTool(t, v, out, d) {
   }
   if (t.explain) box.appendChild(el('p', 'ps-foot', `How it is worked out: ${t.explain}`));
   if (t.note) box.appendChild(el('p', 'ps-foot', t.note));
-  printed(`${t.title} (Tools)`);
+  printed(`${t.title} (Tools)`, { map: 'none: a tool’s own inputs (filled from a deal, they are a copy made then)' });
   window.print();
 }
 

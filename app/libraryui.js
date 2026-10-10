@@ -88,9 +88,9 @@ async function templateMenu(t) {
   else if (v === 'replace') upload(t);
   else if (v === 'versions') versionsSheet(t);
   else if (v === 'dup') { await putTemplate(duplicateTemplate(t)); toast('Duplicated.'); reopen(); }
-  else if (v === 'download') deliver(currentFile(t), currentBytes(t), /\.xlsm$/i.test(currentFile(t)) ? XLSM_TYPE : XLSX_TYPE).catch(() => {});
+  else if (v === 'download') deliver(currentFile(t), currentBytes(t), /\.xlsm$/i.test(currentFile(t)) ? XLSM_TYPE : XLSX_TYPE, { map: 'none: the firm’s template as uploaded, unfilled' }).catch(() => {});
   else if (v === 'export') {
-    await deliver(`${t.name.replace(/[^\w\s-]+/g, ' ').trim()}.template.json`, new TextEncoder().encode(exportPackage(t)), 'application/json');
+    await deliver(`${t.name.replace(/[^\w\s-]+/g, ' ').trim()}.template.json`, new TextEncoder().encode(exportPackage(t)), 'application/json', { map: 'none: a template and its mapping, for a colleague' });
     toast('Exported. On the other device: Template library → Import a template a colleague sent.');
   } else if (v === 'archive') { t.archived = !t.archived; await putTemplate(t); reopen(); } else if (v === 'delete') {
     await deleteTemplate(t.id);
@@ -391,7 +391,7 @@ async function fillSheet(t, deal) {
       }, xmlApi());
       const ext = /\.xlsm$/i.test(currentFile(t)) ? 'xlsm' : 'xlsx';
       const name = `${t.name} - ${(deal.name || deal.figures.address || 'Deal').replace(/[^\w\s-]+/g, ' ').replace(/\s+/g, ' ').trim()} (${localDate()}).${ext}`;
-      const done = await deliver(name, bytes, ext === 'xlsm' ? XLSM_TYPE : XLSX_TYPE);
+      const done = await deliver(name, bytes, ext === 'xlsm' ? XLSM_TYPE : XLSX_TYPE, { map: 'template-fill' });
       if (done === 'done') toast(`${report.written} cell${report.written === 1 ? '' : 's'} filled${report.tables.length ? `, ${report.tables.map((x) => `${x.rows} rent roll rows on ${x.sheet}`).join(', ')}` : ''}. Formulas recalculate when Excel opens the file.`, null, 8000);
       api.sheetClose();
     } catch (err) { toast(`The workbook could not be filled: ${err.message || err}`, null, 8000); }

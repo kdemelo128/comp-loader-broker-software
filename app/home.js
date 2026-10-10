@@ -467,7 +467,7 @@ async function reportXlsx() {
   sheet('Contacts', [['Name', 'name', 24], ['Company', 'company', 24], ['Role', 'role', 16], ['Phone', 'phone', 16], ['Email', 'email', 28], ['Deals', 'deals', 36], ['Notes', 'notes', 40]],
     contacts.map((c) => ({ ...c, deals: (c.dealIds || []).map((x) => nameOf[x]).filter(Boolean).join('; ') })));
   const bytes = new Uint8Array(await wb.xlsx.writeBuffer());
-  await deliver(`Pipeline ${localDate()}.xlsx`, bytes, XLSX);
+  await deliver(`Pipeline ${localDate()}.xlsx`, bytes, XLSX, { map: 'none: the pipeline lists deals by stage, not their figures' });
 }
 
 async function reportPrint() {
@@ -497,7 +497,7 @@ async function reportPrint() {
     box.appendChild(t);
   }
   box.appendChild(el('p', 'ps-foot', 'Cap rate is NOI over asking price where both are known, else the stated cap rate. Figures as entered in Zlatura on this device.'));
-  printed('Pipeline report');
+  printed('Pipeline report', { map: 'none: the pipeline lists deals by stage, not their figures' });
   window.print();
 }
 
