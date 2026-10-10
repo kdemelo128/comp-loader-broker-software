@@ -1,8 +1,10 @@
 # Checkpoint (d): change history, undo and snapshots: design for approval
 
 Status: **approved 2026-10-10** (all four decisions as recommended).
-Parts A (history, undo) and B (snapshots) are built in 4.3.0. Parts C
-(backups) and D (limits) follow in a second pull request. One change from
+Parts A (history, undo) and B (snapshots) are built in 4.3.0; parts C
+(backups version 2) and D (limits) in 4.3.1. One addition to D: when the
+overall space is still over after automatic snapshots and history,
+the oldest removed photos and recordings go before their 30 days are up. One change from
 this design: history is captured where every deal save happens
 (`store.saveDeal`, in the same transaction as the deal) rather than in
 `touch()`, so changes made outside the deal screen (Home's stage menu, a

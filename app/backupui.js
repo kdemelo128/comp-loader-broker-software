@@ -41,11 +41,30 @@ export async function renderDataCard(box, api) {
     r.appendChild(show);
     box.appendChild(r);
   }
+  // history, snapshots and removed photos: what they take, against what they may
+  const rep = await store.storageReport();
+  const u = el('p', 'hint-sm data-hint');
+  u.id = 'history-usage';
+  u.textContent = `Deal history and snapshots: ${mb(rep.total)} of the ${mb(rep.budget)} kept for them (history ${mb(rep.history)}, snapshots ${mb(rep.snapshots)}, removed photos and recordings ${mb(rep.trash)}). When it fills, the oldest automatic snapshots go first, then the oldest history.`;
+  box.appendChild(u);
+  if (rep.warn) {
+    const w = el('p', 'hint-sm warn-text data-hint');
+    w.id = 'storage-warning';
+    w.setAttribute('role', 'status');
+    w.textContent = rep.share >= store.LIMITS.warnAt
+      ? `History and snapshots are using ${Math.round(rep.share * 100)}% of the space kept for them. To make room, delete snapshots you no longer need, or clear a deal’s history (both in the deal’s ⋯ → History); otherwise the oldest are removed for you.`
+      : `This browser is ${Math.round(rep.browserShare * 100)}% full for ${PRODUCT}. Make a backup, then delete deals, snapshots or photos you no longer need.`;
+    box.appendChild(w);
+  }
   const acts = el('div', 'crm-acts data-acts');
   const bk = el('button', 'btn btn-sm', 'Back up everything');
   bk.type = 'button';
   bk.id = 'backup-make';
-  bk.addEventListener('click', () => makeBackup().then(() => renderDataCard(box, api)).catch((e) => { console.error(e); toast(`The backup could not be made: ${e.message}`); }));
+  const withH = el('input');
+  withH.type = 'checkbox';
+  withH.id = 'backup-history';
+  withH.checked = true;
+  bk.addEventListener('click', () => makeBackup({ withHistory: withH.checked }).then(() => renderDataCard(box, api)).catch((e) => { console.error(e); toast(`The backup could not be made: ${e.message}`); }));
   const rs = el('label', 'btn btn-sm btn-gray', 'Restore from a backup…');
   const fi = el('input');
   fi.type = 'file';
@@ -56,6 +75,9 @@ export async function renderDataCard(box, api) {
   fi.addEventListener('change', () => { const f = fi.files[0]; fi.value = ''; if (f) restore(f, api); });
   acts.append(bk, rs, fi);
   box.appendChild(acts);
+  const opt = el('label', 'chk data-hint');
+  opt.append(withH, document.createTextNode(' Include each deal’s history and snapshots (leave out for a smaller file)'));
+  box.appendChild(opt);
   box.appendChild(el('p', 'hint-sm data-hint', 'The backup is one file with every deal (photos and recordings included), the comp set, templates, tasks, contacts and settings. It holds confidential deal information: keep it somewhere safe. Your AI access token is not included.'));
 }
 
@@ -84,14 +106,16 @@ async function current() {
   return { deals, kv, session: session || null, local };
 }
 
-export async function makeBackup() {
+/** One file with everything; each deal's history and snapshots too, unless `withHistory` is false. */
+export async function makeBackup({ withHistory = true } = {}) {
   const c = await current();
-  const b = await buildBackup({ ...c, appVersion: VERSION });
+  const h = withHistory ? await store.historyForBackup() : { history: null, snapshots: null };
+  const b = await buildBackup({ ...c, appVersion: VERSION, history: h.history, snapshots: h.snapshots });
   const bytes = new TextEncoder().encode(JSON.stringify(b));
   const r = await deliver(`${PRODUCT} backup ${localDate()}.json`, bytes, 'application/json');
   if (r === 'done') {
     await store.kvSet(LAST, Date.now());
-    toast(`Backup saved: ${b.counts.deals} deals, ${mb(bytes.length)}.`);
+    toast(`Backup saved: ${b.counts.deals} deals${withHistory ? `, with ${b.counts.historyEntries || 0} history entries and ${b.counts.snapshots || 0} snapshots` : ', without history'}, ${mb(bytes.length)}.`);
     // a backup made since the move from the old name makes the old copy safe to delete
     store.finishRename().catch(() => {});
   }
@@ -124,6 +148,9 @@ async function restore(file, api) {
       const snap = here ? await store.saveSnapshot(d.id, { name: `Before restoring the backup of ${made}`, auto: true, reason: 'restore' }, snapshotData(here)) : null;
       if (!(await store.saveDeal(d, { kind: 'restore', label: `Restored from the backup of ${made}`, snapshot: snap && snap.id }))) throw new Error('storage is full or blocked');
     }
+    // each deal's history and snapshots from the backup, combined with this device's (never overwritten)
+    for (const [id, list] of Object.entries(plan.history || {})) await store.mergeHistory(id, list);
+    for (const [id, list] of Object.entries(plan.snapshots || {})) await store.mergeSnapshots(id, list);
     for (const k of plan.removeKv) await store.kvSet(k, null);
     for (const [k, val] of Object.entries(plan.kv)) if (!(await store.kvSet(k, val))) throw new Error('storage is full or blocked');
     if (v === 'replace' && !plan.session) await store.clearSession();

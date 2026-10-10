@@ -69,3 +69,54 @@ test('replace: the backup wins, and the device’s AI token is kept', () => {
   assert.deepEqual(p.kv['ai.settings'], { url: 'b', token: 'T' });
   assert.deepEqual(p.removeKv, ['crm.tasks']);
 });
+
+/* ------------------------------------------- version 2: history in backups */
+import fs from 'node:fs';
+import { BACKUP_VERSION } from '../app/backup.js';
+
+const entry = (id, at, extra = {}) => ({ id, at, seq: at, kind: 'edit', label: id, changes: [{ path: ['figures', 'price'], old: 1, new: 2 }], ...extra });
+const snap = (id, at, auto = false) => ({ id, dealId: 'd1', name: id, auto, at, data: { figures: { price: at } } });
+
+test('version 2: each deal’s history and snapshots go into a backup and come back', async () => {
+  assert.equal(BACKUP_VERSION, 2);
+  const b = await buildBackup({ deals: [deal('d1', 5)], history: { d1: [entry('h1', 1), entry('h2', 2)] }, snapshots: { d1: [snap('s1', 3)] }, appVersion: '4.3.1' });
+  assert.equal(b.version, 2);
+  assert.equal(b.counts.historyEntries, 2);
+  assert.equal(b.counts.snapshots, 1);
+  const r = readBackup(JSON.stringify(b));
+  assert.deepEqual(r.history.d1.map((e) => e.id), ['h1', 'h2']);
+  assert.deepEqual(r.history.d1[0].changes, [{ path: ['figures', 'price'], old: 1, new: 2 }]);
+  assert.equal(r.snapshots.d1[0].data.figures.price, 3);
+});
+
+test('version 2 without history: the option leaves it out', async () => {
+  const b = await buildBackup({ deals: [deal('d1', 5)], history: null, snapshots: null });
+  assert.equal('history' in b, false);
+  assert.equal('snapshots' in b, false);
+  const r = readBackup(JSON.stringify(b));
+  assert.equal(r.history, null);
+  assert.equal(r.snapshots, null);
+});
+
+test('version 1 backups (4.2 and older) still read, with no history; a newer version than this one is refused', () => {
+  const old = readBackup(fs.readFileSync(new URL('./fixtures/backup-comp-loader-3.3.0.json', import.meta.url), 'utf8'));
+  assert.equal(old.version, 1);
+  assert.equal(old.history, null);
+  assert.ok(old.deals.length >= 1);
+  assert.throws(() => readBackup(JSON.stringify({ format: 'zlatura-backup', version: 3, deals: [] })), /newer version/);
+});
+
+test('a restore brings the history and snapshots of the deals it keeps, and says so', async () => {
+  const b = readBackup(JSON.stringify(await buildBackup({
+    deals: [deal('d1', 5), deal('d2', 5)],
+    history: { d1: [entry('h1', 1)], d2: [entry('h9', 1)], gone: [entry('hx', 1)] },
+    snapshots: { d1: [snap('s1', 3)] },
+  })));
+  const here = { deals: [deal('d1', 9)], kv: {}, session: null, local: {} };
+  const m = planRestore(b, here, 'merge');
+  assert.deepEqual(Object.keys(m.history).sort(), ['d1', 'd2'], 'history only for deals the restore keeps');
+  assert.deepEqual(Object.keys(m.snapshots), ['d1']);
+  assert.ok(m.summary.some((l) => /History: 2 entries and 1 snapshot combined with what this device has/.test(l)), m.summary.join(' | '));
+  const r = planRestore(b, here, 'replace');
+  assert.deepEqual(Object.keys(r.history).sort(), ['d1', 'd2']);
+});

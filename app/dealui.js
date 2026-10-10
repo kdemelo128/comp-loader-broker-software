@@ -2322,7 +2322,30 @@ async function openHistory() {
   const st = undoState(hist);
   const body = api.sheetOpen({ eyebrow: d.name || d.figures.address || 'Deal', title: 'History', sub: `Every change to this deal, newest first. Undo goes back one step (${KEYS.undo}); “Undo to here” goes back to just after that step. Undoing is itself recorded.` });
   await snapshotSection(body, d);
-  body.appendChild(el('h3', 'sec-label', 'Changes'));
+  const changesHead = el('div', 'card-head');
+  changesHead.style.padding = '0';
+  changesHead.appendChild(el('h3', 'sec-label', 'Changes'));
+  if (hist.length) {
+    changesHead.appendChild(button('btn-plain btn-sm', 'Clear this deal’s history', async () => {
+      const v = await actionSheet('Clear this deal’s history?', [{ label: 'Yes, clear the history', sub: `Its ${hist.length} recorded change${hist.length === 1 ? '' : 's'} go, and Undo can’t go back past now. The deal and its snapshots stay.`, value: 'yes', danger: true }]);
+      if (v !== 'yes') return;
+      await store.clearHistory(d.id);
+      refreshUndo();
+      toast('History cleared. The deal and its snapshots are unchanged.');
+      openHistory();
+    }));
+  }
+  body.appendChild(changesHead);
+  // older entries dropped to stay within the limits, or cleared: say since when the history runs
+  const info = await store.historyInfo(d.id);
+  if (info && (info.pruned || info.cleared)) {
+    const p = el('p', 'hint-sm');
+    p.id = 'history-since';
+    p.textContent = info.cleared && !info.pruned
+      ? `History cleared on ${when(info.cleared)}; it runs from then.`
+      : `History kept since ${when(info.since)}: older changes were removed to stay within ${store.LIMITS.historyEntries.toLocaleString('en-US')} changes or ${store.LIMITS.historyBytes / 1048576} MB for this deal.`;
+    body.appendChild(p);
+  }
   if (!hist.length) { body.appendChild(el('p', 'hint', 'No changes recorded yet.')); return; }
   const canUndo = new Set(st.done.map((e) => e.id));
   const ul = el('ul', 'list history-list');
@@ -2370,7 +2393,8 @@ export function initDeal(compsApi) {
   document.addEventListener('focusin', (e) => { const t = e.target; if (t && (t.isContentEditable || /^(INPUT|TEXTAREA)$/.test(t.tagName))) committed.set(t, valueOf(t)); });
   document.addEventListener('change', (e) => { const t = e.target; if (t && committed.has(t)) committed.set(t, valueOf(t)); }, true);
   document.addEventListener('keydown', undoKeys);
-  store.sweepTrash();
+  // the trash's 30 days; sizes counted once if the record is missing; within the space allowed
+  store.sweepTrash().then(() => store.budget()).then(() => store.keepWithinBudget()).catch(() => {});
   render();
   let cur = null;
   try { cur = localStorage.getItem(CUR_KEY); } catch { cur = null; }

@@ -175,6 +175,21 @@ The AI access token is never written into a backup (a backup is a file that
 gets copied and sent), and a restore never replaces the one on the device.
 The backup holds confidential deal information: keep it somewhere safe.
 
+Since 4.3.1 a backup also carries each deal's **history and snapshots**. Untick
+the option under the button for a smaller file. Restoring combines the
+backup's history with the device's, so nothing in either is lost. Older
+backups (made before 4.3.1) still restore; each deal's history then starts with
+the restore. Photos and recordings you removed (kept 30 days for undo) aren't
+in a backup.
+
+**Space for history.** Each deal keeps its last 1,000 changes or 2 MB of
+history, whichever comes first. History then says since when it runs. All
+history, snapshots and removed photos together get 50 MB, and never more than
+half of what the browser allows this site. When that fills, the oldest
+automatic snapshots go first, then the oldest history; named snapshots stay.
+**Your data** shows how much they take, and warns from 80%. A deal's ⋯ →
+History can clear that deal's history (the deal and its snapshots stay).
+
 ## Rent roll
 
 The **Rent roll** section holds each lease as dated rent periods, not one rent

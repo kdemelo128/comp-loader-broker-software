@@ -200,6 +200,7 @@ async function migrateMoneyIn(db, { once = false } = {}) {
   }
   meta.put({ version: MONEY_VERSION, at }, 'money');
   if (entries.length) meta.put({ entries: [...((log && log.entries) || []), ...entries] }, 'rounding');
+  if (entries.length) meta.delete('usage'); // the sizes are counted again (countUsage)
   await doneP(t);
   return entries;
 }
@@ -289,31 +290,46 @@ export async function clearSession() {
  * meta: { kind, label, undoes, redoes, rounded, snapshot, always } (history.js).
  */
 export async function saveDeal(deal, meta = null) {
+  let over = false;
   try {
     const db = await open();
-    const t = db.transaction(['deals', 'history', 'trash'], 'readwrite');
-    const deals = t.objectStore('deals'); const hist = t.objectStore('history'); const trash = t.objectStore('trash');
+    const t = db.transaction(['deals', 'history', 'trash', 'meta'], 'readwrite');
+    const deals = t.objectStore('deals'); const hist = t.objectStore('history'); const trash = t.objectStore('trash'); const ms = t.objectStore('meta');
     const beforeP = reqP(deals.get(deal.id));
     deals.put(deal, deal.id);
     trash.delete(`deal:${deal.id}`); // a deal deleted and brought back
-    const lastP = reqP(hist.openKeyCursor(IDBKeyRange.bound([deal.id, 0], [deal.id, Infinity]), 'prev'));
-    const [before, last] = await Promise.all([beforeP, lastP]);
+    const lastP = reqP(hist.openKeyCursor(histRange(deal.id), 'prev'));
+    const usageP = reqP(ms.get('usage'));
+    const [before, last, usage] = await Promise.all([beforeP, lastP, usageP]);
     // values rounded as they were saved are their own entry, after the edit: a record, never undone
     const { rounded, ...rest } = meta || {};
     const made = historyEntry(before, deal, rest);
     let seq = last ? last.key[1] : 0;
     const at = Date.now();
+    const added = [];
     if (made) {
       seq += 1;
-      hist.put({ ...made.entry, seq }, [deal.id, seq]);
-      for (const m of made.removed) trash.put({ kind: 'media', dealId: deal.id, id: String(m.id), name: m.name || '', blob: m.blob, removedAt: at }, String(m.id));
+      added.push({ ...made.entry, seq });
+      for (const m of made.removed) {
+        trash.put({ kind: 'media', dealId: deal.id, id: String(m.id), name: m.name || '', blob: m.blob, removedAt: at }, String(m.id));
+        if (usage) usage.trash[String(m.id)] = m.blob.size || 0;
+      }
     }
     if (before && rounded && rounded.length) {
       seq += 1;
       const one = rounded.length === 1 ? `${roundedPlace(rounded[0].path)}: ${rounded[0].old} → ${rounded[0].new}` : `${rounded.length} values`;
-      hist.put({ id: `r${at.toString(36)}${seq}`, seq, at, kind: 'rounding', label: `Rounded as saved, to whole cents (rates to four decimals): ${one}`, changes: [], rounded }, [deal.id, seq]);
+      added.push({ id: `r${at.toString(36)}${seq}`, seq, at, kind: 'rounding', label: `Rounded as saved, to whole cents (rates to four decimals): ${one}`, changes: [], rounded });
     }
+    for (const e of added) { e.bytes = sizeOf(e); hist.put(e, [deal.id, e.seq]); }
+    if (usage && added.length) {
+      const h = usage.history[deal.id] || (usage.history[deal.id] = { count: 0, bytes: 0, since: added[0].at });
+      for (const e of added) { h.count += 1; h.bytes += e.bytes; }
+      if (h.count > LIMITS.historyEntries || h.bytes > LIMITS.historyBytes) await pruneHistory(hist, deal.id, h);
+    }
+    if (usage) { ms.put(usage, 'usage'); over = totals(usage).total > budgetNow; }
     await doneP(t);
+    if (over) keepWithinBudget();
+    else if (!usage) countUsage().then(() => keepWithinBudget()); // a database from before the sizes were kept (4.3.0)
     return true;
   } catch { return false; }
 }
@@ -322,7 +338,7 @@ export async function saveDeal(deal, meta = null) {
 export async function historyOf(dealId) {
   try {
     const db = await open();
-    return (await reqP(db.transaction('history').objectStore('history').getAll(IDBKeyRange.bound([dealId, 0], [dealId, Infinity])))) || [];
+    return (await reqP(db.transaction('history').objectStore('history').getAll(histRange(dealId)))) || [];
   } catch { return []; }
 }
 
@@ -359,21 +375,248 @@ export async function snapshotsOf(dealId) {
 export async function saveSnapshot(dealId, { id = null, name, auto = false, reason = '' }, data, now = Date.now()) {
   try {
     const db = await open();
-    const t = db.transaction('snapshots', 'readwrite');
-    const os = t.objectStore('snapshots');
+    const t = db.transaction(['snapshots', 'meta'], 'readwrite');
+    const os = t.objectStore('snapshots'); const ms = t.objectStore('meta');
     const all = ((await reqP(os.getAll(snapRange(dealId)))) || []).sort((a, b) => a.at - b.at);
+    const usage = await reqP(ms.get('usage'));
     const same = all.filter((x) => !!x.auto === !!auto);
     if (!auto && same.length >= SNAPSHOTS.manual) { t.abort(); return 'full'; }
-    if (auto) for (const x of same.slice(0, Math.max(0, same.length - SNAPSHOTS.auto + 1))) os.delete([dealId, x.id]);
+    if (auto) for (const x of same.slice(0, Math.max(0, same.length - SNAPSHOTS.auto + 1))) { os.delete([dealId, x.id]); if (usage) delete usage.snapshots[`${dealId}|${x.id}`]; }
     const snap = { id: id || `s${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`, dealId, name: name || 'Snapshot', auto: !!auto, reason, at: now, data };
+    snap.bytes = sizeOf(data);
     os.put(snap, [dealId, snap.id]);
+    let over = false;
+    if (usage) { usage.snapshots[`${dealId}|${snap.id}`] = snap.bytes; ms.put(usage, 'usage'); over = totals(usage).total > budgetNow; }
     await doneP(t);
+    if (over) keepWithinBudget();
     return snap;
   } catch { return null; }
 }
 
 export async function deleteSnapshot(dealId, id) {
-  try { const db = await open(); const t = db.transaction('snapshots', 'readwrite'); t.objectStore('snapshots').delete([dealId, id]); await doneP(t); return true; } catch { return false; }
+  try {
+    const db = await open();
+    const t = db.transaction(['snapshots', 'meta'], 'readwrite');
+    t.objectStore('snapshots').delete([dealId, id]);
+    const ms = t.objectStore('meta');
+    const usage = await reqP(ms.get('usage'));
+    if (usage) { delete usage.snapshots[`${dealId}|${id}`]; ms.put(usage, 'usage'); }
+    await doneP(t);
+    return true;
+  } catch { return false; }
+}
+
+/* ------------------------------------------- limits and what is kept (D) */
+
+/** The limits approved for checkpoint (d). */
+export const LIMITS = {
+  historyEntries: 1000, // per deal
+  historyBytes: 2 * 1024 * 1024, // per deal
+  totalBytes: 50 * 1024 * 1024, // history, snapshots and removed media, all deals
+  quotaShare: 0.5, // and never more than this share of what the browser allows
+  warnAt: 0.8, // Settings warns from here
+};
+const histRange = (dealId) => IDBKeyRange.bound([dealId, 1], [dealId, Infinity]);
+const sizeOf = (v) => { try { return JSON.stringify(v).length; } catch { return 0; } };
+const sum = (o) => Object.values(o || {}).reduce((a, x) => a + (typeof x === 'number' ? x : (x && x.bytes) || 0), 0);
+/** Bytes kept for history, snapshots and removed media, from the usage record. */
+export function totals(u) {
+  const history = sum(u && u.history); const snapshots = sum(u && u.snapshots); const trash = sum(u && u.trash);
+  return { history, snapshots, trash, total: history + snapshots + trash };
+}
+let budgetNow = LIMITS.totalBytes;
+/** The space allowed: LIMITS.totalBytes, and never more than LIMITS.quotaShare of the browser's quota. */
+export async function budget() {
+  const { quota } = await storageInfo();
+  budgetNow = Math.min(LIMITS.totalBytes, quota ? Math.floor(quota * LIMITS.quotaShare) : LIMITS.totalBytes);
+  return budgetNow;
+}
+
+/** Walk a cursor: fn(cursor) for each record; returning false stops. Keeps the transaction alive. */
+function eachCursor(req, fn) {
+  return new Promise((res, rej) => {
+    req.onsuccess = () => { const c = req.result; if (!c || fn(c) === false) { res(); return; } c.continue(); };
+    req.onerror = () => rej(req.error);
+  });
+}
+
+/** Drop a deal's oldest history entries until it is within LIMITS (in the caller's transaction); `h` is its usage line. */
+async function pruneHistory(hist, dealId, h) {
+  await eachCursor(hist.openCursor(histRange(dealId)), (c) => {
+    if (h.count <= LIMITS.historyEntries && h.bytes <= LIMITS.historyBytes) { h.since = c.value.at; return false; }
+    h.count -= 1; h.bytes -= c.value.bytes || 0; h.pruned = true;
+    c.delete();
+    return true;
+  });
+}
+
+/** Count what history, snapshots and removed media take, from scratch (a database without the usage record). */
+export async function countUsage() {
+  try {
+    const db = await open();
+    const t = db.transaction(['history', 'snapshots', 'trash', 'meta'], 'readwrite');
+    const u = { v: 1, history: {}, snapshots: {}, trash: {} };
+    await eachCursor(t.objectStore('history').openCursor(), (c) => {
+      if (c.key[1] < 1) return true;
+      const h = u.history[c.key[0]] || (u.history[c.key[0]] = { count: 0, bytes: 0, since: c.value.at });
+      h.count += 1; h.bytes += c.value.bytes || sizeOf(c.value); h.since = Math.min(h.since, c.value.at);
+      return true;
+    });
+    await eachCursor(t.objectStore('snapshots').openCursor(), (c) => { u.snapshots[`${c.key[0]}|${c.key[1]}`] = c.value.bytes || sizeOf(c.value.data); return true; });
+    await eachCursor(t.objectStore('trash').openCursor(), (c) => { if (c.value && c.value.blob) u.trash[c.key] = c.value.blob.size || 0; return true; });
+    t.objectStore('meta').put(u, 'usage');
+    await doneP(t);
+    return u;
+  } catch { return null; }
+}
+async function usageNow() {
+  try { const db = await open(); return (await reqP(db.transaction('meta').objectStore('meta').get('usage'))) || await countUsage(); } catch { return null; }
+}
+
+/**
+ * Keep history, snapshots and removed media within the budget: the oldest
+ * automatic snapshots go first, then the oldest history entries (any deal),
+ * then the oldest removed photos and recordings. Returns what went.
+ */
+let pruning = null;
+export function keepWithinBudget() {
+  if (!pruning) pruning = prune().finally(() => { pruning = null; });
+  return pruning;
+}
+async function prune() {
+  const gone = { snapshots: 0, history: 0, trash: 0 };
+  try {
+    const limit = await budget();
+    const u0 = await usageNow();
+    if (!u0 || totals(u0).total <= limit) return gone;
+    const db = await open();
+    const t = db.transaction(['history', 'snapshots', 'trash', 'meta'], 'readwrite');
+    const ms = t.objectStore('meta');
+    const u = (await reqP(ms.get('usage'))) || u0;
+    let total = totals(u).total;
+    const snaps = t.objectStore('snapshots');
+    const autos = [];
+    await eachCursor(snaps.openCursor(), (c) => { if (c.value.auto) autos.push({ key: c.primaryKey, at: c.value.at }); return true; });
+    for (const s of autos.sort((a, b) => a.at - b.at)) {
+      if (total <= limit) break;
+      const k = `${s.key[0]}|${s.key[1]}`;
+      total -= u.snapshots[k] || 0; delete u.snapshots[k]; snaps.delete(s.key); gone.snapshots += 1;
+    }
+    if (total > limit) {
+      const hist = t.objectStore('history');
+      const all = [];
+      await eachCursor(hist.openCursor(), (c) => { if (c.key[1] >= 1) all.push({ key: c.primaryKey, at: c.value.at, bytes: c.value.bytes || 0 }); return true; });
+      const dropped = new Set();
+      for (const e of all.sort((a, b) => a.at - b.at)) {
+        if (total <= limit) break;
+        const h = u.history[e.key[0]];
+        if (h) { h.count -= 1; h.bytes -= e.bytes; h.pruned = true; }
+        total -= e.bytes; hist.delete(e.key); dropped.add(e); gone.history += 1;
+      }
+      // each deal's history now starts at its oldest entry left
+      for (const e of all) {
+        if (dropped.has(e)) continue;
+        const h = u.history[e.key[0]];
+        if (h && h.pruned && !h.reset) { h.since = e.at; h.reset = true; } // `all` is in time order: the first kept is the oldest
+      }
+      for (const h of Object.values(u.history)) delete h.reset;
+    }
+    if (total > limit) {
+      const tr = t.objectStore('trash');
+      const media = [];
+      await eachCursor(tr.openCursor(), (c) => { if (c.value && c.value.kind === 'media') media.push({ key: c.primaryKey, at: c.value.removedAt }); return true; });
+      for (const m of media.sort((a, b) => a.at - b.at)) {
+        if (total <= limit) break;
+        total -= u.trash[m.key] || 0; delete u.trash[m.key]; tr.delete(m.key); gone.trash += 1;
+      }
+    }
+    ms.put(u, 'usage');
+    await doneP(t);
+  } catch { /* the next save tries again */ }
+  return gone;
+}
+
+/** What history, snapshots and removed media take, the budget, and the browser's own figures, for Settings. */
+export async function storageReport() {
+  const [u, limit, info] = await Promise.all([usageNow(), budget(), storageInfo()]);
+  const tot = totals(u);
+  return { ...tot, budget: limit, share: limit ? tot.total / limit : 0, usage: info.usage, quota: info.quota, browserShare: info.quota ? (info.usage || 0) / info.quota : 0, warn: (limit && tot.total / limit >= LIMITS.warnAt) || (info.quota && (info.usage || 0) / info.quota >= LIMITS.warnAt) };
+}
+
+/** A deal's history line: { count, bytes, since, pruned, cleared }, or null. */
+export async function historyInfo(dealId) {
+  const u = await usageNow();
+  return (u && u.history[dealId]) || null;
+}
+
+/** Clear a deal's history (its snapshots and the deal itself stay). */
+export async function clearHistory(dealId, now = Date.now()) {
+  try {
+    const db = await open();
+    const t = db.transaction(['history', 'meta'], 'readwrite');
+    t.objectStore('history').delete(histRange(dealId));
+    const ms = t.objectStore('meta');
+    const u = await reqP(ms.get('usage'));
+    if (u) { u.history[dealId] = { count: 0, bytes: 0, since: now, cleared: now }; ms.put(u, 'usage'); }
+    await doneP(t);
+    return true;
+  } catch { return false; }
+}
+
+/* ---------------------------------------------- history in backups (C) */
+
+/** Every deal's history and snapshots, for a backup: { history: { dealId: [entries] }, snapshots: { dealId: [snapshots] } }. */
+export async function historyForBackup() {
+  const out = { history: {}, snapshots: {} };
+  try {
+    const db = await open();
+    const t = db.transaction(['history', 'snapshots']);
+    await eachCursor(t.objectStore('history').openCursor(), (c) => { if (c.key[1] >= 1) (out.history[c.key[0]] ||= []).push(c.value); return true; });
+    await eachCursor(t.objectStore('snapshots').openCursor(), (c) => { (out.snapshots[c.key[0]] ||= []).push(c.value); return true; });
+  } catch { /* none */ }
+  return out;
+}
+
+/**
+ * Combine a restored deal's history with the device's: every entry from both,
+ * by id, in time order, numbered afresh. Nothing is overwritten or dropped
+ * (beyond the per-deal limits).
+ */
+export async function mergeHistory(dealId, entries) {
+  try {
+    const db = await open();
+    const t = db.transaction(['history', 'meta'], 'readwrite');
+    const hist = t.objectStore('history'); const ms = t.objectStore('meta');
+    const [here, u] = await Promise.all([reqP(hist.getAll(histRange(dealId))), reqP(ms.get('usage'))]);
+    const byId = new Map(here.map((e) => [e.id, e]));
+    for (const e of entries || []) if (e && e.id && !byId.has(e.id)) byId.set(e.id, e);
+    const all = [...byId.values()].sort((a, b) => (a.at - b.at) || ((a.seq || 0) - (b.seq || 0)));
+    hist.delete(histRange(dealId));
+    const h = { count: 0, bytes: 0, since: all.length ? all[0].at : Date.now() };
+    all.forEach((e, i) => { const x = { ...e, seq: i + 1, bytes: e.bytes || sizeOf(e) }; hist.put(x, [dealId, i + 1]); h.count += 1; h.bytes += x.bytes; });
+    if (h.count > LIMITS.historyEntries || h.bytes > LIMITS.historyBytes) await pruneHistory(hist, dealId, h);
+    if (u) { u.history[dealId] = h; ms.put(u, 'usage'); }
+    await doneP(t);
+    return true;
+  } catch { return false; }
+}
+
+/** Add a restored deal's snapshots the device doesn't have (automatic ones beyond the limit: the oldest go). */
+export async function mergeSnapshots(dealId, snaps) {
+  try {
+    const db = await open();
+    const t = db.transaction(['snapshots', 'meta'], 'readwrite');
+    const os = t.objectStore('snapshots'); const ms = t.objectStore('meta');
+    const [here, u] = await Promise.all([reqP(os.getAll(snapRange(dealId))), reqP(ms.get('usage'))]);
+    const have = new Set(here.map((x) => x.id));
+    const all = [...here];
+    for (const s of snaps || []) if (s && s.id && !have.has(s.id)) { const x = { ...s, dealId, bytes: s.bytes || sizeOf(s.data) }; os.put(x, [dealId, x.id]); all.push(x); if (u) u.snapshots[`${dealId}|${x.id}`] = x.bytes; }
+    const autos = all.filter((x) => x.auto).sort((a, b) => a.at - b.at);
+    for (const x of autos.slice(0, Math.max(0, autos.length - SNAPSHOTS.auto))) { os.delete([dealId, x.id]); if (u) delete u.snapshots[`${dealId}|${x.id}`]; }
+    if (u) ms.put(u, 'usage');
+    await doneP(t);
+    return true;
+  } catch { return false; }
 }
 
 /** How long removed photos, recordings and deleted deals' history are kept. */
@@ -386,9 +629,9 @@ export const TRASH_DAYS = 30;
 export async function sweepTrash(now = Date.now()) {
   try {
     const db = await open();
-    const t = db.transaction(['trash', 'deals', 'history', 'snapshots'], 'readwrite');
-    const trash = t.objectStore('trash');
-    const [keys, vals] = await Promise.all([reqP(trash.getAllKeys()), reqP(trash.getAll())]);
+    const t = db.transaction(['trash', 'deals', 'history', 'snapshots', 'meta'], 'readwrite');
+    const trash = t.objectStore('trash'); const ms = t.objectStore('meta');
+    const [keys, vals, usage] = await Promise.all([reqP(trash.getAllKeys()), reqP(trash.getAll()), reqP(ms.get('usage'))]);
     let n = 0;
     for (let i = 0; i < keys.length; i++) {
       const v = vals[i];
@@ -397,10 +640,13 @@ export async function sweepTrash(now = Date.now()) {
         if (await reqP(t.objectStore('deals').get(v.dealId))) { trash.delete(keys[i]); continue; }
         t.objectStore('history').delete(IDBKeyRange.bound([v.dealId, 0], [v.dealId, Infinity]));
         t.objectStore('snapshots').delete(IDBKeyRange.bound([v.dealId, ''], [v.dealId, '\uffff']));
+        if (usage) { delete usage.history[v.dealId]; for (const k of Object.keys(usage.snapshots)) if (k.startsWith(`${v.dealId}|`)) delete usage.snapshots[k]; }
       }
       trash.delete(keys[i]);
+      if (usage) delete usage.trash[keys[i]];
       n += 1;
     }
+    if (usage) ms.put(usage, 'usage');
     await doneP(t);
     return n;
   } catch { return 0; }
