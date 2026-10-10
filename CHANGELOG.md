@@ -1,5 +1,64 @@
 # Changelog
 
+## 4.4.1: units the checker holds every number to (on the development branch; not merged or deployed)
+
+Phase 1, item 2, as approved: the typed deal model with unit types. **Nothing
+the app shows or saves changes.**
+
+- **Units.** `types/zlatura.d.ts` defines them as "flavors":
+  - dollars at one time, a year, and a month;
+  - rent per SF a year and per SF a month;
+  - price per SF and per land SF;
+  - per unit, and per unit a month;
+  - a rent in its quoted unit;
+  - percent, fraction, relative change, points and basis points;
+  - SF, land SF and acres;
+  - years and months;
+  - ISO dates, day numbers and Excel serials;
+  - multiples.
+
+  The same file describes the deal, the rent roll, scenarios, the analysis's
+  results and the projection with them.
+- **How a flavor works.** A plain number is accepted anywhere. A number known
+  to be in one unit is refused where another is expected.
+- **What carries units.** In `app/`, as JSDoc comments only:
+  - the engine;
+  - every registered figure: its result is held to its unit, and its unit
+    label to that unit;
+  - the lease engine (rents in their unit, converted only by
+    `monthlyAmount()`);
+  - the parsers (`parsePct` gives a percent);
+  - the formatters (`pct()` refuses a fraction, `yrs()` refuses months,
+    `money0()` refuses a percent);
+  - the workbook's percent-to-fraction step.
+- **The checker.** `tsc --checkJs` runs over every file in `app/` from
+  `npm test`. TypeScript is a pinned dev dependency only, and its config and
+  the types sit outside `app/` (`types/`). Nothing is built; the browser and
+  the offline cache load exactly the files they did.
+- **The 197 loose spots** the checker found in 4.4.0 are annotated, comments
+  only. Of the 28 files changed in `app/`, 26 parse to the identical program.
+  The other two differ only in this:
+  - the more precise unit labels in `engine/figures.js` (NOI is dollars a
+    year, NOI per SF is per SF a year, the price against the comps is a
+    change);
+  - the Affects sheet mapping those labels to the same formats as before.
+- **Tests:**
+  - `tests/types.test.js`: the check passes; at least 24 deliberate mix-ups
+    are kept; and nothing the checker needs is in `app/` or the offline cache.
+  - `tests/types/mistakes.js`: 24 mix-ups (fraction for percent, months for
+    years, a month's rent for a year's, a price per SF as a rent, and more).
+    Each must be a type error. On 4.4.0's code 22 of them go through (the
+    other 2 test the deal-model types themselves, which 4.4.0 doesn't have).
+  - `tests/units.test.js`: each figure's unit agrees with its template field
+    type, its Deal Analysis cell (format, and a percent stored as a
+    fraction), and how the brief shows it.
+- **No change:**
+  - the 618 saved deal results match;
+  - the 646 displayed figures, workbook cells and tool results are
+    byte-identical to 4.4.0;
+  - `analyze()` runs at the same speed (0.357 ms against 0.357 ms).
+- **Not split:** building SF into GBA, RSF and USF. That waits for Phase 2.
+
 ## 4.4.0: what a change affects (on the development branch; not merged or deployed)
 
 Phase 1, checkpoint (e), part 2 of 2, as approved: the dependency map and its

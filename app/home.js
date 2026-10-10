@@ -346,7 +346,8 @@ function tasksCard(tasks, deals, nameOf) {
   });
   c.appendChild(add);
   const b = taskBuckets(tasks);
-  const groups = [['Overdue', b.overdue, true], ['Today', b.today], ['Next 7 days', b.week], ['Later', b.later], ['No date', b.undated], ...(showDone ? [['Done', b.done.slice(0, 30)]] : [])];
+  /** @type {[string, any[], boolean?][]} */
+  const groups = [['Overdue', b.overdue, true], ['Today', b.today], ['Next 7 days', b.week], ['Later', b.later], ['No date', b.undated], ...(showDone ? [/** @type {[string, any[]]} */ (['Done', b.done.slice(0, 30)])] : [])];
   let any = false;
   for (const [title, list, late] of groups) {
     if (!list.length) continue;

@@ -13,6 +13,7 @@ const ok = (x) => typeof x === 'number' && Number.isFinite(x);
 
 /* What a deal's figures list shows, in the order a broker reads an OM: each
  * input a person can type or the OM reader can fill, by section. */
+/** @type {[string, [keyof Figures, string, string][]][]} */
 export const DEAL_SECTIONS = [
   ['The offering', [
     ['price', 'Asking price', 'money'], ['noi', 'NOI, in place', 'money'], ['cap', 'Cap rate stated', 'pct'],

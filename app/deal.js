@@ -23,6 +23,7 @@ export { debtService, loanConstant, balanceAfter, sizeLoan, compBasis, leaseStat
  * Everything worked out from a deal's inputs: the figures, checks and
  * questions registered in engine/figures.js, each with what it reads.
  * `d` holds the deal's figures (see Deal screen), `comps` is compBasis() of the sale comps or null.
+ * @param {AnalysisInput} d @param {object | null} [comps] @param {Date} [today] @returns {Analysis}
  */
 export function analyze(d, comps = null, today = new Date()) {
   return evaluate(d, comps, today);
@@ -35,6 +36,7 @@ export function analyze(d, comps = null, today = new Date()) {
  * percent. Null when there is no sign change, so no rate can exist, or when
  * no rate between -99% and +1,000% balances them. Bisection on the NPV: slow
  * next to Newton's method, but it cannot wander off on an odd cash flow.
+ * @param {number[]} flows @returns {Pct | null}
  */
 export function irr(flows) {
   if (!Array.isArray(flows) || flows.length < 2 || !flows.every(ok)) return null;
@@ -67,6 +69,7 @@ export function irr(flows) {
  *
  * Returns the yearly flows, the exit, and unlevered and levered IRR and
  * equity multiple. Every figure is null when an input it needs is missing.
+ * @param {{ price: Usd, noi: UsdPerYear, growth?: Pct, hold?: Years, exitCap: Pct, saleCost?: Pct, loan?: HoldLoan, noiSeries?: UsdPerYear[] | null }} a
  */
 export function holdReturns({ price, noi, growth = 0, hold = 5, exitCap, saleCost = 0, loan = {}, noiSeries = null }) {
   const n = Math.round(hold);
@@ -136,7 +139,10 @@ export function solvePrice(metric, target, around) {
 
 /* ------------------------------------------------------------ scenarios */
 
-/** The assumptions a scenario starts from: the deal as it stands, plus hold-period defaults. */
+/**
+ * The assumptions a scenario starts from: the deal as it stands, plus hold-period defaults.
+ * @param {AnalysisInput} d @param {Analysis} m @returns {ScenarioInputs}
+ */
 export function scenarioBase(d, m) {
   const L = d.loan || {};
   const cap = ok(m.cap) && m.cap > 0 ? m.cap : null;
@@ -155,9 +161,11 @@ export function scenarioBase(d, m) {
  * deal itself is never touched. NOI follows the rent, occupancy and expense
  * changes when the deal has gross income and expenses to apply them to; a
  * NOI typed straight in wins over all three.
+ * @param {AnalysisInput} d @param {Analysis} m @param {ScenarioOver} [over] @param {{ noiSeries?: UsdPerYear[] | null }} [ctx]
  */
 export function runScenario(d, m, over = {}, { noiSeries = null } = {}) {
   const base = scenarioBase(d, m);
+  /** @type {ScenarioInputs} */
   const s = { ...base };
   for (const [k, v] of Object.entries(over)) if (v !== null && v !== undefined && v !== '') s[k] = v;
   const notes = [];
@@ -192,7 +200,10 @@ export function runScenario(d, m, over = {}, { noiSeries = null } = {}) {
   return { inputs: s, base, m: sm, returns: ret, notes, series, changed: Object.keys(over).filter((k) => over[k] !== null && over[k] !== undefined && over[k] !== '') };
 }
 
-/** Deterministic answers to the questions a buyer asks of a scenario. */
+/**
+ * Deterministic answers to the questions a buyer asks of a scenario.
+ * @param {AnalysisInput} d @param {Analysis} m @param {ScenarioOver} [over] @param {ScenarioTargets} [targets] @param {{ noiSeries?: UsdPerYear[] | null }} [ctx]
+ */
 export function scenarioAnswers(d, m, over = {}, { targetCap, targetIrr, capForValue } = {}, ctx = {}) {
   const run = runScenario(d, m, over, ctx);
   const s = run.inputs;

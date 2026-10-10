@@ -50,9 +50,10 @@ function show(id, v) {
   if (typeof v === 'string') return v;
   if (!ok(v)) return Array.isArray(v) ? `${v.length} rows` : '';
   const u = N && N.unit;
-  if (u === '$') return money0(v);
-  if (u === '$/SF' || u === '$/unit') return u === '$/SF' ? money2(v) : money0(v);
-  if (u === '%') return pct(v);
+  if (u === '$' || u === '$/yr') return money0(v);
+  if (u === '$/SF' || u === '$/SF/yr' || u === '$/land SF') return money2(v);
+  if (u === '$/unit') return money0(v);
+  if (u === '%' || u === '% change') return pct(v);
   if (u === 'x') return times(v);
   if (u === 'years') return yrs(v);
   if (/Rent|rent|lossToLease$|marketRent/.test(id)) return money0(v);

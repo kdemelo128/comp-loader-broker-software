@@ -146,7 +146,7 @@ async function restore(file, api) {
       // a deal on this device about to be overwritten is kept as an automatic snapshot first, so the restore can be undone
       const here = c.deals.find((x) => x.id === d.id);
       const snap = here ? await store.saveSnapshot(d.id, { name: `Before restoring the backup of ${made}`, auto: true, reason: 'restore' }, snapshotData(here)) : null;
-      if (!(await store.saveDeal(d, { kind: 'restore', label: `Restored from the backup of ${made}`, snapshot: snap && snap.id }))) throw new Error('storage is full or blocked');
+      if (!(await store.saveDeal(d, { kind: 'restore', label: `Restored from the backup of ${made}`, snapshot: snap && /** @type {{ id: string }} */ (snap).id }))) throw new Error('storage is full or blocked');
     }
     // each deal's history and snapshots from the backup, combined with this device's (never overwritten)
     for (const [id, list] of Object.entries(plan.history || {})) await store.mergeHistory(id, list);

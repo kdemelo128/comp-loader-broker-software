@@ -10,6 +10,7 @@ const NOTE = 'EXAMPLE DATA -- an invented comp for demonstration, not a real tra
 
 const d = (y, m, day) => new Date(Date.UTC(y, m - 1, day));
 
+/** @type {any[][]} */
 const SALES = [
   ['Example Sale A', 'MU-4', d(2025, 11, 14), 6150000, 7400, 5.6, 100, 4100, 1912, 'B'],
   ['Example Sale B', 'MU-4', d(2025, 6, 2), 4300000, 5600, null, 0, 3050, 1928, 'C'],
@@ -20,6 +21,7 @@ const SALES = [
   ['Example Sale G', 'MU-4', d(2024, 4, 30), 7450000, 12600, 5.9, 100, 6200, 1978, 'B'],
 ];
 
+/** @type {any[][]} */
 const LISTINGS = [
   ['Example Listing H', 'MU-4', 61, 4950000, 5900, 5.8, 100, 3200, 1915, null],
   ['Example Listing J', 'MU-12', 214, 9800000, 13900, 6.3, 88, 5600, 1972, null],

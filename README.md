@@ -429,7 +429,7 @@ python3 -m http.server 8080      # then open http://localhost:8080
 
 ```sh
 npm ci        # the packages the tests use
-npm test      # parser, OM reader, deal maths, known-answer finance, lease engine, tools, templates, workbook, exports, repository
+npm test      # parser, OM reader, deal maths, known-answer finance, lease engine, tools, templates, workbook, exports, repository, and the type check
 ```
 
 `tests/lease.test.js` checks the lease engine against schedules worked out by
@@ -438,6 +438,14 @@ vacancy). `tests/calc.test.js` checks the Tools calculators (DCF, amortization,
 refinance, waterfall, commission, renewal versus replacement, residual land,
 draws and the rest) against figures worked out independently.
 `tests/tplcells.test.js` checks template mapping, the preview and filling.
+
+`tests/types.test.js` runs TypeScript's checker (`tsc --checkJs`, a dev
+dependency only: nothing is built, and the browser loads `app/` as it is) over
+the JSDoc in `app/` with the units in `types/zlatura.d.ts`: a rent per SF a
+month can't go where a rent per SF a year is wanted, a fraction can't be shown
+as a percent, months can't be used as years. `tests/types/mistakes.js` holds
+24 such mix-ups that must each be refused. Run it alone with
+`npx tsc -p types/tsconfig.json`.
 
 `tests/impact.test.js` and `tests/impact-files.test.js` hold the dependency
 map to the code: every figure, rent roll and projection key, scenario part,

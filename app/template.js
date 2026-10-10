@@ -149,7 +149,7 @@ class Package {
     return this.docs.get(p);
   }
 
-  dirty(p) { (this.changed ||= new Set()).add(p); }
+  dirty(p) { (/** @type {any} */ (this).changed ||= new Set()).add(p); }
 
   rels(p) {
     const rp = relsPath(p);
@@ -162,8 +162,8 @@ class Package {
   bytes() {
     const out = {};
     for (const [p, data] of Object.entries(this.files)) {
-      if (this.removed && this.removed.has(p)) continue;
-      if (this.changed && this.changed.has(p)) {
+      if (/** @type {any} */ (this).removed && /** @type {any} */ (this).removed.has(p)) continue;
+      if (/** @type {any} */ (this).changed && /** @type {any} */ (this).changed.has(p)) {
         let s = new this.xml.XMLSerializer().serializeToString(this.doc(p));
         if (!s.startsWith('<?xml')) s = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${s}`;
         out[p] = this.fflate.strToU8(s);
@@ -521,7 +521,7 @@ export function fillTemplate(fflate, bytes, plan, { sales, market }, xml) {
   pkg.dirty('xl/workbook.xml');
   const chain = pkg.rels('xl/workbook.xml').find((r) => r.type.endsWith('/calcChain'));
   if (chain) {
-    (pkg.removed ||= new Set()).add(chain.target);
+    (/** @type {any} */ (pkg).removed ||= new Set()).add(chain.target);
     chain.node.parentNode.removeChild(chain.node);
     pkg.dirty(relsPath('xl/workbook.xml'));
     const ct = pkg.doc('[Content_Types].xml');
@@ -867,7 +867,7 @@ function recalcOnOpen(pkg) {
   pkg.dirty('xl/workbook.xml');
   const chain = pkg.rels('xl/workbook.xml').find((r) => r.type.endsWith('/calcChain'));
   if (chain) {
-    (pkg.removed ||= new Set()).add(chain.target);
+    (/** @type {any} */ (pkg).removed ||= new Set()).add(chain.target);
     chain.node.parentNode.removeChild(chain.node);
     pkg.dirty(relsPath('xl/workbook.xml'));
     const ct = pkg.doc('[Content_Types].xml');

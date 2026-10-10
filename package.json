@@ -1,6 +1,6 @@
 {
   "name": "zlatura",
-  "version": "4.4.0",
+  "version": "4.4.1",
   "description": "Zlatura: a commercial real estate brokerage workspace in the browser. Offering memoranda read and underwritten, CoStar comps into Excel, rent rolls, your firm's own Excel templates filled, and deal calculators. Every source. Every assumption. Every number.",
   "private": true,
   "type": "module",
@@ -13,7 +13,8 @@
     "@xmldom/xmldom": "0.9.12",
     "axe-core": "4.10.2",
     "exceljs": "4.4.0",
-    "fflate": "0.8.3"
+    "fflate": "0.8.3",
+    "typescript": "6.0.2"
   },
   "engines": {
     "node": ">=20"

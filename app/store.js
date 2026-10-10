@@ -306,6 +306,7 @@ export async function saveDeal(deal, meta = null) {
     const made = historyEntry(before, deal, rest);
     let seq = last ? last.key[1] : 0;
     const at = Date.now();
+    /** @type {any[]} */
     const added = [];
     if (made) {
       seq += 1;

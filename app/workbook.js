@@ -1235,6 +1235,7 @@ function dealTab(wb, deal, m, comps, meta) {
     if (opts.note) label(ws, `C${r}`, opts.note, { color: GREY, size: 8 });
   };
   const n = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
+  /** @type {(x: AnyPct | null | undefined) => Fraction | null} */
   const pc = (x) => (n(x) === null ? null : x / 100);
 
   band(ws, 4, 6, 'THE OFFERING');

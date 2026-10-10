@@ -32,7 +32,10 @@ export function parseNum(s) {
   const v = Number(m[1]) * ({ k: 1e3, m: 1e6, mm: 1e6, b: 1e9 }[m[2]] || 1);
   return Number.isFinite(v) ? (neg ? -v : v) : null;
 }
-/** A rate typed as a fraction (0.065) means 6.5%. */
+/**
+ * A rate typed as a fraction (0.065) means 6.5%.
+ * @type {(v: number | null) => Pct | null}
+ */
 export const asPercent = (v) => (v !== null && v > 0 && v < 1 ? Math.round(v * 1e6) / 1e4 : v);
 
 /**
@@ -41,6 +44,7 @@ export const asPercent = (v) => (v !== null && v > 0 && v < 1 ? Math.round(v * 1
  * printed, and fields where a value under 1% is ordinary (closing costs,
  * transfer tax, commission) pass `fraction: false`, so "0.5" stays 0.5%
  * rather than becoming 50%.
+ * @param {unknown} raw @param {{ fraction?: boolean }} [opts] @returns {Pct | null}
  */
 export function parsePct(raw, { fraction = true } = {}) {
   const v = parseNum(raw);
@@ -51,14 +55,23 @@ export function parsePct(raw, { fraction = true } = {}) {
 
 export const int = (n) => (ok(n) ? Math.round(n).toLocaleString('en-US') : '');
 export const dec = (n, d = 2) => (ok(n) ? String(Math.round(n * 10 ** d) / 10 ** d) : '');
+/** @type {(n: AnyUsd | null | undefined) => string} */
 export const money0 = (n) => (ok(n) ? `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString('en-US')}` : '—');
+/** @type {(n: AnyUsd | null | undefined) => string} */
 export const money2 = (n) => (ok(n)
   ? `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—');
+/** @type {(n: AnyPct | null | undefined, d?: number) => string} */
 export const pct = (n, d = 2) => (ok(n) ? `${n.toFixed(d)}%` : '—');
+/** @type {(n: AnyPct | null | undefined, d?: number) => string} */
 export const signed = (n, d = 1) => (ok(n) ? `${n > 0 ? '+' : ''}${n.toFixed(d)}%` : '—');
+/** @type {(n: Multiple | null | undefined) => string} */
 export const times = (n) => (ok(n) ? `${n.toFixed(2)}x` : '—');
+/** @type {(n: Years | null | undefined) => string} */
 export const yrs = (n) => (ok(n) ? `${n.toFixed(1)} yrs` : '—');
-/** $6.45M, $850K: for tiles where width is tight. */
+/**
+ * $6.45M, $850K: for tiles where width is tight.
+ * @type {(n: AnyUsd | null | undefined) => string}
+ */
 export const short = (n) => {
   if (!ok(n)) return '—';
   const a = Math.abs(n);
