@@ -684,6 +684,7 @@ button.src::after { content: ""; position: absolute; inset: -11px -6px; }
 .rr-grid td.rr-act { white-space: nowrap; padding: 0 4px; text-align: right; }
 .rr-grid tfoot td { font-weight: 650; padding: 10px 8px; background: var(--surface-2); white-space: nowrap; }
 .rr-grid .no-match { padding: 18px 12px; color: var(--muted); }
+.rr-grid tr.rr-pad td, .rr-grid tbody tr.rr-pad:hover td { padding: 0; border: 0; background: transparent; position: static; box-shadow: none; }
 .rr-out { padding: 6px var(--s5) var(--s5); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s5); }
 .rr-sec { min-width: 0; }
 .rr-sec .sec-label { margin-bottom: 6px; }

@@ -19,6 +19,7 @@ import { analyze, runScenario, scenarioAnswers } from './deal.js';
 import * as store from './store.js';
 import { renderDealBrief, dealSummaryText, placeLine } from './brief.js';
 import { fromOmRows, project, rentRollSummary } from './lease.js';
+import { projectionNow, projectionLater, projectionSync } from './projector.js';
 import { emptyRentRoll, layoutFromPreset, presetFor, MARKET_UNIT, legacyRows } from './rentroll.js';
 import { renderRentRollWorkspace } from './rentrollui.js';
 import { openLibrary } from './libraryui.js';
@@ -1214,19 +1215,40 @@ function scenarioCard() {
   return c;
 }
 
-/** The rent roll's NOI for each year of the hold and the year after, or null. */
-function rentRollSeries(hold) {
+/**
+ * The rent roll's NOI for each year of the hold and the year after, or null.
+ * For the screen (`screen`), the projection comes from the worker: if it isn't
+ * ready, PENDING, and the deal redraws once it is.
+ */
+const PENDING = 'pending';
+function rentRollSeries(hold, { screen = false } = {}) {
   const rr = deal.rr;
   if (!rr || !rr.leases.length || !Number.isFinite(rr.settings.opex)) return null;
   const years = Math.max(2, Math.round(Number.isFinite(hold) ? hold : 5) + 1);
-  return project(rr, { years }).annual.map((y) => y.noi);
+  if (!screen) return projectionSync(rr, { years }).annual.map((y) => y.noi);
+  const P = projectionNow(rr, { years });
+  if (P) return P.annual.map((y) => y.noi);
+  redrawWhenProjected(projectionLater(rr, { years }));
+  return PENDING;
+}
+/** Redraw the deal once a projection it waits on arrives: once, however many parts asked, and only if the same deal is open. */
+let redrawQueued = false;
+function redrawWhenProjected(promise) {
+  const d = deal;
+  promise.then(() => {
+    if (redrawQueued || deal !== d) return;
+    redrawQueued = true;
+    queueMicrotask(() => { redrawQueued = false; if (deal === d) renderDerived(); });
+  }, () => { /* the screen says the projection is still being worked out */ });
 }
 
 function renderScenario(m) {
   const g = $('scn-inputs');
   if (!g) return;
   const hold = Number.isFinite(deal.live.hold) ? deal.live.hold : 5;
-  const ctx = { noiSeries: deal.live.noiBasis === 'rentroll' ? rentRollSeries(hold) : null };
+  const series = deal.live.noiBasis === 'rentroll' ? rentRollSeries(hold, { screen: true }) : null;
+  const waiting = series === PENDING;
+  const ctx = { noiSeries: waiting ? null : series };
   const run = runScenario(figuresFor(deal), m, deal.live, ctx);
   const base = run.base;
   // inputs: drawn once, then only their state changes, so the keyboard stays put
@@ -1263,6 +1285,16 @@ function renderScenario(m) {
 
   const nb = $('scn-notes');
   nb.textContent = '';
+  if (waiting) {
+    // NOI year by year from the rent roll is still being worked out: say so rather than show figures on another basis
+    const p = el('p', 'hint-sm', 'Working out NOI year by year from the rent roll projection…');
+    p.style.padding = '0 16px 8px';
+    nb.appendChild(p);
+    $('scn-out').textContent = '';
+    $('scn-answers').textContent = '';
+    renderSavedScenarios(m);
+    return;
+  }
   for (const t of run.notes) { const p = el('p', 'hint-sm', t); p.style.padding = '0 16px 8px'; nb.appendChild(p); }
 
   // the Deal column uses the deal's figures with the same hold assumptions
@@ -1350,11 +1382,12 @@ function renderSavedScenarios(m) {
   const list = el('div', 'list');
   list.style.cssText = 'margin:0 16px 14px;background:var(--surface-2);border-radius:13px';
   for (const sc of deal.scenarios) {
-    const r = runScenario(figuresFor(deal), m, sc.over, { noiSeries: sc.over.noiBasis === 'rentroll' ? rentRollSeries(Number.isFinite(sc.over.hold) ? sc.over.hold : 5) : null });
+    const series = sc.over.noiBasis === 'rentroll' ? rentRollSeries(Number.isFinite(sc.over.hold) ? sc.over.hold : 5, { screen: true }) : null;
+    const r = series === PENDING ? null : runScenario(figuresFor(deal), m, sc.over, { noiSeries: series });
     const row = el('div', 'li');
     const main = el('div', 'li-main');
     main.appendChild(el('div', 'li-title', sc.name));
-    const sub = el('div', 'li-sub', [short(r.inputs.price), `${pct(r.m.capCalc)} cap`, `${times(r.m.dscr)} DSCR`, `${pct(r.returns?.leveredIrr, 1)} levered IRR`].join(' · '));
+    const sub = el('div', 'li-sub', r ? [short(r.inputs.price), `${pct(r.m.capCalc)} cap`, `${times(r.m.dscr)} DSCR`, `${pct(r.returns?.leveredIrr, 1)} levered IRR`].join(' · ') : 'Working out NOI from the rent roll projection…');
     sub.style.whiteSpace = 'normal';
     main.appendChild(sub);
     row.appendChild(main);
@@ -1447,15 +1480,23 @@ function renderRentRoll(m) {
       for (const i of issues) ul.appendChild(el('li', i.level === 'warn' ? 'warn-text' : null, i.text));
       box.appendChild(ul);
     }
-    // the OM's own gross income against what the rent roll adds up to
-    const P = project(rr, { years: 1 }).annual[0];
-    if (Number.isFinite(deal.figures.gross) && P && P.egi) {
-      const gap = (P.egi / deal.figures.gross - 1) * 100;
-      if (Math.abs(gap) > 5) {
-        const p = el('p', 'hint-sm', `The rent roll projects ${money0(P.egi)} of effective gross income over the next twelve months; the OM states ${money0(deal.figures.gross)} (${gap > 0 ? '+' : ''}${gap.toFixed(1)}%). Check which leases, recoveries or other income explain it.`);
+    // the OM's own gross income against what the rent roll adds up to (the projection comes from the worker)
+    if (Number.isFinite(deal.figures.gross)) {
+      const gapBox = el('div');
+      box.appendChild(gapBox);
+      const gross = deal.figures.gross;
+      const show = (one) => {
+        const P = one.annual[0];
+        if (!P || !P.egi) return;
+        const gap = (P.egi / gross - 1) * 100;
+        if (Math.abs(gap) <= 5) return;
+        const p = el('p', 'hint-sm', `The rent roll projects ${money0(P.egi)} of effective gross income over the next twelve months; the OM states ${money0(gross)} (${gap > 0 ? '+' : ''}${gap.toFixed(1)}%). Check which leases, recoveries or other income explain it.`);
         p.style.padding = '0 16px 10px';
-        box.appendChild(p);
-      }
+        gapBox.appendChild(p);
+      };
+      const ready = projectionNow(rr, { years: 1 });
+      if (ready) show(ready);
+      else projectionLater(rr, { years: 1 }).then((one) => { if (gapBox.isConnected) show(one); }, () => { /* the check is advisory */ });
     }
   } else {
     const p = el('p', 'hint');
@@ -1814,7 +1855,7 @@ function templateContext(d) {
   let preparedBy = '';
   try { preparedBy = (JSON.parse(localStorage.getItem('zlatura.subject.v1') || '{}') || {}).preparedBy || ''; } catch { /* fine */ }
   const hold = Number.isFinite((d.live || {}).hold) ? d.live.hold : 5;
-  const series = (d.live || {}).noiBasis === 'rentroll' && rr && Number.isFinite(rr.settings.opex) ? project(rr, { years: hold + 1 }).annual.map((y) => y.noi) : null;
+  const series = (d.live || {}).noiBasis === 'rentroll' && rr && Number.isFinite(rr.settings.opex) ? projectionSync(rr, { years: hold + 1 }).annual.map((y) => y.noi) : null;
   return {
     deal: d, m, rrSum: rr ? rentRollSummary(rr, rr.settings.asOf) : null, rrProj: rr && Number.isFinite(rr.settings.opex) ? project(rr) : null,
     scenario: runScenario(figuresFor(d), m, d.live || {}, { noiSeries: series }), preparedBy, today: new Date(),
