@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {
   amortization, refinance, floating, maturityRisk, loanFees, dcf, noiBridge, breakEven, sensitivity, around,
   holdWithFees, waterfall, commission, renewalVsReplacement, percentageRent, recovery, absorption,
-  residualLand, yieldOnCost, drawSchedule, compSetCheck, escalationSchedule,
+  residualLand, yieldOnCost, drawSchedule, compSetCheck, escalationSchedule, compareLeases,
 } from '../app/calc.js';
 import { holdReturns } from '../app/deal.js';
 
@@ -156,4 +156,18 @@ test('comp set check: quartiles, dispersion and plain warnings', () => {
   close(c.cv, (Math.sqrt(25000) / 700) * 100, 1e-9);
   assert.ok(c.warnings.some((w) => /2 comps report a cap rate/.test(w)));
   assert.ok(compSetCheck(sales.slice(0, 2)).warnings.some((w) => /Only 2 priced/.test(w)));
+});
+
+test('lease comparison: landlord PV is a present value, not a sum of payments', () => {
+  // $12/SF on 1,000 SF for 12 months is $1,000 a month; at 12% (1% a month, paid in advance)
+  // PV = 1,000 × (1 − 1.01^−12) / 0.01 × 1.01 = 11,367.63 (worked independently, not with the module)
+  const [a] = compareLeases([{ k: 'A', rent: 12, sf: 1000, months: 12 }], 12);
+  assert.ok(Math.abs(a.landlordPv - 11367.63) < 0.01, String(a.landlordPv));
+  // 1,500 SF at $30/SF, 3% a year, 24 months, 2 months free, TI $5/SF, commission 4% of gross, at 8%:
+  // PV of rent received 77,194.26 less TI 7,500 and commission 0.04 × 91,350 = 3,654 → 66,040.26 (Python, by month)
+  const [b] = compareLeases([{ k: 'B', rent: 30, sf: 1500, months: 24, esc: 3, free: 2, ti: 5, lc: 4 }], 8);
+  assert.ok(Math.abs(b.landlordPv - 66040.26) < 0.01, String(b.landlordPv));
+  // with no discount rate the "PV" is the undiscounted net
+  const [c] = compareLeases([{ k: 'C', rent: 12, sf: 1000, months: 12 }], 0);
+  assert.equal(c.landlordPv, 12000);
 });

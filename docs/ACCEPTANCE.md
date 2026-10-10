@@ -1,5 +1,8 @@
 # Acceptance matrix — Comp Loader 3.2.0 (development branch)
 
+> Superseded for planning by `docs/acceptance-matrix.md` (the Zlatura matrix).
+> This file remains the detailed record of how 3.2.0 was tested.
+
 Written for 3.2.0 on branch `claude/bold-archimedes-9a9r3p`, which was then
 merged into `main` (pull request #2). The 3.3.0 redesign changes how screens
 look and are reached, not what they do; see CHANGELOG.md.

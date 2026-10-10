@@ -15,7 +15,7 @@ await dl.saveAs(F + 'out-deal.xlsx'); console.log('deal xlsx', dl.suggestedFilen
 await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
 // brief
 await page.evaluate(() => { window.print = () => { window.__printed = true; }; });
-await page.evaluate(() => [...document.querySelectorAll('#deal-root button')].find((b) => b.textContent.includes('One-page brief')).click());
+await page.evaluate(() => [...document.querySelectorAll('#deal-root button')].find((b) => b.textContent.includes('Deal brief')).click());
 await page.waitForTimeout(800);
 console.log('printed', await page.evaluate(() => window.__printed));
 console.log('BRIEF:\n' + (await page.locator('#print-sheet').innerText()).slice(0, 3000));

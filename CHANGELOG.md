@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased (Zlatura Phase 0)
+
+- Fixed: the lease comparison tool's **Landlord PV** was the NER multiplied by
+  area and years (a sum of payments, not a present value). It is now the
+  present value of the landlord's cash at the discount rate, after TI and
+  commission, as its label and note say. At 12% on $1,000 a month for a year it
+  shows $11,367.63, not $12,000.
+- Added the Phase 0 baseline report, the Zlatura acceptance matrix and the
+  architecture proposal under `docs/`.
+
 ## 3.3.0 (on the development branch; not yet merged or deployed)
 
 A redesign of how the app looks and is found around. No formula, data
