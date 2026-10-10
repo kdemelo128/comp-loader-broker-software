@@ -25,6 +25,8 @@ export async function renderDealCrm(box, d, { touch, api }) {
     (d.stageHistory ||= []).push({ at: Date.now(), from: was, to: sel.value });
     touch();
     crm.log('stage', `${d.name || 'Untitled deal'}: ${STAGE_LABEL[was]} → ${STAGE_LABEL[sel.value]}`, d.id);
+    const pill = document.getElementById('deal-stage-pill');
+    if (pill) pill.textContent = STAGE_LABEL[sel.value];
     toast(`Stage: ${STAGE_LABEL[sel.value]}.`);
   });
   h.appendChild(sel);

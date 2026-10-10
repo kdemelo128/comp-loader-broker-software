@@ -159,7 +159,7 @@ function render() {
   root.textContent = '';
   const head = el('div', 'view-head');
   head.appendChild(el('h1', null, 'Tools'));
-  head.appendChild(el('p', null, `${TOOLS.length} calculators for valuation, debt, returns, leasing and development. Figures you type are remembered on this device; tools marked “deal” can load the open deal’s figures.`));
+  head.appendChild(el('p', null, `${TOOLS.length} calculators for valuation, debt, returns, leasing and development. Figures you type are remembered on this device; tools marked “deal” load the open deal’s figures.`));
   root.appendChild(head);
   const search = el('input', 'tool-search');
   search.type = 'search';
@@ -195,9 +195,10 @@ function card(t) {
   const b = el('button', 'tool');
   b.type = 'button';
   b.dataset.tool = t.id;
+  // one tint per group (styles.css), so the screen reads as seven families, not thirty colours
+  b.dataset.group = GROUPS.indexOf(t.group);
   const ic = el('span', 'tool-icon');
-  ic.style.background = t.color;
-  ic.innerHTML = svg(t.icon, 22);
+  ic.innerHTML = svg(t.icon, 19);
   b.appendChild(ic);
   const tx = el('span');
   const h = el('h3', null, t.title);
@@ -667,6 +668,16 @@ function openWalt(t) {
   });
   draw();
   update();
+}
+
+/** Every tool, for the command menu. */
+export const toolIndex = () => TOOLS.map((t) => ({ id: t.id, title: t.title, desc: t.desc, group: t.group }));
+/** Open a tool by id, from anywhere: the Tools screen comes up behind it. */
+export function openToolById(id) {
+  const t = TOOLS.find((x) => x.id === id);
+  if (!t) return;
+  api.showView('tools');
+  open(t);
 }
 
 export function initTools(compsApi) {
