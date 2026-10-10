@@ -1,5 +1,32 @@
 # Changelog
 
+## 4.3.2: the deal analysis, one registered formula per figure (on the development branch; not merged or deployed)
+
+Phase 1, checkpoint (e), part 1 of 2, as approved. **No figure, check or
+question changes.** This is groundwork for the dependency map ("what does
+this change affect"), which comes in 4.4.0.
+
+- `analyze()` (every figure on a deal's Overview, the What-if's figures, the
+  deal workbook and brief, the checks under "What doesn't add up" and the
+  questions) was one function. Each figure is now a formula registered in
+  `app/engine/figures.js` with its label, unit and what it reads: other
+  figures, or the deal's inputs. Each check and question is registered the
+  same way. A formula can read only what is registered above it, so no figure
+  can depend on itself; registering one that would is refused.
+- `analyze()` keeps its name and gives the same result, key for key, so every
+  screen, export and test that calls it is unchanged. `leaseStats` and
+  `yearsLeft` moved with it and are still exported from `deal.js`.
+- **Checked:** `tests/analyze-golden.test.js` holds what 4.3.1 returned on
+  618 deals (the three OM fixtures, the deal tests' edge cases and 600
+  seeded random deals with missing, zero, negative and text values),
+  analysis and scenario, to the last digit. All match. Every figure as the
+  app displays it, the deal workbook's cells and the tools (646 values,
+  `tests/tools/golden.mjs`) are identical to 4.3.1.
+- **Speed:** `tests/tools/analyze-bench.mjs`, the 500-lease deal, both
+  versions alternating: 0.275 ms against 0.273 ms (+0.7%), and the other way
+  round −1.2%: the same within measurement noise.
+- The version is 4.3.2 only so installed copies pick up the two new files.
+
 ## 4.3.1: history in backups, and the space it may take (on the development branch; not merged or deployed)
 
 Phase 1, checkpoint (d), parts C and D, as approved.
