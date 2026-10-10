@@ -136,6 +136,11 @@ A migration registry (`app/migrate.js`): an ordered list of
 a saved real backup from that version (backups made with 3.1, 3.2 and 3.3 will
 be added as fixtures). The current lazy rent roll migration becomes migration 1→2.
 
+Built in 4.5.0. Each step names the field that records it (`schema` or
+`moneyVersion`) rather than one `from`/`to` pair, because the money rounding
+already had its own field. The fixtures are real backups from 3.1.0 (deals from
+before the rent roll, made with the old apps from git) and 3.3.0.
+
 ### 2.7 Work off the main thread
 
 The lease projection (874 ms for 500 leases today) and OM analysis move into a

@@ -19,6 +19,7 @@
  * The encoding and the restore plan are pure (tests/backup.test.js). */
 
 import { FORMATS, PRODUCT, renameKey } from './brand.js';
+import { MIGRATIONS, pending, tooNew, migrateDeal } from './migrate.js';
 
 export const BACKUP_FORMAT = FORMATS.backup.write;
 export const BACKUP_VERSION = 2;
@@ -80,6 +81,9 @@ export function readBackup(text) {
   try { o = typeof text === 'string' ? JSON.parse(text) : text; } catch { throw new Error(`That file is not a ${PRODUCT} backup (it is not valid JSON).`); }
   if (!o || !FORMATS.backup.read.includes(o.format)) throw new Error(o && FORMATS.project.read.includes(o.format) ? 'That is a comp project file: open it from the Comps tab (⋯ → Open project).' : `That file is not a ${PRODUCT} backup.`);
   if (o.version > BACKUP_VERSION) throw new Error(`This backup was made by a newer version of ${PRODUCT}: update the app first.`);
+  // a deal in a shape this code doesn't know yet would be read wrongly, and saved back without what it doesn't know
+  const ahead = (o.deals || []).filter(tooNew);
+  if (ahead.length) throw new Error(`This backup holds ${ahead.length === 1 ? 'a deal' : `${ahead.length} deals`} saved by a newer version of ${PRODUCT} (${ahead.slice(0, 3).map((d) => `“${d.name || (d.figures && d.figures.address) || 'Untitled deal'}”`).join(', ')}): update the app first. Nothing was restored.`);
   // settings saved under the old name come back under the new one
   const local = Object.fromEntries(Object.entries(o.local || {}).map(([k, v]) => [renameKey(k), v]));
   return {
@@ -101,6 +105,19 @@ function mergeById(here = [], there = [], { stamp = true } = {}) {
   return { list: [...byId.values()], added, updated };
 }
 
+/** The line saying which restored deals an older version saved, and what bringing them up to date changes (app/migrate.js). */
+function upgradeLine(deals) {
+  const old = deals.filter((d) => pending(d).length);
+  if (!old.length) return '';
+  const n = old.length;
+  const by = new Map(MIGRATIONS.map((s) => [s.brief, 0])); // in the registry's order
+  // worked out on a copy (without the photos and recordings, which no step reads), so the counts are what will change
+  for (const d of old) for (const x of changedSteps(migrateDeal(structuredClone({ ...d, visit: null })))) by.set(x.brief, (by.get(x.brief) || 0) + 1);
+  return `${n} deal${n === 1 ? '' : 's'} saved by an older version ${n === 1 ? 'is' : 'are'} brought up to date as ${n === 1 ? 'it is' : 'they are'} restored${[...by.values()].some(Boolean) ? `: ${[...by].filter(([, k]) => k).map(([b, k]) => `${b} (${k})`).join(', ')}` : ''}.`;
+}
+/** The steps that changed something the broker would see: rounding that rounded nothing is only a mark. */
+export const changedSteps = (steps) => steps.filter((x) => x.id !== 'money' || x.rounded.length);
+
 /**
  * What a restore would do, without doing it. current: the device's
  * { deals, kv, session, local }. mode 'merge' (default) or 'replace'.
@@ -118,6 +135,8 @@ export function planRestore(backup, current, mode = 'merge') {
     summary.push(`${backup.deals.length} deal${backup.deals.length === 1 ? '' : 's'} restored; ${removeDeals.length} deal${removeDeals.length === 1 ? '' : 's'} on this device not in the backup will be deleted.`);
     const hs = historyPlan(backup, keepIds);
     if (hs.line) summary.push(hs.line);
+    const up = upgradeLine(backup.deals);
+    if (up) summary.push(up);
     return { deals: { put: backup.deals, added: backup.deals.length, updated: 0, kept: 0 }, removeDeals, kv, removeKv: Object.keys(current.kv).filter((k) => !(k in kv)), session: backup.session, local: backup.local, summary, history: hs.history, snapshots: hs.snapshots };
   }
   const d = mergeById(current.deals, backup.deals);
@@ -152,6 +171,8 @@ export function planRestore(backup, current, mode = 'merge') {
   const local = Object.fromEntries(Object.entries(backup.local || {}).filter(([k]) => LOCAL_KEYS.includes(k) && !(current.local || {})[k]));
   const hs = historyPlan(backup, new Set([...current.deals.map((x) => x.id), ...backup.deals.map((x) => x.id)]));
   if (hs.line) summary.push(hs.line);
+  const up = upgradeLine(put);
+  if (up) summary.push(up);
   return { deals: { put, added: d.added, updated: d.updated, kept: current.deals.length - d.updated }, removeDeals: [], kv, removeKv: [], session, local, summary, history: hs.history, snapshots: hs.snapshots };
 }
 

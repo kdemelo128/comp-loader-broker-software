@@ -11,7 +11,7 @@ import {
 } from './impact.js';
 import { projectionNow, projectionLater } from './projector.js';
 import { listTemplates, currentBytes } from './library.js';
-import { previewCells } from './template.js';
+import { workbookReach } from './template.js';
 
 const ok = (x) => typeof x === 'number' && Number.isFinite(x);
 const GROUPS = [['Figures', 'figures'], ['Checks and questions', 'checks'], ['Scenarios', 'scenarios'], ['Exports', 'exports'], ['Documents', 'documents']];
@@ -269,9 +269,13 @@ async function formulaCounts(t, full, li) {
   if (!full) return;
   try {
     const fflate = await getFflate();
-    const cells = t.cells.map((c) => ({ sheet: c.sheet, cell: c.cell, field: c.field }));
-    const pv = previewCells(fflate, currentBytes(full), cells, {}, { DOMParser: window.DOMParser, XMLSerializer: window.XMLSerializer });
-    const feeds = pv.reduce((s, x) => s + (x.feeds || 0), 0);
-    if (li.isConnected) li.querySelector('.li-sub').textContent += ` · ${feeds} formula${feeds === 1 ? '' : 's'} in the workbook read${feeds === 1 ? 's' : ''} ${cells.length === 1 ? 'it' : 'them'}`;
+    const bytes = currentBytes(full);
+    const xml = { DOMParser: window.DOMParser, XMLSerializer: window.XMLSerializer };
+    const cells = t.cells.map((c) => ({ sheet: c.sheet, cell: c.cell }));
+    // each cell with the named range that holds it, then the formulas that read them: directly, and through those, in all
+    const r = workbookReach(fflate, bytes, cells, xml);
+    const named = cells.map((c, i) => { const n = r.byCell[i] || []; return `${c.sheet}!${c.cell}${n.length ? ` (named range ${n.join(', ')})` : ''}`; });
+    const counts = r.all ? `${r.direct} formula${r.direct === 1 ? '' : 's'} directly, ${r.all}${r.capped ? '+' : ''} in all` : 'no formula in the workbook reads it';
+    if (li.isConnected) li.querySelector('.li-sub').textContent = `${named.join(' · ')} · ${counts}`;
   } catch { /* the count is extra; the cells are listed either way */ }
 }

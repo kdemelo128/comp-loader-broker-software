@@ -22,9 +22,10 @@ import { openImpact, affectsButton } from './impactui.js';
 import * as store from './store.js';
 import { undoState, inverseOf, mediaRefs, withBytes, applyChanges, placeOf, snapshotData, restoreInto, diffDeal, SNAPSHOTS } from './history.js';
 import { renderDealBrief, dealSummaryText, placeLine } from './brief.js';
-import { fromOmRows, project, rentRollSummary } from './lease.js';
+import { project, rentRollSummary } from './lease.js';
 import { projectionNow, projectionLater, projectionSync, projectionError } from './projector.js';
-import { emptyRentRoll, layoutFromPreset, presetFor, MARKET_UNIT, legacyRows } from './rentroll.js';
+import { legacyRows } from './rentroll.js';
+import { pending as stepsDue, applyStep } from './migrate.js';
 import { renderRentRollWorkspace } from './rentrollui.js';
 import { openLibrary } from './libraryui.js';
 import { openAiSettings, readWithAi, openAssistant, transcribeNote, openTranscript } from './aiui.js';
@@ -372,16 +373,9 @@ async function openDeal(id, { quiet = false } = {}) {
   opened.set(deal.id, deal);
   stored.add(deal.id);
   try { localStorage.setItem(CUR_KEY, deal.id); } catch { /* fine */ }
-  // a copy that missed the rounding (a recovery copy from before 4.1): round it now, and log what changed
-  let rounded = false;
-  if ((deal.moneyVersion || 0) < store.MONEY_VERSION) {
-    const { changes } = quantizeDeal(deal);
-    deal.moneyVersion = store.MONEY_VERSION;
-    store.logRounding(changes, `Deal: ${deal.name || deal.figures.address || 'Untitled deal'}`);
-    rounded = changes.length > 0;
-    if (rounded && !replayed) noteChange(deal, { kind: 'rounding', label: `Stored money rounded to whole cents (rates to four decimals): ${changes.length} value${changes.length === 1 ? '' : 's'}` });
-  }
-  if (replayed || rounded) saveNow(deal);
+  // a deal saved by an older version (or a recovery copy from one) is brought up to date, each step its own history entry
+  const saved = await upgrade(deal, { replayed });
+  if (replayed && !saved) saveNow(deal);
   render();
   document.dispatchEvent(new CustomEvent('dealchange'));
   badge();
@@ -498,7 +492,7 @@ function render() {
   r.textContent = '';
   if (reading) return renderReading(r);
   if (!deal) return renderLanding(r);
-  if (ensureRentRoll(deal)) touch(deal, { kind: 'create', label: 'Rent roll set up' });
+  upgradeNow(deal);
   renderDeal(r);
   refreshUndo();
 }
@@ -748,21 +742,29 @@ function showPane(key, { focus = true } = {}) {
 
 /* --------------------------------------------------------------- rent roll */
 
-/** A deal from before the rent roll existed gets one: the OM's table as documented periods. */
-function ensureRentRoll(d) {
-  if (d.rr) return false;
-  const asOf = localDate();
-  const bsf = d.figures && Number.isFinite(d.figures.bsf) ? d.figures.bsf : null;
-  const preset = presetFor(d.figures && d.figures.ptype);
-  if (d.rentRoll && d.rentRoll.length) {
-    d.rr = fromOmRows(d.rentRoll, { asOf, page: d.rentRollPage, buildingSf: bsf });
-    d.rr.columns = layoutFromPreset(preset);
-    d.rr.preset = preset;
-    d.rr.settings.marketUnit = MARKET_UNIT[preset] || 'psf_year';
-  } else d.rr = emptyRentRoll(d.figures && d.figures.ptype, asOf, bsf);
-  if (d.figures && Number.isFinite(d.figures.opex)) d.rr.settings.opex = d.figures.opex;
-  d.schema = 2;
+/** Record one migration step (app/migrate.js) the deal has just had, as the code that preceded the registry did. */
+function recordStep(d, s, { rounded }, replayed = false) {
+  if (s.id === 'money') {
+    // a stored deal's rounding is logged, and isn't a change of its date
+    store.logRounding(rounded, `Deal: ${d.name || (d.figures && d.figures.address) || 'Untitled deal'}`);
+    if (rounded.length && !replayed) noteChange(d, { kind: s.kind, label: s.label(rounded) });
+    return rounded.length > 0 || replayed;
+  }
+  noteChange(d, { kind: s.kind, label: s.label(rounded), rounded });
+  touch(d);
   return true;
+}
+/** Bring an opened deal up to date, one step at a time, each saved as its own history entry. Whether it saved. */
+async function upgrade(d, { replayed = false } = {}) {
+  let saved = false;
+  for (const s of stepsDue(d)) {
+    if (recordStep(d, s, applyStep(d, s), replayed)) { await saveNow(d); saved = true; }
+  }
+  return saved;
+}
+/** The same for a deal on screen that was never stored (a new one gets its rent roll here). */
+function upgradeNow(d) {
+  for (const s of stepsDue(d)) recordStep(d, s, applyStep(d, s));
 }
 
 function drawRentRoll() {

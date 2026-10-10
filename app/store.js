@@ -11,7 +11,8 @@
  * here fails quietly, and the app works without it. */
 
 import { FORMATS, PRODUCT, removeOldLocalKeys } from './brand.js';
-import { quantizeDeal, quantizeSession } from './engine/money.js';
+import { quantizeSession } from './engine/money.js';
+import { MIGRATIONS, MONEY_VERSION, applyStep } from './migrate.js';
 import { historyEntry, copyDeal, roundedPlace, SNAPSHOTS } from './history.js';
 
 const DB = 'zlatura';
@@ -161,8 +162,9 @@ export async function moveFromOld(db) {
 
 /* ------------------------------------------- money to whole cents (4.1) */
 
-/** The version of the money rounding a stored deal or comp set has had. */
-export const MONEY_VERSION = 1;
+/** The version of the money rounding a stored deal or comp set has had (its step is in migrate.js). */
+export { MONEY_VERSION };
+const MONEY = MIGRATIONS.find((s) => s.id === 'money');
 const dealName = (d) => d.name || (d.figures && d.figures.address) || 'Untitled deal';
 
 /**
@@ -182,14 +184,13 @@ async function migrateMoneyIn(db, { once = false } = {}) {
   const lastSeq = new Map();
   for (const k of hkeys) lastSeq.set(k[0], Math.max(lastSeq.get(k[0]) || 0, k[1]));
   all.forEach((d, i) => {
-    if (!d || (d.moneyVersion || 0) >= MONEY_VERSION) return;
+    if (!d || !MONEY.needed(d)) return;
     const before = copyDeal(d);
-    const { changes } = quantizeDeal(d);
+    const { rounded: changes } = applyStep(d, MONEY);
     for (const c of changes) entries.push({ at, where: `Deal: ${dealName(d)}`, ...c });
-    d.moneyVersion = MONEY_VERSION;
     deals.put(d, keys[i]);
     // the deal's own history says so too (rounding is a record, never undone)
-    const made = changes.length ? historyEntry(before, d, { kind: 'rounding', label: `Stored money rounded to whole cents (rates to four decimals): ${changes.length} value${changes.length === 1 ? '' : 's'}`, rounded: changes, always: true }, at) : null;
+    const made = changes.length ? historyEntry(before, d, { kind: MONEY.kind, label: MONEY.label(changes), rounded: changes, always: true }, at) : null;
     if (made) { const seq = (lastSeq.get(d.id) || 0) + 1; lastSeq.set(d.id, seq); hist.put({ ...made.entry, seq }, [d.id, seq]); }
   });
   if (session && (session.moneyVersion || 0) < MONEY_VERSION) {
