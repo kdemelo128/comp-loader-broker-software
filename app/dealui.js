@@ -21,6 +21,7 @@ import { renderRentRollWorkspace } from './rentrollui.js';
 import { openLibrary } from './libraryui.js';
 import { openAiSettings, readWithAi, openAssistant, transcribeNote, openTranscript } from './aiui.js';
 import { crossChecks } from './reconcile.js';
+import { STAGE_LABEL, stageOf } from './pipeline.js';
 import { renderDealCrm } from './dealcrm.js';
 import * as crm from './crm.js';
 import {
@@ -208,7 +209,11 @@ function workbookDeal(m) {
 /** Every saved deal, with the copy in memory where a deal is open (it may be newer than storage). */
 export async function listAllDeals() {
   const stored = await store.listDeals();
-  return stored.filter((d) => !deleted.has(d.id)).map((d) => opened.get(d.id) || d);
+  const out = stored.filter((d) => !deleted.has(d.id)).map((d) => opened.get(d.id) || d);
+  // a deal made moments ago may still be on its way to storage (saves wait 400 ms): it counts too
+  const seen = new Set(out.map((d) => d.id));
+  for (const d of [...opened.values(), deal].filter(Boolean)) if (!seen.has(d.id) && !deleted.has(d.id)) { out.push(d); seen.add(d.id); }
+  return out.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 }
 /** Change a deal that may not be open (its stage, from Home), through the same copy the Deal screen uses. */
 export async function updateDeal(id, fn) {
@@ -237,6 +242,8 @@ export async function prepareForRestore() {
   deal = null;
   try { for (const k of [CUR_KEY, REC_KEY, 'comp-loader.session.unsaved']) localStorage.removeItem(k); } catch { /* fine */ }
 }
+/** A blank deal to type figures into (the command menu's "New deal by hand"). */
+export function startDealByHand() { flushDeal(); deal = newDeal(); try { localStorage.setItem(CUR_KEY, deal.id); } catch { /* fine */ } render(); touch(); }
 export async function showDeal(id) { await openDeal(id); api.showView('deal'); }
 export const currentDealId = () => (deal ? deal.id : null);
 export const currentDealName = () => (deal && hasFigures() ? (deal.name || deal.figures.address || 'Untitled deal') : null);
@@ -455,7 +462,7 @@ function render() {
 }
 
 function renderReading(r) {
-  r.appendChild(viewHead('Deal', null));
+  r.appendChild(viewHead('Deals', null));
   const c = el('div', 'hero');
   c.style.marginTop = '14px';
   c.appendChild(Object.assign(el('div', 'hero-icon'), { innerHTML: svg('<path d="M14 3H7a2.5 2.5 0 0 0-2.5 2.5v13A2.5 2.5 0 0 0 7 21h10a2.5 2.5 0 0 0 2.5-2.5V8.5z"/><path d="M14 3v5.5h5.5M9 13h6M9 17h4"/>', 28) }));
@@ -473,14 +480,14 @@ function renderReading(r) {
 
 async function renderLanding(r) {
   const seq = renderSeq;
-  r.appendChild(viewHead('Deal', 'Read an offering memorandum on the spot: the key figures, checked against each other and against your comps, run through a loan, with the questions to ask before you leave.'));
+  r.appendChild(viewHead('Deals', 'Read an offering memorandum on the spot: the key figures, checked against each other and against your comps, run through a loan, with the questions to ask before you leave.'));
   const stack = el('div', 'stack');
   const hero = el('div', 'hero drop');
   hero.appendChild(Object.assign(el('div', 'hero-icon'), { innerHTML: svg('<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8h10M7 12h10M7 16h6"/>', 28) }));
   hero.appendChild(el('h2', null, 'Scan an offering memorandum'));
   hero.appendChild(el('p', null, 'Choose the OM’s PDF, from Mail, Files or a download. Price, NOI, cap rate, size, occupancy, the rent roll and the lease terms are read straight from it.'));
   const acts = el('div', 'hero-actions');
-  const pick = el('label', 'btn btn-teal btn-lg', 'Choose OM');
+  const pick = el('label', 'btn btn-primary btn-lg', 'Choose OM');
   pick.htmlFor = 'om-file';
   pick.addEventListener('pointerdown', () => getPdfjs().catch(() => {}), { once: true });
   acts.appendChild(pick);
@@ -502,7 +509,7 @@ async function renderLanding(r) {
   ]) {
     const li = el('li');
     const ic = el('span', 'tool-icon');
-    ic.style.cssText = 'width:34px;height:34px;border-radius:9px;background:var(--teal-soft);color:var(--teal)';
+
     ic.innerHTML = svg(p, 18);
     li.appendChild(ic);
     const m = el('div', 'li-main');
@@ -516,7 +523,7 @@ async function renderLanding(r) {
   const deals = await store.listDeals();
   if (seq !== renderSeq || root() !== r || deal || reading) return;   // something else drew while the list loaded
   if (deals.length) {
-    const saved = card('Saved deals', el('span', 'count', `${deals.length}`));
+    const saved = card('Your deals', el('span', 'count', `${deals.length}`));
     const list = el('div', 'list');
     for (const d of deals.slice(0, 30)) {
       const b = el('button', 'li');
@@ -528,14 +535,14 @@ async function renderLanding(r) {
       const m = el('div', 'li-main');
       m.appendChild(el('div', 'li-title', d.name || d.figures?.address || 'Untitled deal'));
       const f = d.figures || {};
-      m.appendChild(el('div', 'li-sub', [f.price ? short(f.price) : null, f.cap ? pct(f.cap) : null, f.bsf ? `${int(f.bsf)} SF` : null, niceDate(d.updatedAt)].filter(Boolean).join(' · ')));
+      m.appendChild(el('div', 'li-sub', [STAGE_LABEL[stageOf(d)], f.ptype, f.price ? short(f.price) : null, f.cap ? `${pct(f.cap)} cap` : null, f.bsf ? `${int(f.bsf)} SF` : null, `updated ${niceDate(d.updatedAt)}`].filter(Boolean).join(' · ')));
       b.appendChild(m);
       b.insertAdjacentHTML('beforeend', svg('<path d="M9 6l6 6-6 6"/>', 16, ' class="chev"'));
       b.addEventListener('click', () => openDeal(d.id));
       list.appendChild(b);
     }
     saved.appendChild(list);
-    stack.appendChild(saved);
+    stack.prepend(saved);
   }
   stack.appendChild(what);
   r.appendChild(stack);
@@ -546,20 +553,36 @@ function renderDeal(r) {
   const title = deal.name || f.address || 'Untitled deal';
   const more = button('btn-gray', null, dealMenu, '<circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/>');
   more.setAttribute('aria-label', 'More deal actions');
-  r.appendChild(viewHead('Deal', null, [
+  // a slim bar: the way back to every deal, and the deal's main actions
+  const top = el('div', 'view-head ws-top');
+  const back = button('btn-plain btn-sm ws-back', 'All deals', closeDeal, '<path d="M15 6l-6 6 6 6"/>');
+  top.appendChild(back);
+  const acts = el('div', 'view-actions');
+  acts.append(
     button('btn-primary', 'Excel', exportExcel, '<path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14"/>'),
     button('', 'Share', shareSummary, '<path d="M12 15V3m0 0L8 7m4-4l4 4M6 11H5a1 1 0 00-1 1v8a1 1 0 001 1h14a1 1 0 001-1v-8a1 1 0 00-1-1h-1"/>'),
     more,
-  ]));
+  );
+  top.appendChild(acts);
+  r.appendChild(top);
   const stack = el('div', 'stack');
 
-  // the header
-  const head = el('section', 'card');
+  // the property: identity first (stage, type, place), then the figures that matter
+  const head = el('section', 'card deal-card');
+  head.id = 'deal-card';
   const dh = el('div', 'deal-head');
-  dh.appendChild(Object.assign(el('div', 'deal-badge'), { innerHTML: svg('<path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6"/>', 24) }));
   const t = el('div');
   t.style.minWidth = '0';
-  const name = el('h2', null, title);
+  t.style.flex = '1 1 320px';
+  const eb = el('div', 'eyebrow');
+  const pill = el('span', 'stage-pill', STAGE_LABEL[stageOf(deal)]);
+  pill.id = 'deal-stage-pill';
+  eb.appendChild(pill);
+  if (deal.example) eb.appendChild(el('span', 'chip chip-warn', 'Fictional sample: not a real property'));
+  if (deal.unpriced) eb.appendChild(el('span', 'chip chip-warn', 'Unpriced'));
+  if (deal.visit.at) eb.appendChild(el('span', 'chip chip-teal', `Visited ${niceDate(deal.visit.at)}`));
+  t.appendChild(eb);
+  const name = el('h1', null, title);
   try { name.contentEditable = 'plaintext-only'; } catch { name.contentEditable = 'true'; }
   name.spellcheck = false;
   name.title = 'Tap to rename';
@@ -569,12 +592,6 @@ function renderDeal(r) {
   t.appendChild(name);
   const where = [f.ptype, [f.city, f.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ');
   t.appendChild(el('div', 'sub', [where, deal.source ? `${deal.source} · ${deal.pages} page${deal.pages === 1 ? '' : 's'}` : 'entered by hand'].filter(Boolean).join(' — ')));
-  const chipsBox = el('div', 'chips');
-  chipsBox.style.marginTop = '6px';
-  if (deal.example) chipsBox.appendChild(el('span', 'chip chip-warn', 'Fictional sample: not a real property'));
-  if (deal.unpriced) chipsBox.appendChild(el('span', 'chip chip-warn', 'Unpriced'));
-  if (deal.visit.at) chipsBox.appendChild(el('span', 'chip chip-teal', `Visited ${niceDate(deal.visit.at)}`));
-  if (chipsBox.children.length) t.appendChild(chipsBox);
   dh.appendChild(t);
   head.appendChild(dh);
   const tiles = el('div', 'tiles');
@@ -586,6 +603,15 @@ function renderDeal(r) {
   const tabs = el('div', 'seg');
   tabs.setAttribute('role', 'tablist');
   tabs.setAttribute('aria-label', 'Deal sections');
+  // when the header scrolls away, the tab bar carries the deal's name
+  const wsName = el('span', 'ws-name', title);
+  wsName.setAttribute('aria-hidden', 'true');
+  tabs.appendChild(wsName);
+  if ('IntersectionObserver' in window) {
+    // one callback can carry several entries for the header; the last is its current state
+    const io = new IntersectionObserver((es) => tabs.classList.toggle('stuck', !es[es.length - 1].isIntersecting), { rootMargin: '-8px 0px 0px 0px' });
+    io.observe(head);
+  }
   const panes = {};
   for (const [key, label] of PANES) {
     const b = el('button', null, label);
@@ -608,26 +634,32 @@ function renderDeal(r) {
   }
   stack.appendChild(tabs);
 
+  // the overview: the analysis in a main column, the deal's next steps in a rail beside it
+  // (on one column the pipeline and next steps come first, so they are not below the long analysis)
+  const grid = el('div', 'ws-grid');
+  const main = el('div', 'ws-main');
+  const rail = el('div', 'ws-rail');
+  const cr = el('section', 'card ws-crm');
+  cr.id = 'deal-crm';
+  grid.append(cr, main, rail);
+  panes.overview.appendChild(grid);
   const checks = el('section', 'card');
   checks.id = 'deal-checks';
-  panes.overview.appendChild(checks);
+  main.appendChild(checks);
   const comps = el('section', 'card');
   comps.id = 'deal-comps';
-  panes.overview.appendChild(comps);
-  panes.overview.appendChild(figuresCard());
-  panes.overview.appendChild(financeCard());
+  main.appendChild(comps);
+  main.appendChild(figuresCard());
+  main.appendChild(financeCard());
   const ladder = el('section', 'card');
   ladder.id = 'deal-ladder';
-  panes.overview.appendChild(ladder);
+  main.appendChild(ladder);
   const rr = el('section', 'card');
   rr.id = 'deal-rr';
-  panes.overview.appendChild(rr);
+  rail.appendChild(rr);
   const qs = el('section', 'card');
   qs.id = 'deal-q';
-  panes.overview.appendChild(qs);
-  const cr = el('section', 'card');
-  cr.id = 'deal-crm';
-  panes.overview.appendChild(cr);
+  rail.appendChild(qs);
   const d0 = deal;
   renderDealCrm(cr, d0, { touch: () => touch(d0), api });
   const rrw = el('section', 'card rr-card');
@@ -638,7 +670,7 @@ function renderDeal(r) {
   for (const p of Object.values(panes)) stack.appendChild(p);
 
   const bottom = el('div', 'view-actions');
-  bottom.style.cssText = 'justify-content:center;margin:6px 0 4px';
+  bottom.classList.add('ws-foot');
   bottom.appendChild(button('', 'Use as the comps subject', useAsSubject, '<path d="M5 12h14M13 6l6 6-6 6"/>'));
   bottom.appendChild(button('', 'Fill my Excel template', openTemplates, '<path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5M9 13l2 2 4-4"/>'));
   if (!IN_ARTIFACT) bottom.appendChild(button('', 'Deal brief', printBrief, '<path d="M7 9V3h10v6M7 17H5a2 2 0 01-2-2v-4a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2h-2M7 14h10v7H7z"/>'));
@@ -1478,7 +1510,7 @@ function visitCard() {
   h.appendChild(el('h2', null, 'Site visit'));
   h.appendChild(el('span', 'count', v.at ? `started ${new Date(v.at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}` : 'a walk-through checklist, notes and photos'));
   const tools = el('div', 'tools');
-  if (!v.at) tools.appendChild(button('btn-sm btn-teal', 'Start visit', () => { v.at = Date.now(); touch(); render(); }));
+  if (!v.at) tools.appendChild(button('btn-sm btn-primary', 'Start visit', () => { v.at = Date.now(); touch(); render(); }));
   h.appendChild(tools);
   c.appendChild(h);
   const grid = el('div', 'visit-grid');

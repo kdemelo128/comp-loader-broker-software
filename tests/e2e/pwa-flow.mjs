@@ -1,7 +1,7 @@
 import { phone, BASE } from './lib.mjs';
 const F = new URL('./files/', import.meta.url).pathname;
 const { browser, ctx, page, errors } = await phone();
-await page.goto(BASE, { waitUntil: 'load' });
+await page.goto(BASE + '#comps', { waitUntil: 'load' });
 await page.waitForFunction(() => navigator.serviceWorker && navigator.serviceWorker.controller || false, null, { timeout: 15000 }).catch(() => {});
 const ctrl1 = await page.evaluate(() => !!navigator.serviceWorker.controller);
 console.log('controlled after first load:', ctrl1);

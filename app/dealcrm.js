@@ -25,6 +25,8 @@ export async function renderDealCrm(box, d, { touch, api }) {
     (d.stageHistory ||= []).push({ at: Date.now(), from: was, to: sel.value });
     touch();
     crm.log('stage', `${d.name || 'Untitled deal'}: ${STAGE_LABEL[was]} → ${STAGE_LABEL[sel.value]}`, d.id);
+    const pill = document.getElementById('deal-stage-pill');
+    if (pill) pill.textContent = STAGE_LABEL[sel.value];
     toast(`Stage: ${STAGE_LABEL[sel.value]}.`);
   });
   h.appendChild(sel);
@@ -260,5 +262,6 @@ export function editContact(api, c = {}, deals = []) {
       toast(`${rec.name} saved.`);
     } catch (e) { toast(e.message); }
   });
-  if (!c.id) setTimeout(() => name.focus(), 50);
+  // only if nothing else has focus yet: on a slow device the timer can fire after the first tap into another field
+  if (!c.id) setTimeout(() => { if (!document.activeElement?.matches('#sheet input, #sheet select, #sheet textarea')) name.focus(); }, 50);
 }

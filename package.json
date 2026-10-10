@@ -1,6 +1,6 @@
 {
   "name": "comp-loader",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "description": "A broker's field kit in the browser: CoStar comp reports into an Excel comp set or your own template, offering memoranda read and underwritten on the spot, and deal calculators.",
   "private": true,
   "type": "module",

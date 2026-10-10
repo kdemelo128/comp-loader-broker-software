@@ -100,7 +100,7 @@ check('a passage on another page is flagged and left unticked', !s.checked && !s
 s = await state('noi');
 check('documents that disagree are shown and left unticked', !s.checked && /documents disagree/.test(s.text) && /\$448,200/.test(s.text), s.text);
 await page.screenshot({ path: `${SHOTS}ai-review.png` });
-check('no horizontal overflow in the review', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+check('no horizontal overflow in the review', await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
 await page.click('#ai-apply');
 await page.waitForTimeout(400);
 const tag = await page.locator('#deal-root .src.ai').allTextContents();

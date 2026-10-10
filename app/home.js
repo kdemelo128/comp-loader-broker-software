@@ -7,7 +7,6 @@ import { kvGet } from './store.js';
 import { STAGES, STAGE_LABEL, DEFAULT_STAGES, HIDDEN, stageChoices, stageOf, pipelineSummary, taskBuckets, attention, findContacts, upcomingDates, isoDay } from './pipeline.js';
 import { listAllDeals, updateDeal, showDeal, currentDealId } from './dealui.js';
 import { taskRow, contactLinks, editContact } from './dealcrm.js';
-import { renderDataCard } from './backupui.js';
 import { $, el, toast, actionSheet, getXlsx, deliver, printed, XLSX, short, money0, money2, pct, int, niceDate, localDate } from './kit.js';
 
 let api = null;
@@ -34,58 +33,161 @@ const section = (title, id) => {
   return [c, h];
 };
 
+const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'; };
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
 async function render() {
   const root = $('home-root');
   if (!root) return;
   const [deals, tasks, contacts, activity] = await Promise.all([listAllDeals(), crm.listTasks(), crm.listContacts(), crm.listActivity(), crm.loadStages()]);
+  const lastBackup = await kvGet('backup.last');
   const scrollY = window.scrollY;
   root.textContent = '';
   const nameOf = Object.fromEntries(deals.map((d) => [d.id, d.name || d.figures.address || 'Untitled deal']));
-  const head = el('div', 'view-head');
-  head.appendChild(el('h1', null, 'Home'));
-  head.appendChild(el('p', null, `${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}. Deals, next steps and contacts, kept on this device.`));
-  root.appendChild(head);
-
   const p = pipelineSummary(deals);
   const b = taskBuckets(tasks);
+
+  // the header: the day, a greeting, and what is waiting, in real numbers
+  const head = el('div', 'home-head');
+  const hl = el('div');
+  hl.appendChild(el('div', 'date', new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })));
+  hl.appendChild(el('h1', null, greeting()));
+  const due = b.overdue.length + b.today.length;
+  hl.appendChild(el('p', 'lede', deals.length
+    ? `${plural(p.activeCount, 'active deal')}${p.activeValue ? `, ${short(p.activeValue)} asking` : ''}. ${due ? `${plural(due, 'task')} due today or overdue.` : 'Nothing due today.'}`
+    : 'Start with an offering memorandum or a set of comps. Everything you add stays on this device.'));
+  head.appendChild(hl);
+  const quick = el('div', 'view-actions quick');
+  const om = el('label', 'btn btn-primary', 'Read an OM');
+  om.htmlFor = 'om-file';
+  om.addEventListener('click', () => api.showView('deal'));
+  const cp = el('button', 'btn', 'Add comps');
+  cp.type = 'button';
+  cp.addEventListener('click', () => { api.showView('comps'); $('file').click(); });
+  const nt = el('button', 'btn', 'New task');
+  nt.type = 'button';
+  nt.addEventListener('click', () => { const i = $('task-title'); if (i) { i.scrollIntoView({ block: 'center', behavior: 'smooth' }); i.focus({ preventScroll: true }); } });
+  quick.append(om, cp, nt);
+  head.appendChild(quick);
+  root.appendChild(head);
+
+  // the four figures that summarize the day
   const weekAgo = Date.now() - 7 * 86400000;
   const made = activity.filter((a) => a.type === 'deliverable');
+  const sum = el('section', 'card home-summary');
+  sum.setAttribute('aria-label', 'Summary');
   const tiles = el('div', 'tiles home-tiles');
-  const tile = (k, v, s, cls) => { const x = el('div', `tile${cls ? ` ${cls}` : ''}`); x.append(el('div', 'k', k), el('div', 'v', v)); if (s) x.appendChild(el('div', 's', s)); tiles.appendChild(x); };
-  tile('Active deals', String(p.activeCount), p.activeValue ? `${short(p.activeValue)} asking${p.activeUnpriced ? `, ${p.activeUnpriced} unpriced` : ''}` : null);
+  const tile = (k, v, s2, cls) => { const x = el('div', `tile${cls ? ` ${cls}` : ''}`); x.append(el('div', 'k', k), el('div', 'v', v)); if (s2) x.appendChild(el('div', 's', s2)); tiles.appendChild(x); };
+  tile('Active deals', String(p.activeCount), p.activeValue ? `${short(p.activeValue)} asking${p.activeUnpriced ? `, ${p.activeUnpriced} unpriced` : ''}` : (p.activeCount ? 'none priced yet' : 'none yet'));
   tile('Due today', String(b.today.length), b.overdue.length ? `${b.overdue.length} overdue` : 'none overdue', b.overdue.length ? 'warn' : '');
   tile('This week', String(b.week.length), 'tasks due');
   tile('Produced', String(made.filter((a) => a.at >= weekAgo).length), 'files and prints this week');
-  root.appendChild(tiles);
+  sum.appendChild(tiles);
+  root.appendChild(sum);
 
+  // what needs attention, most urgent first
   const att = attention(deals, tasks);
   const dates = upcomingDates(deals, { days: 30 });
   for (const k of dates.filter((x) => x.daysLeft <= 7)) att.unshift({ kind: 'date', dealId: k.dealId, text: `${k.name}: ${k.label} ${k.daysLeft < 0 ? `was ${-k.daysLeft} day${k.daysLeft === -1 ? '' : 's'} ago` : k.daysLeft === 0 ? 'is today' : `in ${k.daysLeft} day${k.daysLeft === 1 ? '' : 's'}`}.` });
-  const lastBackup = await kvGet('backup.last');
-  if (deals.length && (!lastBackup || Date.now() - lastBackup > 30 * 86400000)) att.push({ kind: 'backup', text: lastBackup ? `No backup for ${Math.floor((Date.now() - lastBackup) / 86400000)} days: Your data, below.` : 'No backup yet: everything is on this device only (Your data, below).' });
-  if (att.length) {
-    const [c] = section('Needs attention', 'home-attention');
-    const ul = el('ul', 'attn');
-    for (const a of att.slice(0, 8)) {
-      const li = el('li', a.kind === 'overdue' ? 'warn-text' : null);
-      if (a.dealId) { const bt = el('button', 'btn-plain linkish', a.text); bt.type = 'button'; bt.addEventListener('click', () => showDeal(a.dealId)); li.appendChild(bt); } else li.textContent = a.text;
-      ul.appendChild(li);
-    }
-    if (att.length > 8) ul.appendChild(el('li', 'hint-sm', `and ${att.length - 8} more`));
-    c.appendChild(ul);
-    root.appendChild(c);
-  }
+  if (deals.length && (!lastBackup || Date.now() - lastBackup > 30 * 86400000)) att.push({ kind: 'backup', view: 'settings', text: lastBackup ? `No backup for ${Math.floor((Date.now() - lastBackup) / 86400000)} days: back up in Settings.` : 'No backup yet: everything is on this device only. Back up in Settings.' });
 
-  root.appendChild(pipelineCard(p));
-  if (dates.length) root.appendChild(datesCard(dates));
-  root.appendChild(tasksCard(tasks, deals, nameOf));
-  root.appendChild(contactsCard(contacts, deals, nameOf));
-  root.appendChild(activityCard(activity, nameOf));
-  const data = el('section', 'card home-sec');
-  data.id = 'home-data';
-  root.appendChild(data);
-  await renderDataCard(data, api);
+  const grid = el('div', 'bento');
+  grid.appendChild(continueCard(deals, tasks));
+  const side = el('div', 'span-4 ws-main');
+  side.appendChild(attentionCard(att));
+  if (dates.length) side.appendChild(datesCard(dates));
+  grid.appendChild(side);
+  const pipe = pipelineCard(p);
+  pipe.classList.add('span-12');
+  grid.appendChild(pipe);
+  const tk = tasksCard(tasks, deals, nameOf);
+  tk.classList.add('span-7');
+  grid.appendChild(tk);
+  const ac = activityCard(activity, nameOf);
+  ac.classList.add('span-5');
+  grid.appendChild(ac);
+  const ct = contactsCard(contacts, deals, nameOf);
+  ct.classList.add('span-12');
+  grid.appendChild(ct);
+  root.appendChild(grid);
   window.scrollTo({ top: scrollY });
+}
+
+/** The deals touched most recently, with their figures and next step: one tap back into each. */
+function continueCard(deals, tasks) {
+  const [c, h] = section('Continue working', 'home-continue');
+  c.classList.add('span-8');
+  const recent = deals.slice().sort((x, y) => (y.updatedAt || 0) - (x.updatedAt || 0)).slice(0, 5);
+  if (deals.length > 5) {
+    const all = el('button', 'btn btn-sm btn-gray', `All ${deals.length} deals`);
+    all.type = 'button';
+    all.addEventListener('click', () => api.showView('deal'));
+    h.appendChild(all);
+  }
+  if (!recent.length) {
+    const e = el('div', 'all-clear');
+    e.textContent = 'Deals you open appear here, newest first, with their figures and next step. ';
+    const ex = el('button', 'linkish', 'Open the fictional example deal');
+    ex.type = 'button';
+    ex.addEventListener('click', () => { api.showView('deal'); setTimeout(() => [...document.querySelectorAll('#deal-root button')].find((x) => /fictional example/.test(x.textContent))?.click(), 50); });
+    e.appendChild(ex);
+    c.appendChild(e);
+    return c;
+  }
+  const today = isoDay();
+  const ul = el('ul', 'cont');
+  for (const d of recent) {
+    const f = d.figures || {};
+    const li = el('li');
+    const bt = el('button', 'cont-row');
+    bt.type = 'button';
+    const left = el('div');
+    left.style.minWidth = '0';
+    left.appendChild(el('div', 'cont-name', dealTitle(d)));
+    const meta = el('div', 'cont-meta');
+    meta.appendChild(el('span', 'stage-pill', STAGE_LABEL[stageOf(d)]));
+    const where = [f.ptype, [f.city, f.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ');
+    if (where) meta.appendChild(el('span', null, where));
+    meta.appendChild(el('span', null, `updated ${ago(d.updatedAt || d.createdAt)}`));
+    left.appendChild(meta);
+    bt.appendChild(left);
+    const figs = el('div', 'cont-figs');
+    const fig = (label, v) => { const x = el('div'); x.append(el('b', null, v), el('span', null, label)); figs.appendChild(x); };
+    fig('Asking', ok(f.price) ? short(f.price) : '—');
+    const cap = capOf(d);
+    fig('Cap', ok(cap) ? pct(cap, 2) : '—');
+    fig('NOI', ok(f.noi) ? short(f.noi) : '—');
+    bt.appendChild(figs);
+    const open = tasks.filter((t) => t.dealId === d.id && !t.done).sort((x, y) => String(x.due || '9999').localeCompare(String(y.due || '9999')));
+    const nx = open[0];
+    const late = nx && nx.due && nx.due < today;
+    bt.appendChild(el('div', `cont-next${late ? ' late' : ''}`, nx ? `Next: ${nx.title}${nx.due ? ` · ${late ? 'was due' : 'due'} ${nx.due === today ? 'today' : niceDate(`${nx.due}T12:00:00`)}` : ''}` : 'No next step set'));
+    bt.addEventListener('click', () => showDeal(d.id));
+    li.appendChild(bt);
+    ul.appendChild(li);
+  }
+  c.appendChild(ul);
+  return c;
+}
+const dealTitle = (d) => d.name || (d.figures && d.figures.address) || 'Untitled deal';
+
+function attentionCard(att) {
+  const [c] = section('Needs attention', 'home-attention');
+  if (!att.length) { c.appendChild(el('p', 'all-clear', 'All clear: nothing overdue, and every active deal has a next step.')); return c; }
+  const ul = el('ul', 'attn');
+  for (const a of att.slice(0, 8)) {
+    const li = el('li', `k-${a.kind}${a.kind === 'overdue' ? ' warn-text' : ''}`);
+    if (a.dealId || a.view) {
+      const bt = el('button', 'linkish', a.text);
+      bt.type = 'button';
+      bt.addEventListener('click', () => (a.dealId ? showDeal(a.dealId) : api.showView(a.view)));
+      li.appendChild(bt);
+    } else li.textContent = a.text;
+    ul.appendChild(li);
+  }
+  if (att.length > 8) ul.appendChild(el('li', 'hint-sm', `and ${att.length - 8} more`));
+  c.appendChild(ul);
+  return c;
 }
 
 /* -------------------------------------------------------------- pipeline */
@@ -103,12 +205,21 @@ function pipelineCard(p) {
   rep.addEventListener('click', report);
   h.appendChild(rep);
   if (!p.stages.some((s) => s.count)) {
-    const e = el('p', 'hint');
-    e.style.padding = '0 16px 16px';
-    e.textContent = 'No deals yet. Read an OM on the Deal tab, or enter one by hand; it appears here by stage.';
+    const e = el('p', 'all-clear');
+    e.textContent = 'No deals yet. Read an OM, or start a deal by hand, and it appears here by stage.';
     c.appendChild(e);
     return c;
   }
+  // the shape of the pipeline at a glance: one segment per deal stage, sized by count
+  const bar = el('div', 'pipe-bar');
+  bar.setAttribute('aria-hidden', 'true');
+  for (const s2 of p.stages.filter((x) => x.count)) {
+    const i = el('i', s2.key === 'closed' ? 'closed' : s2.key === 'dead' ? 'dead' : null);
+    i.style.flex = String(s2.count);
+    i.title = `${s2.label}: ${s2.count}`;
+    bar.appendChild(i);
+  }
+  c.appendChild(bar);
   const board = el('div', 'pipe');
   board.setAttribute('role', 'list');
   // empty stages take no room on a phone: they are named in one line instead
@@ -149,7 +260,8 @@ function pipelineCard(p) {
 }
 
 function datesCard(dates) {
-  const [c] = section('Key dates, next 30 days', 'home-dates');
+  const [c] = section('Key dates', 'home-dates');
+  c.querySelector('.card-head').appendChild(el('span', 'count', 'next 30 days'));
   const ul = el('div', 'task-group');
   for (const k of dates) {
     const row = el('div', `task-row date-row${k.daysLeft < 0 ? ' overdue' : ''}`);
@@ -170,7 +282,7 @@ function datesCard(dates) {
 }
 
 /** Rename stages or hide those the firm does not use. Keys never change, so deals keep their stage. */
-async function editStages() {
+export async function editStages() {
   await crm.loadStages();
   const save = el('button', 'btn', 'Save');
   save.type = 'button';
@@ -244,7 +356,7 @@ function tasksCard(tasks, deals, nameOf) {
     for (const t of list) g.appendChild(taskRow(t, { overdue: !!late, dealName: t.dealId ? nameOf[t.dealId] || 'a deleted deal' : null, onDeal: t.dealId && nameOf[t.dealId] ? () => showDeal(t.dealId) : null }));
     c.appendChild(g);
   }
-  if (!any) { const e = el('p', 'hint-sm', 'Nothing to do yet.'); e.style.padding = '0 16px 14px'; c.appendChild(e); }
+  if (!any) c.appendChild(el('p', 'all-clear', 'Nothing to do yet. Add a task above, or a next step on any deal.'));
   return c;
 }
 
@@ -260,24 +372,25 @@ function contactsCard(contacts, deals, nameOf) {
   h.appendChild(add);
   const q = el('input', 'tool-search');
   q.type = 'search'; q.id = 'contact-search'; q.placeholder = 'Search name, company, role'; q.setAttribute('aria-label', 'Search contacts'); q.value = contactQuery;
-  q.style.margin = '0 16px 8px';
-  q.style.width = 'calc(100% - 32px)';
-  c.appendChild(q);
   const list = el('div', 'contact-list');
+  list.appendChild(q);
+  const rows = el('div');
+  list.appendChild(rows);
   const draw = () => {
-    list.textContent = '';
+    rows.textContent = '';
     const found = findContacts(contacts, contactQuery);
     for (const ct of found) {
       const row = el('div', 'contact-row');
+      row.dataset.initials = ct.name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
       const m = el('button', 'contact-main btn-plain');
       m.type = 'button';
       m.appendChild(el('b', null, ct.name));
       m.appendChild(el('span', null, [ct.role, ct.company, ...(ct.dealIds || []).map((x) => nameOf[x]).filter(Boolean)].filter(Boolean).join(' · ')));
       m.addEventListener('click', () => editContact(api, ct, dealList));
       row.append(m, contactLinks(ct));
-      list.appendChild(row);
+      rows.appendChild(row);
     }
-    if (!found.length) list.appendChild(el('p', 'hint-sm', contacts.length ? 'No contact matches.' : 'No contacts yet.'));
+    if (!found.length) rows.appendChild(el('p', 'hint-sm', contacts.length ? 'No contact matches.' : 'No contacts yet: owners, brokers, lenders and tenants you add are kept here, linked to their deals.'));
   };
   q.addEventListener('input', () => { contactQuery = q.value; draw(); });
   draw();

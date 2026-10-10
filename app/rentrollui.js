@@ -569,7 +569,7 @@ function columnsSheet(rr, changed) {
     saved.style.marginTop = '8px';
     kvGet('rr.layouts').then((list2) => {
       for (const L of list2 || []) saved.appendChild(btn('btn-sm', L.name, () => { applyLayout(rr, L.columns); changed(); draw(); toast(`Layout “${L.name}” applied.`); }));
-      saved.appendChild(btn('btn-sm btn-teal', 'Save this layout…', async () => {
+      saved.appendChild(btn('btn-sm', 'Save this layout…', async () => {
         const name = (window.prompt('Name this column layout', 'My rent roll') || '').trim();
         if (!name) return;
         const all = ((await kvGet('rr.layouts')) || []).filter((x) => x.name !== name);

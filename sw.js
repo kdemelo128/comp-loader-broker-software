@@ -19,7 +19,7 @@
  * it holds offline always belong to the same release, never a mix of the old
  * and the new. The old cache is dropped on activate. The test suite also
  * checks this list against the files on disk. */
-const VERSION = '3.2.0';
+const VERSION = '3.3.0';
 const CACHE = `comp-loader-${VERSION}`;
 const ASSETS = [
   './',
@@ -62,6 +62,10 @@ const ASSETS = [
   'app/home.js',
   'app/backup.js',
   'app/backupui.js',
+  'app/styles.css',
+  'app/theme.js',
+  'app/settings.js',
+  'app/command.js',
   'app/dealfields.js',
   'app/library.js',
   'app/libraryui.js',

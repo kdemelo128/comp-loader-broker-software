@@ -1,7 +1,8 @@
 # Acceptance matrix — Comp Loader 3.2.0 (development branch)
 
-Branch `claude/bold-archimedes-9a9r3p`. Not merged, not deployed. The
-published GitHub Pages site still serves 3.1.0 from `main`.
+Written for 3.2.0 on branch `claude/bold-archimedes-9a9r3p`, which was then
+merged into `main` (pull request #2). The 3.3.0 redesign changes how screens
+look and are reached, not what they do; see CHANGELOG.md.
 
 Labels, as the directive defines them:
 

@@ -1,11 +1,12 @@
 # Comp Loader
 
 A broker's field kit that runs in the browser and installs on an iPhone like an
-app. Four tabs:
+app. Five places, in a sidebar on a computer and a tab bar on a phone:
 
-- **Home** is the dashboard: what needs attention, the deal pipeline by stage,
-  tasks, contacts, recent activity and what was produced, and a pipeline report
-  to export or print.
+- **Home** is where the day starts: the deals to continue working on with
+  their figures and next step, what needs attention, key dates, the pipeline by
+  stage, tasks, contacts, recent activity, and a pipeline report to export or
+  print. Every number on it is counted from what is on the device.
 
 - **Comps** turns CoStar comp reports into a checked comp set and an Excel
   workbook (the built-in one, or **your own template**, filled in place).
@@ -18,6 +19,14 @@ app. Four tabs:
   stress, sensitivity grids, a distribution waterfall, commission splits,
   lease comparisons, residual land value and more). A tool can load the open
   deal's figures and, after you confirm each change, send its result back.
+- **Settings** holds appearance (light, dark or follow the device), the
+  template library, pipeline stages, the AI connection, and backup and restore.
+
+**Search or jump** (⌘K on a Mac, Ctrl K elsewhere, or **/**; the search button
+on a phone) finds any deal by name, address or tenant, any contact by name,
+company or role, any of the 30 tools, and the app's actions (read an OM, add
+comps, a new task or contact, back up, change the theme). Arrow keys move,
+Enter opens, Esc closes.
 
 Everything is read on the device. PDFs and workbooks are never uploaded, the
 page makes no request to any other site, and once it has loaded it works with
@@ -33,7 +42,7 @@ when a firm runs its own AI server and a broker turns them on (see below).
    you would say them). Search, sort, include or set aside one comp or all of
    them, open ⓘ for everything on a comp, and ⇄ to move one between Sales and On
    Market.
-3. Optionally fill in the subject property, or send it from the Deal tab.
+3. Optionally fill in the subject property, or send it from a deal.
 4. **Excel** downloads the workbook. **⋯** has the rest: share, the one-page comp
    sheet, CSV for a CRM or Google My Maps, copy the table, and project files.
 
@@ -59,7 +68,7 @@ any time.
 
 ## Deal: reading an offering memorandum
 
-On the Deal tab, **Choose OM** and pick the PDF (from Mail, Files or a
+On **Deals**, **Choose OM** and pick the PDF (from Mail, Files or a
 download). In a few seconds:
 
 - **Key figures**, each tagged with its page. Tap a tag to see the line it was
@@ -87,7 +96,7 @@ download). In a few seconds:
   notes are kept as audio with the deal; they are **not transcribed**, because
   that needs a speech service and nothing here leaves the device.
 
-The Deal screen has four sections: **Overview**, **Rent roll**, **What if** and
+A deal has four sections: **Overview**, **Rent roll**, **What if** and
 **Site visit**.
 
 Then: **Excel** (a Deal Analysis tab and a Rent Roll tab, every result a live
@@ -120,14 +129,14 @@ the figures against the page tags before relying on them.
 - **Needs attention**: key dates within a week, overdue tasks, active deals
   with no next step, deals untouched for three weeks, and no recent backup.
 - **Activity**: stage changes, tasks, contacts, and every file saved or page
-  printed (with the deal it was for, when made from the Deal tab).
+  printed (with the deal it was for, when made from a deal).
 
 All of it is kept on the device with the deals.
 
 ### Your data: backup and restore
 
-Everything lives in this browser on this device, so **Your data** (bottom of
-Home) makes one backup file of all of it: every deal with its photos and
+Everything lives in this browser on this device, so **Your data** (in
+Settings; Home reminds you when there is no recent backup) makes one backup file of all of it: every deal with its photos and
 recordings, the comp set, the template library, tasks, contacts, activity,
 saved Tools scenarios and settings. Home reminds you when there has been no
 backup for 30 days. **Restore from a backup** shows what it will do first:
@@ -239,7 +248,7 @@ they can go straight to Mail, Outlook, Teams or Files. Needs iOS 16.4 or later.
 | Tab | What it is for |
 |---|---|
 | **Summary** | The subject panel; survey statistics for sales and listings; a market read; four indicated values with a concluded range; a pricing matrix |
-| **Deal Analysis**, **Rent Roll** | With a deal open on the Deal tab: the offering, pricing, financing, loan sizing, a cap-rate ladder, the comps comparison, and the rent roll with live WALT |
+| **Deal Analysis**, **Rent Roll** | With a deal open: the offering, pricing, financing, loan sizing, a cap-rate ladder, the comps comparison, and the rent roll with live WALT |
 | **Charts** | Native Excel charts that read live cells |
 | **Sale Comps**, **On Market Comps** | The comp grids, high to low $/SF, with parties, terms, brokers, flags and notes |
 | **Adjustment Grid** | The sales-comparison approach in appraisal order, with lender-guideline shading |
@@ -258,7 +267,7 @@ shows numbers in Outlook's preview and Protected View and still recalculates.
   reliable (five or more sales, R² 0.5 or better, within ±10% a year).
 - A zoning code it does not know leaves buildable SF blank rather than guessing.
 - Comps past fifteen are set aside, not dropped.
-- On the Deal tab, a figure worked out from others is labelled "derived", and a
+- On a deal, a figure worked out from others is labelled "derived", and a
   figure you typed over is labelled "edited", with the OM's own value one tap away.
 
 ## Putting it online (first time)
@@ -339,10 +348,15 @@ real reports and OMs are licensed or confidential and stay out of the repository
 (`.gitignore` excludes every `.pdf` and `.xlsx`).
 
 ```
-index.html            the page, design tokens, styles, start-up checks
-app/ui.js             the shell (tabs, sheets) and the Comps screen
+index.html            the page shell and start-up checks
+app/styles.css        the design system: colour, type and spacing tokens for
+                      light and dark, components, layouts, print
+app/theme.js          light, dark or system appearance, kept on the device
+app/command.js        search or jump (⌘K / Ctrl K / "/")
+app/settings.js       the Settings screen
+app/ui.js             the shell (navigation, sheets) and the Comps screen
 app/kit.js            shared helpers: numbers, formatting, toasts, sheets, files
-app/dealui.js         the Deal screen
+app/dealui.js         Deals: the list and the deal workspace
 app/om.js             reading figures and the rent roll out of an OM
 app/deal.js           deal maths, checks and questions
 app/brief.js          the one-page deal brief and the text summary
@@ -424,7 +438,7 @@ implemented) and what was and was not tested.
 The app itself sends nothing anywhere. Three features need a language or
 speech model, and so a server that holds the API keys: `server/` in this
 repository (see `server/README.md`). With it running, a broker turns AI on
-under **AI settings** (Deal → ⋯) with the server's address and an access
+under **AI settings** (Settings, or a deal's ⋯ menu) with the server's address and an access
 token from the firm. Each send is confirmed first.
 
 - **Read documents with AI** (Deal → ⋯): an OM, rent roll, operating

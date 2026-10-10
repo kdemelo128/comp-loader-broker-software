@@ -99,7 +99,7 @@ check('the deal now needs a next step', /no next step set/.test(await page.textC
 await page.locator('#home-tasks button', { hasText: 'Show done' }).click();
 await page.waitForTimeout(300);
 check('done tasks can be shown, struck through', await page.locator('#home-tasks .task-row.done').count() === 1);
-check('no horizontal page overflow on Home', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+check('no horizontal page overflow on Home', await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
 await page.screenshot({ path: `${SHOTS}home.png`, fullPage: true });
 
 // the pipeline report
@@ -133,7 +133,7 @@ check('undo brings the contact back', /Dana Whitlock/.test(await page.textConten
 // narrowest phone
 await page.setViewportSize({ width: 320, height: 640 });
 await page.waitForTimeout(300);
-check('no overflow at 320 px', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), String(await page.evaluate(() => document.documentElement.scrollWidth)));
+check('no overflow at 320 px', await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), String(await page.evaluate(() => document.documentElement.scrollWidth)));
 const txt = await page.locator('#app').innerText();
 check('no NaN/undefined/Infinity', !/\b(NaN|undefined|Infinity)\b/.test(txt));
 for (const [s, n, d] of R) console.log(s, '|', n, d ? `| ${d}` : '');

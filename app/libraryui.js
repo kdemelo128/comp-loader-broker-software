@@ -46,7 +46,7 @@ export async function openLibrary(compsApi, opts) {
       const tables = (t.mapping.tables || []).filter((x) => x.use !== false).length;
       main.appendChild(el('div', 'li-sub', [t.category, `${cells} cell${cells === 1 ? '' : 's'}${tables ? ` · ${tables} table${tables === 1 ? '' : 's'}` : ''}`, `v${(t.current ?? 0) + 1} · ${currentFile(t)}`, niceDate(t.updatedAt)].join(' · ')));
       row.appendChild(main);
-      if (deal && !t.archived) row.appendChild(btn('btn-sm btn-teal', 'Fill', () => fillSheet(t, deal)));
+      if (deal && !t.archived) row.appendChild(btn('btn-sm btn-primary', 'Fill', () => fillSheet(t, deal)));
       const more = el('button', 'iconbtn');
       more.type = 'button';
       more.innerHTML = svg('<circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/>', 16);

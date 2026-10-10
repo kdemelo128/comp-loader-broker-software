@@ -25,6 +25,9 @@ test('every file the page and manifest point at exists', () => {
     assert.ok(exists(m[1]), `index.html references missing ${m[1]}`);
   }
   for (const m of html.matchAll(/url\("(?!data:)([^"]+)"\)/g)) assert.ok(exists(m[1]), `index.html font ${m[1]} is missing`);
+  // the stylesheet's fonts resolve from app/, where it lives
+  const css = read('app/styles.css');
+  for (const m of css.matchAll(/url\("(?!data:)([^"]+)"\)/g)) assert.ok(exists(m[1].replace(/^\.\.\//, '')), `app/styles.css font ${m[1]} is missing`);
   const man = JSON.parse(read('manifest.webmanifest'));
   for (const icon of man.icons) assert.ok(exists(icon.src), `manifest icon ${icon.src} is missing`);
   assert.equal(man.display, 'standalone');

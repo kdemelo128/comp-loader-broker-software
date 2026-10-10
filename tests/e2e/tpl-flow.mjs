@@ -1,7 +1,7 @@
 import { phone, BASE, SHOTS } from './lib.mjs';
 const F = new URL('./files/', import.meta.url).pathname;
 const { browser, page, errors } = await phone();
-await page.goto(BASE, { waitUntil: 'load' });
+await page.goto(BASE + '#comps', { waitUntil: 'load' });
 await page.setInputFiles('#file', F + 'costar-comps.pdf');
 await page.waitForFunction(() => document.querySelectorAll('#sales-table tbody tr').length > 0);
 await page.evaluate(() => document.getElementById('out-template').click());

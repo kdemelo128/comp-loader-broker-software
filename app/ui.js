@@ -31,6 +31,9 @@ import {
 import { initDeal, dealForWorkbook, currentDealName, openTemplates } from './dealui.js';
 import { initTools } from './toolsui.js';
 import { initHome } from './home.js';
+import { initSettings } from './settings.js';
+import { initCommand } from './command.js';
+import { initTheme } from './theme.js';
 
 window.__compLoaderReady = true;
 
@@ -53,23 +56,24 @@ const monthsAgo = (c) => (c.date ? (Date.now() - new Date(c.date).getTime()) / 8
 
 /* ------------------------------------------------------------- the shell */
 
-const VIEWS = ['home', 'comps', 'deal', 'tools'];
-let currentView = 'comps';
+const VIEWS = ['home', 'comps', 'deal', 'tools', 'settings'];
+let currentView = 'home';
 function showView(name, { push = true } = {}) {
-  if (!VIEWS.includes(name)) name = 'comps';
+  if (!VIEWS.includes(name)) name = 'home';
   currentView = name;
   for (const v of VIEWS) $(`view-${v}`).hidden = v !== name;
   document.querySelectorAll('.tab[data-view]').forEach((t) => {
     if (t.dataset.view === name) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
   });
   $('view-name').textContent = $(`view-${name}`).dataset.title;
+  document.title = `${$(`view-${name}`).dataset.title} · Comp Loader`;
   // a sandboxed preview can refuse history changes; the tab still switches
   if (push && location.hash !== `#${name}`) { try { history.replaceState(null, '', `#${name}`); } catch { /* fine */ } }
   window.scrollTo({ top: 0 });
   document.dispatchEvent(new CustomEvent('viewchange', { detail: name }));
 }
 document.querySelectorAll('.tab[data-view]').forEach((t) => t.addEventListener('click', () => showView(t.dataset.view)));
-document.querySelectorAll('a.brand').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); showView('comps'); }));
+document.querySelectorAll('a.brand').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); showView('home'); }));
 window.addEventListener('hashchange', () => showView(location.hash.slice(1), { push: false }));
 
 /* --------------------------------------------------------------- the sheet */
@@ -1454,6 +1458,9 @@ const compsApi = {
 initDeal(compsApi);
 initTools(compsApi);
 initHome(compsApi);
+initSettings(compsApi);
+initCommand(compsApi);
+initTheme();
 
 restoreSubject();
 renderAll();
@@ -1464,4 +1471,4 @@ restoreSession();
   if (out === 'template' && state.template) state.output = 'template';
   refreshOutput();
 })();
-showView(VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'comps', { push: false });
+showView(VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home', { push: false });
