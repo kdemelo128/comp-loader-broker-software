@@ -76,7 +76,7 @@ recalculation of 9 exported workbooks; all pass on the baseline).
 | Deal switcher, recently opened, breadcrumbs | Partially implemented | Deals list, "Continue working" on Home, "All deals" back link. No breadcrumbs. |
 | Review Queue | Not implemented | Review exists per feature (AI review sheet, template preview). |
 | Status bar (save, sync, scenario, template, confidence) | Not implemented | |
-| Keyboard shortcut cheat sheet (`?`) | Not implemented | |
+| Keyboard shortcut cheat sheet (`?`) | Implemented and verified | 4.6.0. Press `?` anywhere you aren't typing, use "Keyboard shortcuts" in the search (⌘K), or use the button in Settings. Every key the app answers to is listed by where it works, with ⌘ on a Mac and Ctrl elsewhere. The list is `app/shortcuts.js`; `shortcuts.test.js` reads every keydown handler in `app/` and fails if one answers to a key that isn't listed, or if a listed key is no longer handled. `shell-flow` (open, contents, Escape, search, Settings, "?" typed in a field) and `a11y-flow` (axe, light and dark). Chromium only; not tried with a real iPad or Mac keyboard. |
 | Light, dark, system themes | Implemented and verified | `shell-flow` (persistence across reload), `a11y-flow` (axe in both). |
 | Responsive desktop, tablet, phone | Implemented, not fully tested | 320–430 px and 834 and 1440 px in Chromium; no real devices, no Safari. |
 

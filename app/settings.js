@@ -138,7 +138,12 @@ export async function renderSettings() {
   p.appendChild(kept);
   const k = el('p');
   k.style.marginTop = '8px';
-  k.append('Press ', Object.assign(el('kbd', 'kbd', '⌘K'), {}), ' or ', el('kbd', 'kbd', 'Ctrl K'), ' anywhere to search deals, contacts and tools.');
+  k.append('Press ', Object.assign(el('kbd', 'kbd', '⌘K'), {}), ' or ', el('kbd', 'kbd', 'Ctrl K'), ' anywhere to search deals, contacts and tools, and ', el('kbd', 'kbd', '?'), ' for every shortcut. ');
+  const keys = el('button', 'btn btn-sm btn-gray', 'Keyboard shortcuts');
+  keys.type = 'button';
+  keys.id = 'settings-shortcuts';
+  keys.dataset.shortcuts = '';
+  k.appendChild(keys);
   p.appendChild(k);
   p.appendChild(Object.assign(el('p', null, '© 2026 Kyle Alexander De Melo · MIT License'), { style: 'margin-top:8px' }));
   about.appendChild(p);

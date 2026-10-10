@@ -39,6 +39,7 @@ import { initHome } from './home.js';
 import { initSettings } from './settings.js';
 import { initCommand } from './command.js';
 import { initTheme } from './theme.js';
+import { initShortcuts } from './shortcuts.js';
 
 window.__zlaturaReady = true;
 
@@ -1493,6 +1494,7 @@ initHome(compsApi);
 initSettings(compsApi);
 initCommand(compsApi);
 initTheme();
+initShortcuts(compsApi);
 
 restoreSubject();
 renderAll();

@@ -12,6 +12,7 @@ import { openAiSettings } from './aiui.js';
 import { editStages } from './home.js';
 import { setTheme } from './theme.js';
 import { STAGE_LABEL, stageOf } from './pipeline.js';
+import { openShortcuts } from './shortcuts.js';
 
 let api = null;
 let dlg = null;
@@ -69,6 +70,7 @@ async function sources() {
     act('Template library', 'Your firm’s Excel workbooks, mapped to deal fields', () => openTemplates(), 'excel xlsx'),
     act('Edit pipeline stages', 'Rename or hide stages', () => editStages(), 'pipeline'),
     act('AI settings', 'Your firm’s AI server address and access token', () => openAiSettings(api), 'assistant'),
+    act('Keyboard shortcuts', 'Every key the app answers to (or press ?)', () => openShortcuts(api), 'keys keyboard help hotkeys ?'),
   );
   // the open deal: what each of its inputs affects (the dependency map)
   for (const c of impactCommands()) items.push({ group: 'This deal', icon: 'act', title: c.title, keywords: 'affects impact depends change what if', weight: 0.6, run: () => { close(); c.run(); } });

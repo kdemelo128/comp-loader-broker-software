@@ -1,5 +1,36 @@
 # Changelog
 
+## 4.6.0: the keyboard shortcuts, on one sheet (on the development branch; not merged or deployed)
+
+Phase 1, item 4: the `?` sheet.
+
+- **Opening it:** press `?` anywhere you aren't typing. It is also
+  "Keyboard shortcuts" in the search (⌘K or Ctrl K), and a button in
+  Settings next to the ⌘K hint.
+- **What it lists:** every key the app answers to, grouped by where it works:
+  - anywhere: search, `/`, Esc;
+  - in the search;
+  - in a deal: undo, redo, the tabs, renaming, a figure's working;
+  - in the rent roll grid: arrows, Enter, Esc;
+  - in Settings: the theme control.
+
+  It shows ⌘ and ⇧ on a Mac, iPhone or iPad, and Ctrl and Shift elsewhere.
+  Ctrl Y appears only off a Mac, where it is the other redo.
+- **Typing `?` in a field stays a question mark.** Escape closes the sheet.
+- **One list, held to the code.** The list lives in `app/shortcuts.js`.
+  `tests/shortcuts.test.js` reads every keydown handler in `app/` and fails:
+  - if a handler answers to a key the list doesn't name for that file;
+  - if a listed key is no longer handled.
+
+  Checked by mutation: adding an `F2` handler to `command.js` fails the test,
+  naming `command.js: "F2"`.
+- **Tests:**
+  - `shell-flow` (8 new checks): `?` opens the sheet; its groups and rows;
+    focus is in the sheet; Escape closes it; the search and Settings open it;
+    `?` typed in a field stays in the field. On 4.5.0, 6 of them fail.
+  - `a11y-flow`: axe on the sheet, light and dark. The list takes the focus,
+    so it scrolls from the keyboard on a small screen.
+
 ## 4.5.0: one list of migrations, run on open and on restore (on the development branch; not merged or deployed)
 
 Phase 1, item 3: the migration registry, with the template count improvement
