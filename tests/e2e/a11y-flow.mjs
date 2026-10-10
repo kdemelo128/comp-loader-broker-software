@@ -97,6 +97,11 @@ await page.keyboard.press('Control+k');
 await page.waitForSelector('dialog.cmdk[open] .cmdk-item');
 await audit('Command menu', 'dialog.cmdk');
 await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+await page.click('#settings-shortcuts');
+await page.waitForSelector('#sheet[open] .keys-sheet');
+await audit('Keyboard shortcuts sheet', '#sheet');
+await page.click('#sheet-close');
 
 // dark mode
 await page.emulateMedia({ colorScheme: 'dark' });
@@ -109,6 +114,10 @@ await audit('Tools, dark');
 await go('settings');
 await page.waitForSelector('#settings-data #backup-make');
 await audit('Settings, dark');
+await page.click('#settings-shortcuts');
+await page.waitForSelector('#sheet[open] .keys-sheet');
+await audit('Keyboard shortcuts sheet, dark', '#sheet');
+await page.click('#sheet-close');
 await go('comps');
 await audit('Comps, dark');
 await go('deal');

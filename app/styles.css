@@ -1154,3 +1154,11 @@ dialog.sheet[open] { animation: up .26s var(--ease); }
 .impact .impact-could { margin-top: var(--s4); }
 .impact .impact-could > summary { cursor: pointer; font: 600 var(--t-13)/1.4 var(--ui); color: var(--muted); }
 .impact .impact-from { margin-bottom: var(--s3); }
+
+/* the keyboard shortcuts sheet */
+.keys-sheet .keys-group + .keys-group { margin-top: var(--s4); }
+.keys-list { display: grid; grid-template-columns: minmax(0, max-content) 1fr; gap: 8px var(--s4); margin: 8px 0 0; align-items: baseline; }
+.keys-list dt { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0; }
+.keys-list dd { margin: 0; color: var(--ink); }
+.keys-or { color: var(--faint); font-size: var(--t-12); margin: 0 2px; }
+@media (max-width: 420px) { .keys-list { grid-template-columns: 1fr; gap: 2px; } .keys-list dd { margin-bottom: 8px; color: var(--muted); } }

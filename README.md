@@ -463,6 +463,9 @@ the old apps taken from git by `tests/tools/make-old-backup.mjs`.
 `tests/e2e/migrate-flow.mjs` restores and opens those deals beside the
 previous release and checks they are stored and shown the same.
 
+`tests/shortcuts.test.js` holds the keyboard shortcut list (`app/shortcuts.js`, the `?` sheet)
+to the code: every key a keydown handler in `app/` answers to must be on it.
+
 `tests/engine.test.js` holds known answers for each shared definition
 (WALT, whole-month debt service, net effective rent, break-even, comp rules)
 and checks that every screen and workbook gives the same figure.
