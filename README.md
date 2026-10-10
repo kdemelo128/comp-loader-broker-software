@@ -164,7 +164,11 @@ figure, so an irregular schedule is entered as the lease reads.
 - **The grid** shows one row per unit with the columns you choose: show, hide,
   rename, widen and reorder them, add your own fields, start from a preset for
   the property type, and save a layout to reuse. Arrows, Enter and Escape move
-  around it as in a spreadsheet; search, sort and filter by status.
+  around it as in a spreadsheet; search, sort and filter by status. A rent roll
+  of more than 100 units draws only the rows near the screen and the rest as
+  you scroll, so 500 units open in a fraction of a second. Totals, search and
+  exports always cover every unit, but the browser's own find (Ctrl F) only
+  sees the drawn rows: use the grid's search box.
 - **The lease schedule** (tap a row's schedule button) has a timeline, the rent
   periods (per month, per year, per SF a year or a month), a step builder for %
   or $ increases on any interval, free rent and partial abatements, one-time
@@ -179,6 +183,9 @@ figure, so an irregular schedule is entered as the lease reads.
 - **Import** from Excel or CSV with a column-matching step; export to Excel or
   CSV. The deal workbook carries Rent Roll, Lease Schedule and Cash Flow tabs.
 - **What if** can take NOI year by year from this projection.
+- The projection is worked out in the background (a web worker), so the page
+  never waits for it: the rest of the rent roll shows at once and the
+  projection table fills in a moment later.
 
 ## Template library
 
@@ -427,6 +434,8 @@ app/engine/           one function per figure: WALT, debt service, net
                       rounding, and the calculation conventions
 app/brief.js          the one-page deal brief and the text summary
 app/lease.js          the lease engine: dated rent periods, projection, validation
+app/projector.js      the projection for the screens, worked out in a worker
+app/projector-worker.js  the worker that runs it
 app/rentroll.js       rent roll columns, presets and layouts
 app/rentrollui.js     the rent roll workspace and lease schedule
 app/rrbook.js         Rent Roll, Lease Schedule and Cash Flow workbook tabs

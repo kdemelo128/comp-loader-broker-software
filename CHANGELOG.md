@@ -1,5 +1,59 @@
 # Changelog
 
+## 4.2.0: a 500-lease rent roll at speed (on the development branch; not merged or deployed)
+
+Phase 1, checkpoint (c). On a 500-lease rent roll (medians, this container's
+headless Chromium; details and every run in
+`docs/proposals/checkpoint-c-results.md`):
+
+| | 4.1.0 | 4.2.0 | Budget |
+|---|---|---|---|
+| Open the Rent roll tab | 1,843 ms | 189 ms | under 1 s |
+| Edit a rent, totals shown | 1,065 ms | 66 ms | under 150 ms |
+| The same with the CPU slowed 4×: open / edit | 9,699 / 4,894 ms | 814 / 326 ms | the edit misses 150 ms |
+
+No figure changed: the golden comparison (646 figures) and an in-browser
+comparison of every value shown for the 500-lease deal (1,026) are identical
+to 4.1.0.
+
+### The projection
+
+- **14× faster** (873 ms → 61 ms for 500 leases over 10 years), with
+  identical results. Date conversion is remembered instead of repeated, and
+  each lease's period dates are converted once instead of every month.
+  Checked against 4.1.0 on 7,931 outputs from 301 rent rolls.
+- **Worked out in a web worker** (`app/projector-worker.js`, through
+  `app/projector.js`). This covers the Rent roll tab, the Overview's
+  gross-income check and What if's NOI from the rent roll.
+- The rest of the screen draws at once; the projection fills in when it
+  arrives. Results are kept per exact rent roll content, so a stale answer
+  is never shown.
+- If the worker can't load, the same work runs on the page. It works offline.
+- Exports, template fills and the brief still work it out on the page, now
+  14× faster.
+
+### The grid
+
+- A rent roll of more than 100 units draws only the rows near the screen
+  (about 60) and draws more as you scroll. Rent rolls of 100 units or fewer
+  draw whole, as before.
+- The grid tells screen readers its full size (`aria-rowcount`) and each
+  row's place.
+- Arrow keys move past the drawn rows.
+- A cell being typed in is saved if its row scrolls away.
+- + Unit draws and focuses the new row.
+- Totals, search and validation always cover every unit.
+- The browser's own find (Ctrl F) and printing the screen see only the drawn
+  rows of a long rent roll.
+
+### Tests
+
+- `tests/projector.test.js` covers the cache, the snapshots and the fallback.
+- `tests/e2e/bigroll-flow.mjs` covers windowing, keys, saving on scroll,
+  search, + Unit, axe, the worker, offline and the no-worker fallback.
+- `tests/e2e/perf-flow.mjs` checks the budgets, timed inside the page,
+  `THROTTLE=4` for a slow CPU. Both flows are in `run.sh`.
+
 ## 4.1.0: one calculation engine (on the development branch; not merged or deployed)
 
 Phase 1, checkpoint (b). Each figure that was worked out in more than one

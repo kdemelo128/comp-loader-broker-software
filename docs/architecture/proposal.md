@@ -16,8 +16,10 @@ checkpoint; nothing merged by Claude. D-E tagline "Every source. Every
 assumption. Every number." D-F the repository name and Pages URL stay. The
 seven further ideas (§6) are not to be built yet.
 
-Progress: checkpoint (a) merged (4.0.0). Checkpoint (b) implemented in
-4.1.0, in review (`docs/proposals/checkpoint-b-results.md`).
+Progress: checkpoint (a) merged (4.0.0). Checkpoint (b) merged (4.1.0).
+Checkpoint (c) implemented in 4.2.0, in review
+(`docs/proposals/checkpoint-c-results.md`). Besides the worker, it needed row
+windowing for long rent rolls (§2.7 did not foresee that).
 
 Original status line: **proposal, awaiting the user's go-ahead.** Nothing in sections 2–5 is
 built. Read with `docs/baseline-report.md` (what exists) and

@@ -16,6 +16,7 @@ import {
   gridContext, viewRows,
 } from './rentroll.js';
 import { kvGet, kvSet } from './store.js';
+import { projectionNow, projectionLater } from './projector.js';
 import {
   el, svg, parseNum, parsePct, int, dec, money0, money2, pct, short, yrs, toast, actionSheet, getXlsx, deliver, XLSX,
 } from './kit.js';
@@ -46,6 +47,13 @@ function read(kind, raw) {
 }
 
 /* ------------------------------------------------------------------ main */
+
+/* Row windowing: rent rolls longer than this draw only the rows near the screen. */
+const WINDOW_FROM = 100;
+const WINDOW_FIRST = 60; // rows drawn before the first scroll check
+const WINDOW_MARGIN = 20; // rows kept beyond each edge of the screen
+const WINDOW_STEP = 20; // the drawn range moves in steps of this many rows
+const ROW_H = 41; // a row's height in px until one is measured
 
 /**
  * Draw the workspace into `box` for `deal`. `onChange()` is called after any
@@ -86,6 +94,7 @@ export function renderRentRollWorkspace(box, deal, compsApi, onChange) {
     const L = newLease(rr, { leaseStart: rr.settings.asOf, leaseEnd: addDays(addMonths(rr.settings.asOf, 60), -1) });
     rr.leases.push(L);
     changed();
+    if (!box.querySelector(`tr[data-id="${L.id}"]`)) grid.revealId(L.id);
     const first = box.querySelector(`tr[data-id="${L.id}"] input`);
     if (first) first.focus();
   });
@@ -103,6 +112,9 @@ export function renderRentRollWorkspace(box, deal, compsApi, onChange) {
 
   const outputs = el('div', 'rr-out');
   box.appendChild(outputs);
+
+  let grid = { n: 0, reveal: () => {}, revealId: () => {} };
+  let gridStop = null;
 
   function refresh() {
     const sum = rentRollSummary(rr, rr.settings.asOf);
@@ -170,9 +182,10 @@ export function renderRentRollWorkspace(box, deal, compsApi, onChange) {
     thead.appendChild(htr);
     tbl.appendChild(thead);
     const tbody = el('tbody');
-    rows.forEach((L, ri) => {
+    const makeRow = (L, ri) => {
       const tr = el('tr', L.vacant ? 'vacant' : null);
       tr.dataset.id = L.id;
+      tr.setAttribute('aria-rowindex', String(ri + 2));
       colsV.forEach((col, ci) => {
         const td = el('td', col.set ? null : 'calc');
         const v = col.get(L, c);
@@ -244,8 +257,74 @@ export function renderRentRollWorkspace(box, deal, compsApi, onChange) {
       });
       act.append(sched, menu);
       tr.appendChild(act);
-      tbody.appendChild(tr);
-    });
+      return tr;
+    };
+    // a long rent roll draws only the rows near the screen (spacer rows keep the
+    // table its full height), and draws more as they scroll into view: a browser
+    // styles, lays out and paints every row it holds, so 500 rows of inputs take
+    // most of a second however fast the arithmetic is
+    const n = rows.length;
+    tbl.setAttribute('aria-rowcount', String(n + 2));
+    if (gridStop) gridStop.abort();
+    gridStop = null;
+    grid = { n, reveal: () => {} };
+    if (n <= WINDOW_FROM) {
+      rows.forEach((L, ri) => tbody.appendChild(makeRow(L, ri)));
+    } else {
+      const stop = new AbortController();
+      gridStop = stop;
+      const pad = () => { const tr = el('tr', 'rr-pad'); tr.setAttribute('aria-hidden', 'true'); const td = el('td'); td.colSpan = colsV.length + 1; tr.appendChild(td); return tr; };
+      const topPad = pad(); const bottomPad = pad();
+      tbody.append(topPad, bottomPad);
+      const drawn = new Map(); // row index -> tr
+      let lo = 0; let hi = 0; let rowH = ROW_H;
+      const place = (from, to) => {
+        from = Math.max(0, from); to = Math.min(n, Math.max(from, to));
+        if (from === lo && to === hi) return;
+        // a cell being edited in a row about to go is saved first (a removed input fires no change)
+        const a = document.activeElement;
+        if (a && tbody.contains(a) && a.dataset.r !== undefined && (Number(a.dataset.r) < from || Number(a.dataset.r) >= to)) a.blur();
+        for (const [i, tr] of drawn) if (i < from || i >= to) { tr.remove(); drawn.delete(i); }
+        const keepFrom = Math.max(lo, from); const keepTo = Math.min(hi, to);
+        const kept = keepFrom < keepTo;
+        const make = (i) => { const tr = makeRow(rows[i], i); drawn.set(i, tr); return tr; };
+        const before = document.createDocumentFragment();
+        for (let i = from; i < (kept ? keepFrom : to); i++) before.appendChild(make(i));
+        tbody.insertBefore(before, kept ? drawn.get(keepFrom) : bottomPad);
+        if (kept) { const after = document.createDocumentFragment(); for (let i = keepTo; i < to; i++) after.appendChild(make(i)); tbody.insertBefore(after, bottomPad); }
+        lo = from; hi = to;
+        topPad.firstChild.style.height = `${lo * rowH}px`;
+        bottomPad.firstChild.style.height = `${(n - hi) * rowH}px`;
+      };
+      // the rows that cover the screen, with a margin, in steps so small scrolls redraw nothing
+      const around = (first, count) => [Math.floor((first - WINDOW_MARGIN) / WINDOW_STEP) * WINDOW_STEP, Math.ceil((first + count + WINDOW_MARGIN) / WINDOW_STEP) * WINDOW_STEP];
+      const update = () => {
+        if (!tbl.isConnected) { stop.abort(); return; }
+        const box2 = tbody.getBoundingClientRect();
+        if (!box2.height) return; // the tab is hidden
+        const one = drawn.size ? drawn.values().next().value.getBoundingClientRect().height : 0;
+        if (one && Math.abs(one - rowH) > 0.5) rowH = one;
+        const first = Math.floor(Math.max(0, -box2.top) / rowH);
+        place(...around(first, Math.ceil(window.innerHeight / rowH)));
+      };
+      let queued = false;
+      const onScroll = () => { if (queued) return; queued = true; requestAnimationFrame(() => { queued = false; update(); }); };
+      window.addEventListener('scroll', onScroll, { capture: true, passive: true, signal: stop.signal });
+      window.addEventListener('resize', onScroll, { passive: true, signal: stop.signal });
+      place(0, WINDOW_FIRST);
+      onScroll(); // the page may already be scrolled down
+      grid = {
+        n,
+        // draw row `i` and bring it on screen (keyboard moves, a new unit)
+        reveal: (i) => {
+          if (i < 0 || i >= n) return;
+          if (i < lo || i >= hi) place(...around(i, Math.ceil(window.innerHeight / rowH)));
+          const tr = drawn.get(i);
+          if (tr) tr.scrollIntoView({ block: 'nearest' });
+        },
+      };
+    }
+    grid.revealId = (id) => grid.reveal(rows.findIndex((L) => L.id === id));
     if (!rows.length) {
       const tr = el('tr');
       const td = el('td', 'no-match', rr.leases.length ? 'No units match.' : 'No units yet. Add one, or import a rent roll from Excel or CSV under More.');
@@ -280,6 +359,7 @@ export function renderRentRollWorkspace(box, deal, compsApi, onChange) {
       const tf = el('tfoot');
       const tr = el('tr');
       const leases = viewRows(rr, state);
+      tr.setAttribute('aria-rowindex', String(leases.length + 2));
       colsV2.forEach((col, i) => {
         let v = '';
         if (i === 0) v = `Total · ${leases.length}`;
@@ -303,7 +383,8 @@ export function renderRentRollWorkspace(box, deal, compsApi, onChange) {
   function nav(e, cell) {
     const r = Number(cell.dataset.r); const ci = Number(cell.dataset.c);
     const go = (dr, dc) => {
-      const target = gridWrap.querySelector(`[data-r="${r + dr}"][data-c="${ci + dc}"]`);
+      let target = gridWrap.querySelector(`[data-r="${r + dr}"][data-c="${ci + dc}"]`);
+      if (!target && dr) { grid.reveal(r + dr); target = gridWrap.querySelector(`[data-r="${r + dr}"][data-c="${ci + dc}"]`); }
       if (!target) return false;
       e.preventDefault();
       target.focus();
@@ -385,9 +466,29 @@ function drawOutputs(box, deal, rr, changed) {
     box.appendChild(sec);
   }
 
-  // projection
-  const P = project(rr);
-  const sec = el('section', 'rr-sec');
+  // projection: worked out in a worker, so the rest is on screen at once and the
+  // table fills in when it arrives; a redraw in the meantime drops the old answer
+  const sec = el('section', 'rr-sec rr-projection');
+  box.appendChild(sec);
+  box.appendChild(settingsForm(deal, rr, changed));
+  const ready = projectionNow(rr);
+  if (ready) { drawProjection(sec, ready, s); return; }
+  sec.setAttribute('aria-busy', 'true');
+  sec.appendChild(el('h3', 'sec-label', 'Projection'));
+  const wait = el('p', 'hint-sm', 'Working out the projection, month by month…');
+  sec.appendChild(wait);
+  projectionLater(rr).then((P) => { if (sec.isConnected) drawProjection(sec, P, s); }, (e) => {
+    if (!sec.isConnected) return;
+    sec.removeAttribute('aria-busy');
+    wait.textContent = `The projection couldn’t be worked out: ${e.message}`;
+    wait.classList.add('warn-text');
+  });
+}
+
+/** The projection table, its notes and what it assumes, into `sec`. */
+function drawProjection(sec, P, s) {
+  sec.textContent = '';
+  sec.removeAttribute('aria-busy');
   sec.appendChild(el('h3', 'sec-label', `Projection · ${P.annual.length} years from ${P.from}`));
   const t = el('table', 'mini proj');
   const head = el('tr');
@@ -428,9 +529,6 @@ function drawOutputs(box, deal, rr, changed) {
   const w = el('div', 'scroll'); w.appendChild(t); sec.appendChild(w);
   for (const n of P.notes || []) { const p = el('p', 'hint-sm warn-text', n); sec.appendChild(p); }
   sec.appendChild(el('p', 'hint-sm', `Documented periods are the leases as entered; renewals and lease-up are projected at ${ok(s.marketRent) ? `${money2(s.marketRent)} ${s.marketUnit === 'month' ? 'a month' : 'per SF a year'}` : 'each unit’s market rent'}, growing ${dec(s.marketGrowth, 2)}% a year, with a ${dec(s.renewal.probability, 0)}% renewal probability. ${ok(s.opex) ? '' : 'Enter operating expenses below to reach NOI. '}Change any of it under Assumptions.`));
-  box.appendChild(sec);
-
-  box.appendChild(settingsForm(deal, rr, changed));
 }
 
 function settingsForm(deal, rr, changed) {

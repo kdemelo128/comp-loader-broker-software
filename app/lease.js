@@ -45,7 +45,17 @@ const pos = (x) => ok(x) && x > 0;
 export function dayOf(v) {
   if (v === null || v === undefined || v === '') return null;
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : Math.floor(v.getTime() / DAY);
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v));
+  if (typeof v !== 'string') return parseDay(String(v));
+  // the projection asks for the same few hundred dates hundreds of thousands of times
+  let d = DAYS.get(v);
+  if (d === undefined) { d = parseDay(v); if (DAYS.size >= CACHE_MAX) DAYS.clear(); DAYS.set(v, d); }
+  return d;
+}
+const CACHE_MAX = 50000;
+const DAYS = new Map();
+const ISOS = new Map();
+function parseDay(str) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(str);
   if (!m) return null;
   const y = +m[1]; const mo = +m[2]; const d = +m[3];
   const t = Date.UTC(y, mo - 1, d);
@@ -53,7 +63,12 @@ export function dayOf(v) {
   if (back.getUTCFullYear() !== y || back.getUTCMonth() !== mo - 1 || back.getUTCDate() !== d) return null;
   return t / DAY;
 }
-export const isoOf = (day) => new Date(day * DAY).toISOString().slice(0, 10);
+/** 'YYYY-MM-DD' for a UTC day number. */
+export function isoOf(day) {
+  let s = ISOS.get(day);
+  if (s === undefined) { s = new Date(day * DAY).toISOString().slice(0, 10); if (ISOS.size >= CACHE_MAX) ISOS.clear(); ISOS.set(day, s); }
+  return s;
+}
 /** The date `months` calendar months after `iso`, clamped to the month's end (Jan 31 + 1 month = Feb 28/29). */
 export function addMonths(iso, months) {
   const d = dayOf(iso);
@@ -212,30 +227,39 @@ export function inPlace(L, asOf) {
 export function leaseMonths(L, from, n) {
   const f = new Date(dayOf(from) * DAY);
   const y0 = f.getUTCFullYear(); const m0 = f.getUTCMonth();
+  // each period's and abatement's days, worked out once rather than every month
+  const periods = [];
+  if (!L.vacant) {
+    for (const p of L.periods || []) {
+      const s = dayOf(p.start); const e = dayOf(p.end);
+      if (s === null || e === null) continue;
+      periods.push({ s, e, mo: monthlyAmount(p.rate, p.unit, L.sf), projected: p.source === 'projected' });
+    }
+  }
+  const abates = [];
+  for (const a of L.abatements || []) {
+    const as = dayOf(a.start); const ae = dayOf(a.end);
+    if (as === null || ae === null) continue;
+    abates.push({ as, ae, share: Math.min(1, Math.max(0, (a.pct || 0) / 100)) });
+  }
   const out = [];
   for (let k = 0; k < n; k++) {
     const ms = monthStart(y0, m0 + k);
-    const dim = daysIn(new Date(ms * DAY).getUTCFullYear(), new Date(ms * DAY).getUTCMonth());
+    const dim = daysIn(y0 + Math.floor((m0 + k) / 12), (m0 + k) % 12);
     const me = ms + dim - 1;
     let contract = 0; let projected = 0; let leasedDays = 0; let abate = 0;
-    if (!L.vacant) {
-      for (const p of L.periods || []) {
-        const s = dayOf(p.start); const e = dayOf(p.end);
-        if (s === null || e === null) continue;
-        const days = overlap(ms, me, s, e);
-        if (!days) continue;
-        const mo = monthlyAmount(p.rate, p.unit, L.sf);
-        if (mo === null) continue;
-        const earned = mo * (days / dim);
-        if (p.source === 'projected') projected += earned; else contract += earned;
-        leasedDays = Math.max(leasedDays, days);
-        // abatements cover a share of each day's rent
-        for (const a of L.abatements || []) {
-          const as = dayOf(a.start); const ae = dayOf(a.end);
-          if (as === null || ae === null) continue;
-          const ad = overlap(Math.max(ms, s), Math.min(me, e), as, ae);
-          if (ad) abate += mo * (ad / dim) * Math.min(1, Math.max(0, (a.pct || 0) / 100));
-        }
+    for (const p of periods) {
+      const days = overlap(ms, me, p.s, p.e);
+      if (!days) continue;
+      const mo = p.mo;
+      if (mo === null) continue;
+      const earned = mo * (days / dim);
+      if (p.projected) projected += earned; else contract += earned;
+      leasedDays = Math.max(leasedDays, days);
+      // abatements cover a share of each day's rent
+      for (const a of abates) {
+        const ad = overlap(Math.max(ms, p.s), Math.min(me, p.e), a.as, a.ae);
+        if (ad) abate += mo * (ad / dim) * a.share;
       }
     }
     out.push({ month: isoOf(ms), contract, projected, rent: contract + projected, abatement: abate, net: contract + projected - abate, occupied: leasedDays / dim });
@@ -465,6 +489,11 @@ export function project(rr, { asOf: asOfArg, years: yearsArg } = {}) {
   if (fromContract.length && s.renewal.assume !== false) notes.push(`No market rent is set for ${fromContract.length === leases.length ? 'any unit' : `unit${fromContract.length === 1 ? '' : 's'} ${fromContract.join(', ')}`}: renewals and re-leasing there assume the last documented rent, grown ${s.marketGrowth}% a year. Set market rents under Assumptions.`);
   if (noMarket.length) notes.push(`Vacant unit${noMarket.length === 1 ? '' : 's'} ${noMarket.join(', ')} ${noMarket.length === 1 ? 'has' : 'have'} no market rent, so ${noMarket.length === 1 ? 'its' : 'their'} potential rent, vacancy and lease-up are left out.`);
   return { settings: s, asOf, from, months: rows, annual, leases: perLease, totalSf, notes };
+}
+
+/** What the screens read from a projection: the years, where they start, and the notes (not the month-by-month detail). */
+export function projectionSummary(P) {
+  return { asOf: P.asOf, from: P.from, annual: P.annual, notes: P.notes, totalSf: P.totalSf, settings: P.settings };
 }
 
 function monthIndex(from, iso) {

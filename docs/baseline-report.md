@@ -156,6 +156,17 @@ overhead). Three runs, consistent to within about 10%.
 The projection is the bottleneck, not rendering. It is pure, so it can be
 optimized behind the existing known-answer tests and moved into a worker.
 
+**Update, checkpoint (c), 4.2.0:** the projection was the larger cost, but
+not the only one. Once it ran in a worker, painting the 505-row grid still
+took most of a second. 4.2.0 makes the projection 14× faster with identical
+results, runs it in a worker, and draws only the rows near the screen on long
+rent rolls. Measured in-page with `perf-flow`, the same machine, medians:
+
+- open: 1,843 → 189 ms;
+- edit: 1,065 → 66 ms.
+
+See `docs/proposals/checkpoint-c-results.md`.
+
 ## 8. Security observations
 
 - The AI server keeps the Anthropic and speech keys server-side; the browser
