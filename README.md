@@ -455,6 +455,14 @@ fixture deals, each input changed in turn, everything that moved must be on the
 map's list for it. `tests/analyze-golden.test.js` holds `analyze()`'s results on
 618 deals, to the last digit, as 4.3.1 gave them.
 
+`tests/migrate.test.js` runs every step of the migration registry
+(`app/migrate.js`: the changes to a stored deal's shape, applied on open and on
+restore) on real backups made by old versions in `tests/fixtures/`, and fails
+if a step is added without one. A new backup from an old version is made with
+the old apps taken from git by `tests/tools/make-old-backup.mjs`.
+`tests/e2e/migrate-flow.mjs` restores and opens those deals beside the
+previous release and checks they are stored and shown the same.
+
 `tests/engine.test.js` holds known answers for each shared definition
 (WALT, whole-month debt service, net effective rent, break-even, comp rules)
 and checks that every screen and workbook gives the same figure.

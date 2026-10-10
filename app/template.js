@@ -596,7 +596,8 @@ function allFormulas(pkg, sheets) {
     const doc = pkg.doc(s.path);
     for (const f of doc.getElementsByTagNameNS(MAIN, 'f')) {
       const t = f.textContent || '';
-      if (t) out.push({ sheet: s.name, text: t });
+      const at = splitRef((f.parentNode && /** @type {Element} */ (f.parentNode).getAttribute('r')) || '');
+      if (t) out.push({ sheet: s.name, text: t, col: at ? at.col : null, row: at ? at.row : null });
     }
   }
   const wb = pkg.doc('xl/workbook.xml');
@@ -605,27 +606,81 @@ function allFormulas(pkg, sheets) {
 }
 
 const REF_RE = /((?:'(?:[^']|'')+'|[A-Za-z_][\w.]*)!)?\$?([A-Z]{1,3})\$?(\d+)(?::\$?([A-Z]{1,3})\$?(\d+))?(?![\w(!])/g;
+/** The cells and ranges a formula's text refers to: [{ sheet, c1, r1, c2, r2 }] (text in quotes left out). */
+function refsOf(f) {
+  const text = f.text.replace(/"(?:[^"]|"")*"/g, '');
+  const out = [];
+  REF_RE.lastIndex = 0;
+  let m;
+  while ((m = REF_RE.exec(text))) {
+    const before = text[m.index - 1];
+    if (before && /[\w.]/.test(before)) continue;
+    const c1 = colNum(m[2]); const r1 = Number(m[3]);
+    const c2 = m[4] ? colNum(m[4]) : c1; const r2 = m[5] ? Number(m[5]) : r1;
+    out.push({ sheet: m[1] ? unquote(m[1].slice(0, -1)) : f.sheet, c1: Math.min(c1, c2), r1: Math.min(r1, r2), c2: Math.max(c1, c2), r2: Math.max(r1, r2) });
+  }
+  return out;
+}
+const covers = (refs, sheet, col, row) => refs.some((r) => r.sheet === sheet && col >= r.c1 && col <= r.c2 && row >= r.r1 && row <= r.r2);
 /** How many formulas (and named ranges) read a cell, directly or through a range. */
 export function dependents(formulas, sheet, col, row) {
   let n = 0;
   const names = [];
   for (const f of formulas) {
-    const text = f.text.replace(/"(?:[^"]|"")*"/g, '');
-    REF_RE.lastIndex = 0;
-    let m;
-    let hit = false;
-    while ((m = REF_RE.exec(text))) {
-      const before = text[m.index - 1];
-      if (before && /[\w.]/.test(before)) continue;
-      const sh = m[1] ? unquote(m[1].slice(0, -1)) : f.sheet;
-      if (sh !== sheet) continue;
-      const c1 = colNum(m[2]); const r1 = Number(m[3]);
-      const c2 = m[4] ? colNum(m[4]) : c1; const r2 = m[5] ? Number(m[5]) : r1;
-      if (col >= Math.min(c1, c2) && col <= Math.max(c1, c2) && row >= Math.min(r1, r2) && row <= Math.max(r1, r2)) { hit = true; break; }
-    }
-    if (hit) { if (f.name) names.push(f.name); else n += 1; }
+    if (!covers(refsOf(f), sheet, col, row)) continue;
+    if (f.name) names.push(f.name); else n += 1;
   }
   return { formulas: n, names };
+}
+
+/**
+ * The formulas that read any of these cells: directly (through a range, or
+ * a named range that holds the cell), and in all (also the formulas that
+ * read those formulas' cells, and so on). Shared-formula copies, which hold
+ * no text of their own, are counted through the formula they copy, as the
+ * direct count always has. Returns { direct, all, names, byCell, capped }:
+ * `byCell` the named ranges holding each cell, in order; `all` stops at
+ * `cap` formulas.
+ */
+export function reach(formulas, cells, { cap = 5000 } = {}) {
+  const parsed = formulas.map((f) => ({ f, refs: refsOf(f) }));
+  const plain = parsed.filter((x) => !x.f.name);
+  const namesOf = (sheet, col, row) => parsed.filter((x) => x.f.name && covers(x.refs, sheet, col, row)).map((x) => x.f.name);
+  const usesName = (f, names) => names.some((n) => new RegExp(`(^|[^\\w.!'])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.(!])`, 'i').test(f.text.replace(/"(?:[^"]|"")*"/g, '')));
+  const readersOf = (sheet, col, row) => {
+    const names = namesOf(sheet, col, row);
+    return { names, list: plain.filter((x) => covers(x.refs, sheet, col, row) || (names.length && usesName(x.f, names))) };
+  };
+  const direct = new Set();
+  const names = new Set();
+  const byCell = cells.map((c) => {
+    const r = readersOf(c.sheet, c.col, c.row);
+    for (const x of r.list) direct.add(x);
+    for (const n of r.names) names.add(n);
+    return r.names;
+  });
+  const all = new Set(direct);
+  const queue = [...direct];
+  let capped = false;
+  while (queue.length) {
+    const x = queue.shift();
+    if (x.f.col === null || x.f.col === undefined) continue;
+    for (const y of readersOf(x.f.sheet, x.f.col, x.f.row).list) {
+      if (all.has(y)) continue;
+      if (all.size >= cap) { capped = true; queue.length = 0; break; }
+      all.add(y); queue.push(y);
+    }
+  }
+  return { direct: direct.size, all: all.size, names: [...names], byCell, capped };
+}
+
+/** reach() for cells of a workbook's bytes: [{ sheet, cell }]. */
+export function workbookReach(fflate, bytes, cells, xml) {
+  const pkg = new Package(fflate, bytes, xml);
+  const formulas = allFormulas(pkg, sheetsOf(pkg));
+  // a cell that isn't a reference reads as nothing, and keeps its place in byCell
+  const at = cells.map((c) => ({ sheet: c.sheet, ...(splitRef(c.cell || '') || { col: -1, row: -1 }) }));
+  return reach(formulas, at);
 }
 
 /**

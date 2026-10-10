@@ -3,7 +3,8 @@
 
 import * as store from './store.js';
 import { snapshotData } from './history.js';
-import { buildBackup, readBackup, planRestore, LOCAL_KEYS } from './backup.js';
+import { buildBackup, readBackup, planRestore, changedSteps, LOCAL_KEYS } from './backup.js';
+import { migrateDeal } from './migrate.js';
 import { prepareForRestore, listAllDeals } from './dealui.js';
 import { VERSION } from './exporters.js';
 import { PRODUCT, OLD_PRODUCT } from './brand.js';
@@ -146,7 +147,13 @@ async function restore(file, api) {
       // a deal on this device about to be overwritten is kept as an automatic snapshot first, so the restore can be undone
       const here = c.deals.find((x) => x.id === d.id);
       const snap = here ? await store.saveSnapshot(d.id, { name: `Before restoring the backup of ${made}`, auto: true, reason: 'restore' }, snapshotData(here)) : null;
-      if (!(await store.saveDeal(d, { kind: 'restore', label: `Restored from the backup of ${made}`, snapshot: snap && /** @type {{ id: string }} */ (snap).id }))) throw new Error('storage is full or blocked');
+      // a deal an older version saved is brought up to date before it is stored (app/migrate.js), and its history says so
+      const steps = migrateDeal(d);
+      const rounded = steps.flatMap((x) => x.rounded);
+      if (rounded.length) await store.logRounding(rounded, `Deal: ${d.name || (d.figures && d.figures.address) || 'Untitled deal'}`);
+      const shown = changedSteps(steps);
+      const label = `Restored from the backup of ${made}${shown.length ? `, and brought up to date: ${shown.map((x) => x.brief).join(', ')}` : ''}`;
+      if (!(await store.saveDeal(d, { kind: 'restore', label, rounded, snapshot: snap && /** @type {{ id: string }} */ (snap).id }))) throw new Error('storage is full or blocked');
     }
     // each deal's history and snapshots from the backup, combined with this device's (never overwritten)
     for (const [id, list] of Object.entries(plan.history || {})) await store.mergeHistory(id, list);

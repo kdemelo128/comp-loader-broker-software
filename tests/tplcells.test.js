@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import ExcelJS from 'exceljs';
 import * as fflate from 'fflate';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
-import { inspectWorkbook, suggestCellMap, previewCells, fillCells, dependents, nameTarget } from '../app/template.js';
+import { inspectWorkbook, suggestCellMap, previewCells, fillCells, dependents, nameTarget, reach, workbookReach } from '../app/template.js';
 import { DEAL_FIELDS, dealValues, rrFieldForHeader } from '../app/dealfields.js';
 import { analyze } from '../app/deal.js';
 
@@ -45,6 +45,8 @@ async function makeModel() {
   sum.getCell('B2').value = { formula: "SUM('Rent Roll'!E5:E40)", result: 0 };
   sum.getCell('A3').value = 'Price / unit';
   sum.getCell('B3').value = { formula: 'IFERROR(Inputs!B5/Inputs!B8,"")', result: '' };
+  sum.getCell('A4').value = 'Implied cap';
+  sum.getCell('B4').value = { formula: 'Inputs!B7', result: '' };
   const h = wb.addWorksheet('Lists');
   h.state = 'hidden';
   h.getCell('A1').value = 'helper';
@@ -87,6 +89,42 @@ test('dependencies: the formulas that read a cell, across sheets and through ran
   assert.equal(dependents(formulas, 'Inputs', 2, 5).formulas, 3, 'B7 and two Summary formulas read B5');
   assert.equal(dependents(formulas, 'Rent Roll', 5, 6).formulas, 2, "the row's Rent/SF and the Summary's SUM over E5:E40");
   assert.equal(dependents([{ sheet: 'X', text: 'LOG10(A1)+SUM(B2:B4)' }], 'X', 7, 10).formulas, 0, 'LOG10 is a function, not cell G10');
+});
+
+test('reach: the formulas that read a cell directly, and in all through the ones that read those', () => {
+  const at = (sheet, ref) => ({ sheet, col: ref.charCodeAt(0) - 64, row: Number(ref.slice(1)) });
+  const F = [
+    { sheet: 'Inputs', text: 'IFERROR(B6/B5,"")', col: 2, row: 7 }, // cap = NOI / price
+    { sheet: 'Summary', text: 'Inputs!B7', col: 2, row: 4 }, // the summary's cap
+    { sheet: 'Summary', text: 'B4*100', col: 2, row: 5 }, // and a figure from that
+    { sheet: null, name: 'InterestRate', text: 'Inputs!$B$12' },
+    { sheet: 'Inputs', text: 'B5*interestRATE', col: 2, row: 14 }, // through the named range, any case
+    { sheet: 'Inputs', text: '"B6 is NOI"', col: 3, row: 1 }, // text, not a reference
+    { sheet: 'Loop', text: 'B1', col: 1, row: 1 }, { sheet: 'Loop', text: 'A1+Inputs!B6', col: 2, row: 1 }, // a circular pair
+  ];
+  const noi = reach(F, [at('Inputs', 'B6')]);
+  assert.equal(noi.direct, 2, 'the cap and the loop’s B1');
+  assert.equal(noi.all, 5, 'and the summary’s cap, the figure from it, and the loop’s A1, each once');
+  const rate = reach(F, [at('Inputs', 'B12')]);
+  assert.deepEqual(rate.names, ['InterestRate']);
+  assert.deepEqual(rate.byCell, [['InterestRate']]);
+  assert.equal(rate.direct, 1, 'a formula reading the named range reads the cell');
+  // two cells: each formula counted once
+  const both = reach(F, [at('Inputs', 'B5'), at('Inputs', 'B6')]);
+  assert.equal(both.direct, 3);
+  assert.equal(both.all, 6);
+  assert.deepEqual(both.byCell, [[], []]);
+  assert.equal(reach(F, [at('Inputs', 'B6')], { cap: 3 }).capped, true);
+});
+
+test('reach on a real workbook: the model’s NOI is read by 1 formula directly and 2 in all', async () => {
+  const bytes = await makeModel();
+  const r = workbookReach(fflate, bytes, [{ sheet: 'Inputs', cell: 'B6' }], xml);
+  assert.equal(r.direct, 1, 'the cap rate (B7)');
+  assert.equal(r.all, 2, 'and the summary’s implied cap, which reads B7');
+  const rate = workbookReach(fflate, bytes, [{ sheet: 'Inputs', cell: 'B12' }], xml);
+  assert.deepEqual(rate.byCell, [['InterestRate']]);
+  assert.equal(rate.all, 0);
 });
 
 test('preview: what will change, what is skipped and why', async () => {

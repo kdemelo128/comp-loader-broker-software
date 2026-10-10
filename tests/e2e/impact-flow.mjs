@@ -35,7 +35,7 @@ await page.evaluate((bytes) => new Promise((res, rej) => {
     const now = Date.now();
     tx.objectStore('kv').put([{ id: 'tacme', name: 'Acme model', category: 'Underwriting', description: '', archived: false, createdAt: now, updatedAt: now,
       versions: [{ at: now, fileName: 'uw-model.xlsx', bytes: new Uint8Array(bytes), size: bytes.length, note: 'uploaded' }], current: 0,
-      mapping: { cells: [{ sheet: 'Inputs', cell: 'B5', field: 'price' }, { sheet: 'Inputs', cell: 'B6', field: 'noi' }], tables: [] }, features: {}, warnings: [] }], 'tpl.library');
+      mapping: { cells: [{ sheet: 'Inputs', cell: 'B5', field: 'price' }, { sheet: 'Inputs', cell: 'B6', field: 'noi' }, { sheet: 'Inputs', cell: 'B12', field: 'rate' }], tables: [] }, features: {}, warnings: [] }], 'tpl.library');
     tx.oncomplete = () => { r.result.close(); res(); };
     tx.onerror = () => rej(tx.error);
   };
@@ -63,13 +63,17 @@ await page.click('button[aria-label="What changing interest rate affects"]');
 await page.waitForSelector('#impact-figures');
 const lf = await texts('#impact-figures .li-title');
 check('the loan rate moves debt service and DSCR', lf.includes('Annual debt service') && lf.includes('DSCR'), lf.join(' | '));
+// its template cell is held by a named range, which is named; no formula in this workbook reads it
+await page.waitForFunction(() => /formula/.test(document.querySelector('#impact-exports li[data-template="tacme"]')?.textContent || ''), null, { timeout: 15000 }).catch(() => {});
+const rt = await page.textContent('#impact-exports li[data-template="tacme"]').catch(() => '');
+check('the loan rate’s template cell names the named range that holds it', /^Acme model \(firm template\)Inputs!B12 \(named range InterestRate\) · no formula in the workbook reads it$/.test(rt.replace(/\s+/g, ' ').trim()), rt);
 await close();
 // NOI: its template cell, and how many of the template's own formulas read it
 await page.click('button[aria-label="What changing NOI, in place affects"]');
 await page.waitForSelector('#impact-exports');
 await page.waitForFunction(() => /formula/.test(document.querySelector('#impact-exports li[data-template="tacme"]')?.textContent || ''), null, { timeout: 15000 }).catch(() => {});
 const tpl = await page.textContent('#impact-exports li[data-template="tacme"]').catch(() => '');
-check('NOI lists the firm template’s NOI cell (not its price cell), with the template’s own formulas that read it', /^Acme model \(firm template\)Inputs!B6 · 1 formula in the workbook reads? it$/.test(tpl.replace(/\s+/g, ' ').trim()), tpl);
+check('NOI lists the firm template’s NOI cell (not its price cell), with the formulas that read it: 1 directly (the cap rate), 2 in all (and the summary’s cap)', /^Acme model \(firm template\)Inputs!B6 · 1 formula directly, 2 in all$/.test(tpl.replace(/\s+/g, ' ').trim()), tpl);
 await close();
 await page.click('button[aria-label="What changing interest rate affects"]');
 await page.waitForSelector('#impact-figures');

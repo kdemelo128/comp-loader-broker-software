@@ -1,5 +1,70 @@
 # Changelog
 
+## 4.5.0: one list of migrations, run on open and on restore (on the development branch; not merged or deployed)
+
+Phase 1, item 3: the migration registry, with the template count improvement
+approved for this PR.
+
+- **The registry.** `app/migrate.js` holds every change to a stored deal's
+  shape, in order. Each step records what it did, in a version field on the
+  deal, so it runs once:
+  1. the money rounding (4.1: `moneyVersion` 1);
+  2. the rent roll set up from the OM's rows, or an empty one (`schema` 2).
+
+  Before this, the two lived in three places (opening a deal, drawing it, and
+  the start-up pass), and a restored deal stayed in its old shape until it was
+  opened. Now the open path, the restore and the start-up rounding all use the
+  same steps.
+- **On restore,** each deal an older version saved is brought up to date
+  before it is stored.
+  - The restore sheet says so: "3 deals saved by an older version are brought
+    up to date as they are restored: money rounded to whole cents (1), rent
+    roll set up (3)".
+  - Each deal's history entry says so too.
+  - The values rounded go into the rounding log, as before.
+- **On open,** a deal in its old shape (one never restored) is brought up to
+  date one step at a time, and each step is its own history entry. Before, the
+  rounding's entry also held the new rent roll, and the "Rent roll set up"
+  entry came out empty.
+- **A deal from a newer version** (a version field above what this code
+  knows) is left alone. A backup holding one is refused and nothing is
+  restored: "This backup holds a deal saved by a newer version of Zlatura
+  (“…”): update the app first."
+- **What you see doesn't change.** For each deal in the old backup, restored
+  and opened, the deal screen and the stored deal are exactly what 4.4.1
+  gives. The lease ids are made new each time, and the time of the save
+  differs.
+  - One difference: a restored deal's rent roll "as of" date is the day of the
+    restore, not the day it is first opened.
+- **Template count.** The Affects sheet's firm template line now reads, for
+  example, "Inputs!B6 · 1 formula directly, 2 in all". "In all" adds the
+  formulas that read those formulas, and so on, with each counted once and
+  stopping at 5,000. A formula that reads the cell through a named range now
+  counts. A cell held by a named range names it: "Inputs!B12 (named range
+  InterestRate)".
+- **Tests:**
+  - `tests/fixtures/backup-3.1.0-before-rent-roll.json` is a real backup made
+    by the old apps from git (`tests/tools/make-old-backup.mjs`):
+    - 3 deals read from the suite's test OMs by the version before the rent
+      roll;
+    - backed up by 3.1.0 without being opened, so they are in their old shape.
+  - `tests/migrate.test.js` (7 tests):
+    - each step runs on the 3.1.0 and 3.3.0 backups: one lease per OM row at
+      the row's rent, and everything rounded;
+    - a second run does nothing;
+    - one step at a time equals all at once;
+    - a newer deal is refused;
+    - the restore line is right;
+    - it **fails if a step is added without an old backup that needs it**.
+  - `tests/e2e/migrate-flow.mjs` (20 checks) runs the new app beside 4.4.1,
+    taken from git. On 4.4.1, 8 of its checks fail: the restore leaves the
+    deals in their old shape, says nothing, keeps the newer deal, and records
+    the open as one entry.
+  - Formula reach is covered by `tplcells.test.js` (a chain, a named range
+    read in any case, text that only looks like a reference, a circular pair,
+    two cells sharing formulas, the cap) and by `impact-flow` (NOI: "1 formula
+    directly, 2 in all"; the loan rate: its named range).
+
 ## 4.4.1: units the checker holds every number to (on the development branch; not merged or deployed)
 
 Phase 1, item 2, as approved: the typed deal model with unit types. **Nothing
