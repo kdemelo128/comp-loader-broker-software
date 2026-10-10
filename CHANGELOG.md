@@ -1,6 +1,79 @@
 # Changelog
 
-## 3.2.0 (on the development branch; not yet merged or deployed)
+## 3.3.0 (on the development branch; not yet merged or deployed)
+
+A redesign of how the app looks and is found around. No formula, data
+mapping, saved-data format or scenario rule changed; every screen still shows
+the same figures from the same calculations. The version (and the offline
+cache name) is 3.3.0, so an installed copy fetches the new files once.
+
+### Design system
+
+- One stylesheet, `app/styles.css`, built on tokens: a warm paper and ink
+  palette with a single cobalt accent for links, focus and selection, a brass
+  identity mark, semantic good, warning and bad colours, a 4-point spacing
+  scale, radii, borders, elevation and motion durations. Every figure uses
+  tabular numerals; property names and page titles use a serif.
+- **Light, dark and system** appearance, chosen in the sidebar or in
+  Settings and kept on the device. It is applied before the first paint, so
+  there is no flash of the wrong theme; the browser chrome colour follows it.
+- Consistent controls: one primary (ink) button per area, bordered secondary
+  buttons, quiet fills; 38 px fields; segmented controls; switches; chips.
+- Motion is short and only shows a change of place or state; with Reduce
+  Motion on, it is removed.
+
+### Navigation
+
+- A sidebar on a computer (Home, Deals, Comps, Tools, then Settings) and a
+  five-tab bar on a phone. The app opens on Home.
+- **Search or jump** (⌘K, Ctrl K or "/"): deals, contacts, the 30 tools,
+  screens and actions, from the keyboard. It opens at once and keeps what is
+  typed while the deals load. Results are grouped, with the group holding the
+  best match first.
+- **Settings**: appearance, template library, pipeline stages, the AI
+  connection, backup and restore, and the version. Backup moved here from
+  Home; Home still says when there is no recent backup and links to it.
+
+### Screens
+
+- **Home**: a greeting with the day's real counts and the three common
+  starts (read an OM, add comps, new task); four summary figures; **Continue
+  working** with each recent deal's stage, asking price, cap rate, NOI and
+  next step (or that none is set); Needs attention; key dates; the pipeline
+  with a stage bar; tasks; activity; contacts.
+- **Deal workspace**: the property name is the page heading, with its stage
+  beside it (kept in step with the Pipeline card); Overview, Rent roll, What
+  if and Site visit are underline tabs that stay in view while scrolling and
+  then show the deal's name. On a wide screen the analysis sits in a main
+  column with the pipeline, next steps, rent roll summary and questions in a
+  rail; on a tablet or phone the pipeline and next steps come first.
+- **Dense figures**: sticky table headers; the rent roll's unit column and
+  the projection's row labels stay in place while the table scrolls sideways;
+  the what-if comparison is kept to a readable width.
+- **Tools**: the 30 tool icons are tinted by group instead of one colour each.
+
+### Fixed
+
+- Home could show no deals, and a task's deal as deleted, for the first
+  moment after reading an OM (the new deal was not yet saved). The deal list
+  now includes deals that are open but not yet saved.
+- Typing straight after ⌘K could lose the first characters.
+- At 320 px the Comps screen's Excel output choice was 1 px wider than the
+  screen; segmented controls now wrap their labels on narrow screens. The
+  browser tests' overflow check compared against a width that grows with the
+  overflow, so it could not catch this; it now compares against the layout
+  width.
+- Task checkboxes were 22 px, under the 24 px minimum target size.
+- Chart labels and the tab bar's labels were 10.5 px; now 11 px.
+
+### Tests
+
+- New browser flow `shell-flow` (navigation, theme persistence across a
+  reload, search or jump, Settings controls, phone tab bar).
+- The accessibility flow now also audits Settings and the search dialog, and
+  Settings, Comps, the rent roll, What if and the search dialog in dark mode.
+
+## 3.2.0 (merged into `main` in pull request #2)
 
 The version (and so the offline cache name) is 3.2.0, so an installed copy
 fetches every new file whole once this reaches the published site.
