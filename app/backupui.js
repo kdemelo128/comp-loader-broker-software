@@ -2,6 +2,7 @@
  * a backup of everything in one file, and restoring one. */
 
 import * as store from './store.js';
+import { snapshotData } from './history.js';
 import { buildBackup, readBackup, planRestore, LOCAL_KEYS } from './backup.js';
 import { prepareForRestore, listAllDeals } from './dealui.js';
 import { VERSION } from './exporters.js';
@@ -117,7 +118,12 @@ async function restore(file, api) {
     if (api.flushComps) api.flushComps();
     await prepareForRestore();
     for (const id of plan.removeDeals) await store.deleteDeal(id);
-    for (const d of plan.deals.put) if (!(await store.saveDeal(d))) throw new Error('storage is full or blocked');
+    for (const d of plan.deals.put) {
+      // a deal on this device about to be overwritten is kept as an automatic snapshot first, so the restore can be undone
+      const here = c.deals.find((x) => x.id === d.id);
+      const snap = here ? await store.saveSnapshot(d.id, { name: `Before restoring the backup of ${made}`, auto: true, reason: 'restore' }, snapshotData(here)) : null;
+      if (!(await store.saveDeal(d, { kind: 'restore', label: `Restored from the backup of ${made}`, snapshot: snap && snap.id }))) throw new Error('storage is full or blocked');
+    }
     for (const k of plan.removeKv) await store.kvSet(k, null);
     for (const [k, val] of Object.entries(plan.kv)) if (!(await store.kvSet(k, val))) throw new Error('storage is full or blocked');
     if (v === 'replace' && !plan.session) await store.clearSession();

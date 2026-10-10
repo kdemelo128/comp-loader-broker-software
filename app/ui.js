@@ -1439,6 +1439,30 @@ function registerWorker() {
     });
   }).catch(() => { /* not served here */ });
 }
+/* Another tab has the database at another version (store.js): say so and
+ * how to finish, instead of failing quietly. 'blocked': this tab is the newer
+ * one, waiting for an older tab to let go. 'outdated': a newer version has the
+ * database, so this tab stops saving (edits wait in the recovery copy) until
+ * it is reloaded. */
+function storageBanner(state) {
+  let b = $('storage-banner');
+  if (state === 'ok') { if (b) b.remove(); return; }
+  if (!b) { b = el('div', 'storage-banner'); b.id = 'storage-banner'; b.setAttribute('role', 'alert'); document.body.prepend(b); }
+  b.textContent = '';
+  b.dataset.state = state;
+  b.appendChild(el('span', null, state === 'blocked'
+    ? `${PRODUCT} is finishing an update, but it is still open in another tab on the older version. Close or reload that tab to finish; this one carries on when it does.`
+    : `${PRODUCT} was updated in another tab. Reload to finish updating. Until you do, changes here aren’t saved to the app’s storage; your latest change is kept and comes back after the reload.`));
+  if (state === 'outdated') {
+    const r = el('button', 'btn btn-sm', 'Reload');
+    r.type = 'button';
+    r.addEventListener('click', () => location.reload());
+    b.appendChild(r);
+  }
+}
+window.addEventListener('zlatura:storage', (e) => storageBanner(e.detail && e.detail.state));
+if (store.storageStatus() !== 'ok') storageBanner(store.storageStatus());
+
 if (!IN_ARTIFACT && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   // registering after load keeps it off the critical path; if the page has
   // already loaded by the time this module runs, register now

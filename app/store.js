@@ -12,6 +12,7 @@
 
 import { FORMATS, PRODUCT, removeOldLocalKeys } from './brand.js';
 import { quantizeDeal, quantizeSession } from './engine/money.js';
+import { historyEntry, copyDeal, roundedPlace, SNAPSHOTS } from './history.js';
 
 const DB = 'zlatura';
 /** The database's name before the product was renamed (copied across once; see moveFromOld). */
@@ -29,23 +30,48 @@ export const KEEP_OLD_MS = 30 * 86400000;
  * contacts and small settings). A fourth, `meta`, records the move from the
  * old database and is never part of a backup.
  *
+ * Version 2 (4.3) adds three, and changes nothing in the others: `history`
+ * (each deal's changes, keyed [dealId, seq]), `snapshots` (named copies of a
+ * deal, keyed [dealId, snapshotId]) and `trash` (photos and recordings removed
+ * from a deal, kept 30 days so an undo can bring them back).
+ *
  * One connection is kept open and reused. Opening a database is asynchronous,
  * and a save made as the app leaves the screen (pagehide) has to start its
  * transaction straight away, before the page is frozen, or it is lost. */
 let dbP = null;
+export const DB_VERSION = 2;
+const HISTORY_STORES = ['history', 'snapshots', 'trash'];
+
+/* Another tab can hold the database at an older version (an upgrade waits for
+ * it to let go), or open it at a newer one (this tab is then out of date).
+ * Either way the page says so and asks for a reload, rather than failing
+ * quietly: 'blocked', 'outdated', or 'ok' once a wait is over. Edits made
+ * meanwhile stay in the recovery copy (dealui.js) until a save succeeds. */
+let outdated = false;
+let status = 'ok';
+function setStatus(next) {
+  status = next;
+  try { globalThis.dispatchEvent(new CustomEvent('zlatura:storage', { detail: { state: next } })); } catch { /* no events here (tests) */ }
+}
+/** 'ok', 'blocked' (waiting for an older tab) or 'outdated' (a newer version has the database). */
+export const storageStatus = () => status;
+
 function open() {
   if (dbP) return dbP;
+  if (outdated) return Promise.reject(new Error('a newer version of the app has the database: reload to finish updating'));
   dbP = new Promise((resolve, reject) => {
     if (!('indexedDB' in globalThis)) { reject(new Error('no IndexedDB')); return; }
-    const req = indexedDB.open(DB, 1);
+    const req = indexedDB.open(DB, DB_VERSION);
     req.onupgradeneeded = () => {
+      // only adds what is missing: nothing already stored is touched
       const db = req.result;
-      for (const name of [...DATA_STORES, 'meta']) if (!db.objectStoreNames.contains(name)) db.createObjectStore(name);
+      for (const name of [...DATA_STORES, 'meta', ...HISTORY_STORES]) if (!db.objectStoreNames.contains(name)) db.createObjectStore(name);
     };
     req.onsuccess = () => {
       const db = req.result;
-      // another tab upgrading the database, or the browser closing it: start afresh next time
-      db.onversionchange = () => { db.close(); dbP = null; };
+      if (status === 'blocked') setStatus('ok');
+      // a newer version upgrading the database in another tab: let it, and say this tab needs a reload
+      db.onversionchange = () => { db.close(); dbP = null; outdated = true; setStatus('outdated'); };
       db.onclose = () => { dbP = null; };
       // nothing reads or writes until the old database's data is here (or known not to exist)
       moveFromOld(db).catch(() => { /* retried at the next start; the old data is untouched */ })
@@ -53,8 +79,13 @@ function open() {
         .then(() => migrateMoneyIn(db, { once: true })).catch(() => { /* retried at the next start */ })
         .then(() => resolve(db));
     };
-    req.onerror = () => reject(req.error);
-    req.onblocked = () => reject(new Error('storage is busy in another tab'));
+    req.onerror = () => {
+      // the database is already at a newer version than this code knows
+      if (req.error && req.error.name === 'VersionError') { outdated = true; setStatus('outdated'); }
+      reject(req.error);
+    };
+    // an older tab still has the database open: wait for it (the request carries on once it lets go)
+    req.onblocked = () => setStatus('blocked');
   });
   dbP.catch(() => { dbP = null; });
   return dbP;
@@ -143,17 +174,23 @@ const dealName = (d) => d.name || (d.figures && d.figures.address) || 'Untitled 
  */
 async function migrateMoneyIn(db, { once = false } = {}) {
   if (once && await reqP(db.transaction('meta').objectStore('meta').get('money'))) return [];
-  const t = db.transaction(['deals', STORE, 'meta'], 'readwrite');
-  const deals = t.objectStore('deals'); const sess = t.objectStore(STORE); const meta = t.objectStore('meta');
+  const t = db.transaction(['deals', STORE, 'meta', 'history'], 'readwrite');
+  const deals = t.objectStore('deals'); const sess = t.objectStore(STORE); const meta = t.objectStore('meta'); const hist = t.objectStore('history');
   const at = Date.now();
   const entries = [];
-  const [keys, all, session, log] = await Promise.all([reqP(deals.getAllKeys()), reqP(deals.getAll()), reqP(sess.get(KEY)), reqP(meta.get('rounding'))]);
+  const [keys, all, session, log, hkeys] = await Promise.all([reqP(deals.getAllKeys()), reqP(deals.getAll()), reqP(sess.get(KEY)), reqP(meta.get('rounding')), reqP(hist.getAllKeys())]);
+  const lastSeq = new Map();
+  for (const k of hkeys) lastSeq.set(k[0], Math.max(lastSeq.get(k[0]) || 0, k[1]));
   all.forEach((d, i) => {
     if (!d || (d.moneyVersion || 0) >= MONEY_VERSION) return;
+    const before = copyDeal(d);
     const { changes } = quantizeDeal(d);
     for (const c of changes) entries.push({ at, where: `Deal: ${dealName(d)}`, ...c });
     d.moneyVersion = MONEY_VERSION;
     deals.put(d, keys[i]);
+    // the deal's own history says so too (rounding is a record, never undone)
+    const made = changes.length ? historyEntry(before, d, { kind: 'rounding', label: `Stored money rounded to whole cents (rates to four decimals): ${changes.length} value${changes.length === 1 ? '' : 's'}`, rounded: changes, always: true }, at) : null;
+    if (made) { const seq = (lastSeq.get(d.id) || 0) + 1; lastSeq.set(d.id, seq); hist.put({ ...made.entry, seq }, [d.id, seq]); }
   });
   if (session && (session.moneyVersion || 0) < MONEY_VERSION) {
     const { changes } = quantizeSession(session);
@@ -245,14 +282,142 @@ export async function clearSession() {
 
 /* ----------------------------------------------------------------- deals */
 
-export async function saveDeal(deal) {
-  try { await tx('readwrite', (s) => s.put(deal, deal.id), 'deals'); return true; } catch { return false; }
+/**
+ * Save a deal, and record what changed since the stored copy as one history
+ * entry, in the same transaction: both are written or neither. The deal is
+ * written first, so a save started as the page goes away isn't held up.
+ * meta: { kind, label, undoes, redoes, rounded, snapshot, always } (history.js).
+ */
+export async function saveDeal(deal, meta = null) {
+  try {
+    const db = await open();
+    const t = db.transaction(['deals', 'history', 'trash'], 'readwrite');
+    const deals = t.objectStore('deals'); const hist = t.objectStore('history'); const trash = t.objectStore('trash');
+    const beforeP = reqP(deals.get(deal.id));
+    deals.put(deal, deal.id);
+    trash.delete(`deal:${deal.id}`); // a deal deleted and brought back
+    const lastP = reqP(hist.openKeyCursor(IDBKeyRange.bound([deal.id, 0], [deal.id, Infinity]), 'prev'));
+    const [before, last] = await Promise.all([beforeP, lastP]);
+    // values rounded as they were saved are their own entry, after the edit: a record, never undone
+    const { rounded, ...rest } = meta || {};
+    const made = historyEntry(before, deal, rest);
+    let seq = last ? last.key[1] : 0;
+    const at = Date.now();
+    if (made) {
+      seq += 1;
+      hist.put({ ...made.entry, seq }, [deal.id, seq]);
+      for (const m of made.removed) trash.put({ kind: 'media', dealId: deal.id, id: String(m.id), name: m.name || '', blob: m.blob, removedAt: at }, String(m.id));
+    }
+    if (before && rounded && rounded.length) {
+      seq += 1;
+      const one = rounded.length === 1 ? `${roundedPlace(rounded[0].path)}: ${rounded[0].old} → ${rounded[0].new}` : `${rounded.length} values`;
+      hist.put({ id: `r${at.toString(36)}${seq}`, seq, at, kind: 'rounding', label: `Rounded as saved, to whole cents (rates to four decimals): ${one}`, changes: [], rounded }, [deal.id, seq]);
+    }
+    await doneP(t);
+    return true;
+  } catch { return false; }
+}
+
+/** A deal's history, oldest first: [{ id, seq, at, kind, label, changes, … }]. */
+export async function historyOf(dealId) {
+  try {
+    const db = await open();
+    return (await reqP(db.transaction('history').objectStore('history').getAll(IDBKeyRange.bound([dealId, 0], [dealId, Infinity])))) || [];
+  } catch { return []; }
+}
+
+/** Removed photos and recordings by id: id -> Blob (what the trash still holds). */
+export async function trashedMedia(ids) {
+  const out = new Map();
+  try {
+    const db = await open();
+    const os = db.transaction('trash').objectStore('trash');
+    const got = await Promise.all([...ids].map((id) => reqP(os.get(String(id)))));
+    got.forEach((x) => { if (x && x.blob) out.set(x.id, x.blob); });
+  } catch { /* none */ }
+  return out;
+}
+
+/* ------------------------------------------------------------ snapshots */
+
+const snapRange = (dealId) => IDBKeyRange.bound([dealId, ''], [dealId, '\uffff']);
+
+/** A deal's snapshots, oldest first: [{ id, dealId, name, auto, reason, at, data }]. */
+export async function snapshotsOf(dealId) {
+  try {
+    const db = await open();
+    return ((await reqP(db.transaction('snapshots').objectStore('snapshots').getAll(snapRange(dealId)))) || []).sort((a, b) => a.at - b.at);
+  } catch { return []; }
+}
+
+/**
+ * Keep a snapshot of a deal. `data` is history.js snapshotData(deal). A named
+ * one is refused when the deal has SNAPSHOTS.manual already ('full'); an
+ * automatic one replaces the oldest automatic one beyond SNAPSHOTS.auto.
+ * Returns the snapshot, 'full', or null if storage refused it.
+ */
+export async function saveSnapshot(dealId, { id = null, name, auto = false, reason = '' }, data, now = Date.now()) {
+  try {
+    const db = await open();
+    const t = db.transaction('snapshots', 'readwrite');
+    const os = t.objectStore('snapshots');
+    const all = ((await reqP(os.getAll(snapRange(dealId)))) || []).sort((a, b) => a.at - b.at);
+    const same = all.filter((x) => !!x.auto === !!auto);
+    if (!auto && same.length >= SNAPSHOTS.manual) { t.abort(); return 'full'; }
+    if (auto) for (const x of same.slice(0, Math.max(0, same.length - SNAPSHOTS.auto + 1))) os.delete([dealId, x.id]);
+    const snap = { id: id || `s${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`, dealId, name: name || 'Snapshot', auto: !!auto, reason, at: now, data };
+    os.put(snap, [dealId, snap.id]);
+    await doneP(t);
+    return snap;
+  } catch { return null; }
+}
+
+export async function deleteSnapshot(dealId, id) {
+  try { const db = await open(); const t = db.transaction('snapshots', 'readwrite'); t.objectStore('snapshots').delete([dealId, id]); await doneP(t); return true; } catch { return false; }
+}
+
+/** How long removed photos, recordings and deleted deals' history are kept. */
+export const TRASH_DAYS = 30;
+
+/**
+ * Empty what has been in the trash longer than TRASH_DAYS: removed media, and
+ * the history and snapshots of a deal deleted that long ago (and not brought back).
+ */
+export async function sweepTrash(now = Date.now()) {
+  try {
+    const db = await open();
+    const t = db.transaction(['trash', 'deals', 'history', 'snapshots'], 'readwrite');
+    const trash = t.objectStore('trash');
+    const [keys, vals] = await Promise.all([reqP(trash.getAllKeys()), reqP(trash.getAll())]);
+    let n = 0;
+    for (let i = 0; i < keys.length; i++) {
+      const v = vals[i];
+      if (!v || now - (v.removedAt || 0) < TRASH_DAYS * 86400000) continue;
+      if (v.kind === 'deal') {
+        if (await reqP(t.objectStore('deals').get(v.dealId))) { trash.delete(keys[i]); continue; }
+        t.objectStore('history').delete(IDBKeyRange.bound([v.dealId, 0], [v.dealId, Infinity]));
+        t.objectStore('snapshots').delete(IDBKeyRange.bound([v.dealId, ''], [v.dealId, '\uffff']));
+      }
+      trash.delete(keys[i]);
+      n += 1;
+    }
+    await doneP(t);
+    return n;
+  } catch { return 0; }
 }
 export async function loadDeal(id) {
   try { return (await tx('readonly', (s) => s.get(id), 'deals')) || null; } catch { return null; }
 }
+/** Delete a deal. Its history and snapshots are kept TRASH_DAYS, so bringing it back keeps them. */
 export async function deleteDeal(id) {
-  try { await tx('readwrite', (s) => s.delete(id), 'deals'); return true; } catch { return false; }
+  try {
+    const db = await open();
+    const t = db.transaction(['deals', 'trash'], 'readwrite');
+    t.objectStore('deals').delete(id);
+    t.objectStore('trash').put({ kind: 'deal', dealId: id, removedAt: Date.now() }, `deal:${id}`);
+    await doneP(t);
+    return true;
+  } catch { return false; }
 }
 /** Every saved deal, newest first, without loading photos into the list's memory twice. */
 export async function listDeals() {

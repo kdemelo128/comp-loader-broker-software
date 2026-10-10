@@ -1,6 +1,13 @@
 # Checkpoint (d): change history, undo and snapshots: design for approval
 
-Status: **proposal; nothing here is built.** Written 2026-10-10 against 4.2.1.
+Status: **approved 2026-10-10** (all four decisions as recommended).
+Parts A (history, undo) and B (snapshots) are built in 4.3.0. Parts C
+(backups) and D (limits) follow in a second pull request. One change from
+this design: history is captured where every deal save happens
+(`store.saveDeal`, in the same transaction as the deal) rather than in
+`touch()`, so changes made outside the deal screen (Home's stage menu, a
+restore) are recorded too. Original status: proposal, written 2026-10-10
+against 4.2.1.
 Sizes below were measured on this branch: a deal read from the retail fixture
 OM is 7 KB of JSON (without photos); with 500 leases it is 280 KB; one lease
 is about 400 bytes.
