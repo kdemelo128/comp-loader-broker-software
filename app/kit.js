@@ -200,14 +200,17 @@ export const canShareFiles = () => {
 /** Hand a file to the person: through the artifact's save channel when the page
  *  is published as one, through the share sheet where a download link is
  *  unreliable (an iPhone home-screen app), and as an ordinary download otherwise. */
+/* `opts.map` names what a file carries on the dependency map (impact.js
+ * DELIVERABLES), or says 'none: why' for a file with no deal data in it;
+ * tests/impact.test.js checks every call names one. */
 export async function deliver(filename, bytes, type, opts = {}) {
   const r = await handOver(filename, bytes, type, opts);
   // the Home screen keeps a list of what was produced, and for which deal
-  if (r === 'done') document.dispatchEvent(new CustomEvent('deliverable', { detail: { name: filename, kind: 'file' } }));
+  if (r === 'done') document.dispatchEvent(new CustomEvent('deliverable', { detail: { name: filename, kind: 'file', map: opts.map || null } }));
   return r;
 }
 /** A print (deal brief, comp sheet, a tool's results) counts as a deliverable too. */
-export const printed = (name) => document.dispatchEvent(new CustomEvent('deliverable', { detail: { name, kind: 'print' } }));
+export const printed = (name, { map = null } = {}) => document.dispatchEvent(new CustomEvent('deliverable', { detail: { name, kind: 'print', map } }));
 
 async function handOver(filename, bytes, type, { share = false } = {}) {
   const blob = bytes instanceof Blob ? bytes : new Blob([bytes], { type });

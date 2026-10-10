@@ -16,6 +16,9 @@ import { waltMethod } from './engine/walt.js';
 import { conv } from './engine/conventions.js';
 import { quantizeDeal } from './engine/money.js';
 import { analyze, runScenario, scenarioAnswers } from './deal.js';
+import { DEAL_SECTIONS } from './dealfields.js';
+import { analysisInput, fieldContext, inputOfPath, LEASE_FIELDS, RR_SETTINGS } from './impact.js';
+import { openImpact, affectsButton } from './impactui.js';
 import * as store from './store.js';
 import { undoState, inverseOf, mediaRefs, withBytes, applyChanges, placeOf, snapshotData, restoreInto, diffDeal, SNAPSHOTS } from './history.js';
 import { renderDealBrief, dealSummaryText, placeLine } from './brief.js';
@@ -51,27 +54,8 @@ const LOAN_KEY = 'zlatura.loan.v1';
 const CUR_KEY = 'zlatura.deal.current';
 const LOAN_DEFAULTS = { ltv: 65, rate: 6.75, amort: 30, io: false, closing: 2, minDscr: 1.25, minDy: 8 };
 
-/* What the figures list shows, in the order a broker reads an OM. */
-const SECTIONS = [
-  ['The offering', [
-    ['price', 'Asking price', 'money'], ['noi', 'NOI, in place', 'money'], ['cap', 'Cap rate stated', 'pct'],
-    ['occ', 'Occupancy', 'pct'], ['noi_pf', 'NOI, pro forma', 'money'], ['cap_pf', 'Cap rate, pro forma', 'pct'],
-    ['price_psf', 'Price per SF stated', 'money2'], ['price_unit', 'Price per unit stated', 'money'],
-  ]],
-  ['The property', [
-    ['address', 'Address', 'text'], ['city', 'City', 'text'], ['state', 'State', 'text'], ['zip', 'ZIP', 'text'],
-    ['ptype', 'Property type', 'text'], ['bsf', 'Building SF', 'int'], ['lot_sf', 'Land SF', 'int'], ['units', 'Units', 'int'],
-    ['year', 'Year built', 'year'], ['renovated', 'Renovated', 'year'], ['stories', 'Stories', 'int'], ['zoning', 'Zoning', 'text'], ['parking', 'Parking', 'text'],
-  ]],
-  ['Income and expenses', [
-    ['gpr', 'Gross potential rent', 'money'], ['gross', 'Gross income (EGI)', 'money'], ['opex', 'Operating expenses', 'money'], ['taxes', 'Real estate taxes', 'money'],
-  ]],
-  ['Lease', [
-    ['tenant', 'Tenant', 'text'], ['guarantor', 'Guarantor', 'text'], ['lease_type', 'Lease type', 'text'],
-    ['lease_exp', 'Lease expiration', 'text'], ['term_left', 'Term remaining', 'text'], ['increases', 'Rent increases', 'text'],
-    ['options', 'Renewal options', 'text'],
-  ]],
-];
+/* What the figures list shows, in the order a broker reads an OM (dealfields.js). */
+const SECTIONS = DEAL_SECTIONS;
 const KIND = Object.fromEntries(SECTIONS.flatMap(([, rows]) => rows.map(([k, , kind]) => [k, kind])));
 const LABEL = Object.fromEntries(SECTIONS.flatMap(([, rows]) => rows.map(([k, l]) => [k, l])));
 /** The deal's fields for AI reading and the assistant: key, label, kind. */
@@ -149,12 +133,24 @@ function exampleDeal() {
 
 /* ------------------------------------------------------------- the maths */
 
-function figuresFor(d) {
-  // WALT and the rent roll's figures are measured from the rent roll's own as-of date
-  // one source: with a rent roll, the analysis reads its rows from it (not a stored copy that could lag behind),
-  // and WALT and its other figures are measured from its own as-of date
-  const rr = d.rr && Array.isArray(d.rr.leases) && d.rr.leases.length ? d.rr : null;
-  return { ...d.figures, rentRoll: rr ? legacyRows(rr) : d.rentRoll, loan: d.loan, rentRollAsOf: rr && rr.settings ? rr.settings.asOf : null };
+/** What the analysis reads of a deal (impact.js: one definition, shared with the dependency map). */
+function figuresFor(d) { return analysisInput(d); }
+
+/** For the command menu: "What does … affect?" for every input of the open deal, or nothing with no deal open. */
+export function impactCommands() {
+  if (!deal) return [];
+  const out = [];
+  const add = (id, label) => out.push({ title: `What does ${label.charAt(0).toLowerCase()}${label.slice(1)} affect?`, run: () => showImpact([id]) });
+  for (const [, rows] of DEAL_SECTIONS) for (const [k, l] of rows) add(`figures.${k}`, l);
+  for (const [k, l] of [['ltv', 'Loan to value'], ['rate', 'Interest rate'], ['amort', 'Amortization'], ['io', 'Interest only'], ['closing', 'Closing costs'], ['minDscr', 'Lender minimum DSCR'], ['minDy', 'Lender minimum debt yield']]) add(`loan.${k}`, l);
+  if (deal.rr && deal.rr.leases.length) for (const [k, l] of RR_SETTINGS) add(`rr.settings.${k}`, `the rent roll’s ${l.charAt(0).toLowerCase()}${l.slice(1)}`);
+  return out;
+}
+
+/** Open "what this affects" for inputs of the open deal (map ids), or "how it's worked out" for a figure. */
+export function showImpact(ids, opts = {}) {
+  if (!deal) return;
+  openImpact(deal, ids, { comps: api.count() ? api.basis() : null, sheetOpen: api.sheetOpen, ...opts }).catch((e) => toast(`That couldn’t be worked out: ${e.message || e}`));
 }
 function metrics() {
   const comps = api.count() ? api.basis() : null;
@@ -773,7 +769,7 @@ function drawRentRoll() {
   const box = $('deal-rentroll');
   if (!box || !deal) return;
   const d = deal;
-  renderRentRollWorkspace(box, deal, api, rentRollChanged, { snapshot: (reason) => snapshotBefore(d, reason) });
+  renderRentRollWorkspace(box, deal, api, rentRollChanged, { snapshot: (reason) => snapshotBefore(d, reason), affects: (ids, opts) => showImpact(ids, opts) });
 }
 
 /** Any rent roll edit: the flat rows the analysis reads follow, the deal saves, the analysis redraws. */
@@ -792,25 +788,36 @@ function renderDerived() {
 
   const tiles = $('deal-tiles');
   tiles.textContent = '';
-  const tile = (k, v, s, cls, title) => {
+  // each tile opens how its figure is worked out, and what it affects
+  const tile = (k, v, s, cls, title, fig = null) => {
     const t = el('div', `tile${cls ? ` ${cls}` : ''}`);
     t.appendChild(el('div', 'k', k));
     t.appendChild(el('div', 'v', v));
     if (s) { const sub = el('div', 's', s); if (title) sub.title = title; t.appendChild(sub); }
+    if (fig) {
+      t.classList.add('tile-link');
+      t.tabIndex = 0;
+      t.setAttribute('role', 'button');
+      t.setAttribute('aria-label', `${k} ${v}: how it’s worked out, and what it affects`);
+      t.dataset.fig = fig;
+      const open = () => showImpact([], { figure: fig, title: k });
+      t.addEventListener('click', open);
+      t.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+    }
     tiles.appendChild(t);
   };
-  tile('Asking price', ok(m.price) ? short(m.price) : (deal.unpriced ? 'Unpriced' : '—'), m.derived.price ? 'derived from NOI and cap' : (ok(m.ppsf) ? `${money2(m.ppsf)}/SF` : null));
+  tile('Asking price', ok(m.price) ? short(m.price) : (deal.unpriced ? 'Unpriced' : '—'), m.derived.price ? 'derived from NOI and cap' : (ok(m.ppsf) ? `${money2(m.ppsf)}/SF` : null), '', null, 'fig.price');
   const capGap = ok(f.cap) && ok(m.capCalc) && Math.abs(f.cap - m.capCalc) >= 0.1;
-  tile('Cap rate on ask', ok(m.cap) ? pct(m.cap) : '—', capGap ? `OM states ${pct(f.cap)}` : (ok(f.cap_pf) ? `${pct(f.cap_pf)} pro forma` : null), capGap ? 'warn' : '');
-  tile('NOI', ok(m.noi) ? short(m.noi) : '—', m.derived.noi ? 'derived from price and cap' : (ok(m.noiPsf) ? `${money2(m.noiPsf)}/SF` : null));
-  if (ok(m.perUnit)) tile('Per unit', short(m.perUnit), `${int(f.units)} units`);
-  else if (ok(m.perLandSf) && !ok(m.ppsf)) tile('Per land SF', money2(m.perLandSf), f.zoning || null);
+  tile('Cap rate on ask', ok(m.cap) ? pct(m.cap) : '—', capGap ? `OM states ${pct(f.cap)}` : (ok(f.cap_pf) ? `${pct(f.cap_pf)} pro forma` : null), capGap ? 'warn' : '', null, 'fig.cap');
+  tile('NOI', ok(m.noi) ? short(m.noi) : '—', m.derived.noi ? 'derived from price and cap' : (ok(m.noiPsf) ? `${money2(m.noiPsf)}/SF` : null), '', null, 'fig.noi');
+  if (ok(m.perUnit)) tile('Per unit', short(m.perUnit), `${int(f.units)} units`, '', null, 'fig.perUnit');
+  else if (ok(m.perLandSf) && !ok(m.ppsf)) tile('Per land SF', money2(m.perLandSf), f.zoning || null, '', null, 'fig.perLandSf');
   const occ = m.leases && ok(m.leases.occupancy) ? m.leases.occupancy : f.occ;
   const asOfRR = deal.rr && deal.rr.settings ? deal.rr.settings.asOf : null;
   if (ok(occ)) tile('Occupancy', pct(occ, 1), m.leases && ok(m.leases.walt) ? `WALT ${yrs(m.leases.walt)} ${waltMethod()}` : null, occ < 85 ? 'warn' : '',
-    m.leases && ok(m.leases.walt) ? `WALT ${waltMethod({}, asOfRR ? niceDate(`${asOfRR}T12:00:00`) : 'today')}${conv('walt.mtm') === 'exclude' ? '; month-to-month leases left out' : ''} (Settings → Calculation conventions)` : null);
-  else if (ok(m.termLeft)) tile('Lease term left', yrs(m.termLeft), f.lease_type || null, m.termLeft < 5 ? 'warn' : '');
-  tile('DSCR', ok(m.dscr) ? times(m.dscr) : '—', ok(m.cashOnCash) ? `cash-on-cash ${pct(m.cashOnCash, 1)}` : 'set loan terms below', ok(m.dscr) ? (m.dscr < 1.2 ? 'bad' : m.dscr < 1.25 ? 'warn' : 'good') : '');
+    m.leases && ok(m.leases.walt) ? `WALT ${waltMethod({}, asOfRR ? niceDate(`${asOfRR}T12:00:00`) : 'today')}${conv('walt.mtm') === 'exclude' ? '; month-to-month leases left out' : ''} (Settings → Calculation conventions)` : null, m.leases && ok(m.leases.occupancy) ? 'fig.leases' : 'fig.occ');
+  else if (ok(m.termLeft)) tile('Lease term left', yrs(m.termLeft), f.lease_type || null, m.termLeft < 5 ? 'warn' : '', null, 'fig.termLeft');
+  tile('DSCR', ok(m.dscr) ? times(m.dscr) : '—', ok(m.cashOnCash) ? `cash-on-cash ${pct(m.cashOnCash, 1)}` : 'set loan terms below', ok(m.dscr) ? (m.dscr < 1.2 ? 'bad' : m.dscr < 1.25 ? 'warn' : 'good') : '', null, 'fig.dscr');
 
   // what doesn't add up
   const checks = $('deal-checks');
@@ -998,7 +1005,9 @@ function figRow(key, label, kind) {
     if (key === 'lot_sf') { const s = lab.querySelector('small'); if (s) s.textContent = ok(v) ? `${(v / 43560).toFixed(3)} acres` : ''; }
     srcHolder.replaceChildren(sourceTag(key));
   });
-  li.appendChild(lab);
+  const labCell = el('div', 'fl-cell');
+  labCell.append(lab, affectsButton(`What changing ${label} affects`, () => showImpact([`figures.${key}`])));
+  li.appendChild(labCell);
   li.appendChild(inp);
   const srcHolder = el('span');
   srcHolder.style.justifySelf = 'end';
@@ -1146,7 +1155,8 @@ function financeCard() {
       touch();
       renderDerived();
     });
-    fd.append(lab, i);
+    fd.append(lab, i, affectsButton(`What changing ${label.replace(/ %$/, '').toLowerCase()} affects`, () => showImpact([`loan.${key}`])));
+    fd.classList.add('has-affects');
     g.appendChild(fd);
   };
   num('ltv', 'Loan to value %', '65');
@@ -1309,7 +1319,8 @@ function renderScenario(m) {
         touch();
         renderDerived();
       });
-      fd.append(lab, i);
+      fd.append(lab, i, affectsButton(`What changing the What-if’s ${label.replace(/[,%].*$/, '').trim().toLowerCase()} affects`, () => showImpact([`live.${key}`])));
+      fd.classList.add('has-affects');
       g.appendChild(fd);
     }
   }
@@ -1892,16 +1903,9 @@ async function addPhotos(files) {
 /** Everything a template can draw on for this deal: figures, analysis, rent roll, scenario. */
 function templateContext(d) {
   const comps = api.count() ? api.basis() : null;
-  const m = analyze(figuresFor(d), comps);
-  const rr = d.rr && d.rr.leases.length ? d.rr : null;
   let preparedBy = '';
   try { preparedBy = (JSON.parse(localStorage.getItem('zlatura.subject.v1') || '{}') || {}).preparedBy || ''; } catch { /* fine */ }
-  const hold = Number.isFinite((d.live || {}).hold) ? d.live.hold : 5;
-  const series = (d.live || {}).noiBasis === 'rentroll' && rr && Number.isFinite(rr.settings.opex) ? projectionSync(rr, { years: hold + 1 }).annual.map((y) => y.noi) : null;
-  return {
-    deal: d, m, rrSum: rr ? rentRollSummary(rr, rr.settings.asOf) : null, rrProj: rr && Number.isFinite(rr.settings.opex) ? project(rr) : null,
-    scenario: runScenario(figuresFor(d), m, d.live || {}, { noiSeries: series }), preparedBy, today: new Date(),
-  };
+  return fieldContext(d, { comps, preparedBy, projectFn: (r, o) => (o ? projectionSync(r, o) : project(r)) });
 }
 /** The open deal for the Tools screen: its figures, analysis, rent roll and scenario, or null. */
 export function dealForTools() {
@@ -2041,7 +2045,7 @@ async function exportExcel() {
     const { buildDealWorkbook } = await import('./workbook.js');
     const { m, comps } = metrics();
     const bytes = await buildDealWorkbook(libs.ExcelJS, libs.fflate, { deal: workbookDeal(m), metrics: m, comps });
-    if (await deliver(`${fileBase()}.xlsx`, bytes, XLSX) === 'done') toast('Deal workbook ready: blue figures are inputs, and every result is a live formula.');
+    if (await deliver(`${fileBase()}.xlsx`, bytes, XLSX, { map: 'deal-workbook' }) === 'done') toast('Deal workbook ready: blue figures are inputs, and every result is a live formula.');
   } catch (err) {
     deliveryError(err);
   } finally {
@@ -2058,7 +2062,7 @@ async function shareSummary() {
 }
 
 function printBrief() {
-  printed(`Deal brief: ${deal.name || 'deal'}`);
+  printed(`Deal brief: ${deal.name || 'deal'}`, { map: 'deal-brief' });
   const { m, comps } = metrics();
   const urls = deal.visit.photos.map((p) => { const u = URL.createObjectURL(p.blob); photoUrls.push(u); return u; });
   let preparedBy = '';
@@ -2314,6 +2318,15 @@ function undoKeys(e) {
 const KIND_WORD = { create: 'created', edit: 'edit', import: 'import', tool: 'from Tools', ai: 'from AI', restore: 'restored', rounding: 'rounding (a record; not undone)', undo: 'undo', redo: 'redo', snapshot: 'snapshot' };
 const when = (at) => new Date(at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 /** Every change to the open deal, newest first, with Undo to here. */
+/** The inputs a history entry changed, for its "What it changed": { ids, lease (when one lease) }. */
+function inputsOfEntry(e) {
+  if (e.changes === null) return { ids: ['leases', ...LEASE_FIELDS.map(([k]) => `lease.${k}`)], lease: null }; // too large to keep step by step: an import
+  const found = (e.changes || []).map((c) => inputOfPath(c.path)).filter(Boolean);
+  const ids = [...new Set(found.map((x) => x.input))];
+  const leases = [...new Set(found.map((x) => x.lease).filter(Boolean))];
+  return { ids, lease: leases.length === 1 ? leases[0] : null };
+}
+
 async function openHistory() {
   const d = deal;
   if (!d) return;
@@ -2362,6 +2375,8 @@ async function openHistory() {
       main.appendChild(sub);
     }
     li.appendChild(main);
+    const fed = inputsOfEntry(e);
+    if (fed.ids.length) li.appendChild(button('btn-plain btn-sm', 'What it changed', () => showImpact(fed.ids, { heading: `What this change affects: ${e.label}`, leaseId: fed.lease })));
     if (e === st.undo) li.appendChild(button('btn-plain btn-sm', 'Undo', () => { api.sheetClose(); stepHistory('undo'); }));
     else if (canUndo.has(e.id)) li.appendChild(button('btn-plain btn-sm', 'Undo to here', () => { api.sheetClose(); stepHistory('undo', e.id); }));
     ul.appendChild(li);

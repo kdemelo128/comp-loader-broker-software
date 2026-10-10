@@ -112,7 +112,7 @@ export async function makeBackup({ withHistory = true } = {}) {
   const h = withHistory ? await store.historyForBackup() : { history: null, snapshots: null };
   const b = await buildBackup({ ...c, appVersion: VERSION, history: h.history, snapshots: h.snapshots });
   const bytes = new TextEncoder().encode(JSON.stringify(b));
-  const r = await deliver(`${PRODUCT} backup ${localDate()}.json`, bytes, 'application/json');
+  const r = await deliver(`${PRODUCT} backup ${localDate()}.json`, bytes, 'application/json', { map: 'none: a backup is a copy of the data, not a figure made from it' });
   if (r === 'done') {
     await store.kvSet(LAST, Date.now());
     toast(`Backup saved: ${b.counts.deals} deals${withHistory ? `, with ${b.counts.historyEntries || 0} history entries and ${b.counts.snapshots || 0} snapshots` : ', without history'}, ${mb(bytes.length)}.`);

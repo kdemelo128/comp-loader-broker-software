@@ -158,6 +158,28 @@ every difference, then and now; **Restore** is one step, and can be undone.
 Photos and recordings you remove are kept for 30 days, so an undo or restore
 can bring them back.
 
+### What a change affects
+
+Every input on a deal has a small **Affects** button beside it: a figure, a
+loan term, a What-if assumption, a rent roll Assumption. It lists everything
+that moves with that input **on this deal as it stands**: the figures, the
+checks and questions, each scenario, the export rows and sheets (including the
+cells of your firm's templates), and the brief and Copy summary. What could
+move only in other circumstances is folded away, each with its condition
+("only when no price is entered"). **Try a value** shows each line before →
+after without saving anything.
+
+- The overview's tiles say how their figure is worked out ("DSCR ← NOI, annual
+  debt service"), down to the inputs you type.
+- In the rent roll, a lease's ⋯ menu has **What this lease affects**, and the
+  rent roll's ⋯ menu **What a column affects…**.
+- Each change in History has **What it changed**.
+- Ctrl K: "what does building SF affect".
+
+The list comes from the calculations themselves: each formula declares what it
+reads, and the tests fail if one reads anything else, or if a new calculation
+isn't registered (`app/impact.js`, `tests/impact.test.js`).
+
 ### Your data: backup and restore
 
 Everything lives in this browser on this device, so **Your data** (in
@@ -416,6 +438,14 @@ vacancy). `tests/calc.test.js` checks the Tools calculators (DCF, amortization,
 refinance, waterfall, commission, renewal versus replacement, residual land,
 draws and the rest) against figures worked out independently.
 `tests/tplcells.test.js` checks template mapping, the preview and filling.
+
+`tests/impact.test.js` and `tests/impact-files.test.js` hold the dependency
+map to the code: every figure, rent roll and projection key, scenario part,
+template field, workbook row and sheet, brief section and file handed over must
+be registered; each formula may read only what it declares; and on random and
+fixture deals, each input changed in turn, everything that moved must be on the
+map's list for it. `tests/analyze-golden.test.js` holds `analyze()`'s results on
+618 deals, to the last digit, as 4.3.1 gave them.
 
 `tests/engine.test.js` holds known answers for each shared definition
 (WALT, whole-month debt service, net effective rent, break-even, comp rules)

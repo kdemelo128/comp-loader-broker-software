@@ -3,7 +3,7 @@
  * actions the app really has. Every result does what it says. */
 
 import { el, svg, toast, short, pct } from './kit.js';
-import { listAllDeals, showDeal, startDealByHand, openTemplates } from './dealui.js';
+import { listAllDeals, showDeal, startDealByHand, openTemplates, impactCommands } from './dealui.js';
 import { listContacts } from './crm.js';
 import { toolIndex, openToolById } from './toolsui.js';
 import { editContact } from './dealcrm.js';
@@ -70,13 +70,16 @@ async function sources() {
     act('Edit pipeline stages', 'Rename or hide stages', () => editStages(), 'pipeline'),
     act('AI settings', 'Your firm’s AI server address and access token', () => openAiSettings(api), 'assistant'),
   );
+  // the open deal: what each of its inputs affects (the dependency map)
+  for (const c of impactCommands()) items.push({ group: 'This deal', icon: 'act', title: c.title, keywords: 'affects impact depends change what if', weight: 0.6, run: () => { close(); c.run(); } });
   for (const [v, label] of [['light', 'Light'], ['dark', 'Dark'], ['system', 'System']]) {
     items.push({ group: 'Appearance', icon: 'theme', title: `Theme: ${label}`, keywords: 'appearance mode', weight: 0.5, run: () => { close(); setTheme(v); toast(`Theme: ${label}.`); } });
   }
   return items;
 }
 
-const ORDER = ['Deals', 'Actions', 'Contacts', 'Tools', 'Go to', 'Appearance'];
+const ORDER = ['Deals', 'Actions', 'This deal', 'Contacts', 'Tools', 'Go to', 'Appearance'];
+const ASKS_IMPACT = /\b(affects?|impacts?|depends?|what does)\b/i;
 
 export async function openCommand() {
   if (dlg && dlg.open) { dlg.querySelector('input').focus(); return; }
@@ -120,6 +123,8 @@ export async function openCommand() {
   const draw = () => {
     const q = input.value.trim();
     let r = rank(items, q);
+    // "what does … affect?" only when that is what's asked: it would otherwise crowd out deals and contacts ("lender")
+    if (!ASKS_IMPACT.test(q)) r = r.filter((x) => x.group !== 'This deal');
     if (!q) r = r.filter((x) => x.group !== 'Contacts' && x.group !== 'Tools' && x.group !== 'Appearance').slice(0, 14);
     // grouped: with a query, the group holding the best match comes first; within a group, best match first
     const order = q ? [...new Set(r.map((x) => x.group))] : ORDER;

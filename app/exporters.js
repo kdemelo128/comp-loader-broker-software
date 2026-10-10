@@ -4,7 +4,7 @@
  * Both take the comps exactly as the workbook would (included, edited, in
  * $/SF order), so the three outputs never disagree. */
 
-export const VERSION = '4.3.2';
+export const VERSION = '4.4.0';
 
 const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
 const ppsf = (c) => (num(c.price) && num(c.bsf) ? c.price / c.bsf : null);

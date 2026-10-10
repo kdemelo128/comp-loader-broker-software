@@ -4,7 +4,12 @@ Status: **approved 2026-10-10**, all four decisions as recommended, in two
 pull requests. Part 1, `analyze()` split into registered formulas with no
 change to any result, is built in 4.3.2 (618 deals identical to the last
 digit, speed unchanged within noise). Part 2, the map, the Affects screens and
-their tests, follows as 4.4.0. Original status: proposal, written 2026-10-10
+their tests, is built in 4.4.0, with two changes from this design:
+"What this column affects" is in the rent roll's ⋯ menu ("What a column
+affects…", then the column) rather than on each column heading, which only
+sorts; and a read that matters only sometimes outside the analysis (a lease's
+SF sets its rent only when the rent is quoted per SF) carries a test the map
+applies, so "on this deal, now" is right there too. Original status: proposal, written 2026-10-10
 against 4.3.1.
 Timings below were measured in this container (Node, the 500-lease deal from
 `perf-flow`, 10-year projection) unless marked as an estimate.

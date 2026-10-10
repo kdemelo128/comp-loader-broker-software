@@ -1,5 +1,108 @@
 # Changelog
 
+## 4.4.0: what a change affects (on the development branch; not merged or deployed)
+
+Phase 1, checkpoint (e), part 2 of 2, as approved: the dependency map and its
+screens.
+
+### On screen
+
+- **Affects** beside every input on a deal: each figure, loan term and What-if
+  assumption, and each rent roll Assumption. The sheet lists everything that
+  moves with it on this deal as it stands, in five groups:
+  - figures (the deal's, the rent roll's, the projection's);
+  - checks and questions;
+  - scenarios (the What-if and each saved one; one that sets its own value
+    is shown as not affected);
+  - exports: Deal Analysis rows by cell, the rent roll sheets, the CSV, and each
+    firm template's cells with how many of its own formulas read them;
+  - documents: the brief by section, and Copy summary.
+- **Could also affect** is folded away: what the input reaches only in other
+  circumstances, each with its condition ("only when no price is entered",
+  "only for a rent quoted per SF", "only when there are sale comps").
+- **Try a value**: before → after for each line, without saving. On a lease or
+  a rent roll Assumption the projection is worked out in the worker.
+- **How it's worked out**: the overview's tiles open what their figure reads,
+  with its conditions, down to the inputs you type.
+- **Rent roll**: "What this lease affects" in a lease's ⋯ menu; "What a column
+  affects…" in the rent roll's ⋯ menu.
+- **History**: "What it changed" on each change.
+- **Ctrl/Cmd K**: "What does … affect?" for each input of the open deal. These
+  appear only when the search asks ("affect", "impact", "depends", "what does"),
+  so a plain search such as "lender" still finds the contact first.
+
+### How the map is kept true (`app/impact.js`)
+
+- **Deal analysis:** each figure, check and question comes straight from the
+  formulas registered in 4.3.2.
+- **Everything else:** the rent roll summary, the projection's lines,
+  scenarios, template fields, Deal Analysis rows and sections, the rent roll
+  sheets, the brief's sections and the summary each declare what they read.
+- **"On this deal, now":**
+  - For the analysis, the formulas are run once with every read recorded, so
+    a branch not taken (a price entered, so the cap rate isn't used for it)
+    isn't counted.
+  - Elsewhere, a read that only matters sometimes says how to tell.
+- **Every file and printout the app hands over** names its part of the map
+  (`deliver()` and `printed()` take `{ map }`). The backup, the pipeline,
+  tools and comps say "none: why".
+- **Two small changes, no figure changed** (`analyze-golden` still passes):
+  - one rule tests for an entered price first, so the map can see the
+    stated cap rate doesn't matter then;
+  - the deal screen's list of figures moved to `dealfields.js` so the tests
+    can read it.
+
+### Tests (all new; they fail on 4.3.2, where there is no map)
+
+- `tests/impact.test.js` (15):
+  - every key `analyze()`, the rent roll summary, the projection and
+    `runScenario()` return is registered: **adding a calculation without
+    registering it fails**;
+  - every template field declares its reads;
+  - every `deliver()` and `printed()` call names its map entry;
+  - each formula and template field may read only what it declares (a guard
+    throws);
+  - on 80 random deals and the rich rent roll (rents per SF and a year), each
+    input changed in turn, everything that moved is on the map's list for it
+    on that deal;
+  - each declared read is read on some deal, and each input it reads is seen
+    to move it;
+  - no orphan inputs, and loops are refused.
+- `tests/impact-files.test.js` (5): the same on two fixture deals, with and
+  without comps (about 280 changes), for the deal workbook (each Deal Analysis
+  row and section), the rent roll workbook, the brief (each section) and Copy
+  summary. Every sheet, row, section and heading is registered, and the
+  brief, the summary and the Deal Analysis sheet read only what they declare.
+- Nine deliberate breaks (an unregistered figure, an undeclared or
+  over-declared read, a wrong workbook row, a brief section missing a read, a
+  rent roll figure or projection line missing a lease field, the scenario
+  occupancy fix undone) are each caught by at least one test.
+- `impact-flow` (29 checks, in `run.sh`):
+  - the stated cap rate, with "could also" and its condition;
+  - a firm template's NOI cell (not its price cell), with how many of the
+    template's own formulas read it;
+  - a tried loan rate, with DSCR before → after, nothing saved and History
+    unchanged;
+  - the DSCR tile's workings;
+  - the command menu, and a plain search not crowded by it;
+  - on the 500-lease deal: a lease's list, a column's list (SF doesn't move
+    rents quoted a year), History's "What it changed" with a tried rent;
+  - timings;
+  - axe on the sheet, desktop and phone.
+
+### Found by the tests while building
+
+- `shell-flow` (an existing test): with a deal open, "lender" in Ctrl K found
+  "What does lender minimum DSCR affect?" before the contact whose role is
+  Lender. The commands now show only when asked for.
+- A scenario that sets its own occupancy still reads the deal's: it scales the
+  deal's income by the ratio. The map said otherwise; corrected.
+- The SF of a lease moves its rent only when the rent is quoted per SF; the
+  rent roll's rent figures now say so.
+- Whether the price was worked out from the others, and whether the NOI was,
+  are kept in one record. On the map they are two, so NOI no longer lists the
+  price's template cell or workbook row.
+
 ## 4.3.2: the deal analysis, one registered formula per figure (on the development branch; not merged or deployed)
 
 Phase 1, checkpoint (e), part 1 of 2, as approved. **No figure, check or
