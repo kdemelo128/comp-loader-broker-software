@@ -35,6 +35,15 @@ the product and moves the data kept on each device to the new name.
 - Every visible name, the page title, the installed app's name, workbook
   creator fields, file names, the AI server's name and package names.
 
+### Fixed
+
+- A deal's Pipeline card could wipe a next step being typed: changing the
+  stage (or a task or contact changing anywhere) refreshes the card, and the
+  refresh rebuilt its fields empty. It now keeps what is typed and the
+  focus; a step that has been added still clears its field. Found when the
+  browser suite failed intermittently on this; a test now forces the refresh
+  (fails before the fix, passes after).
+
 ### Tests
 
 - `rename-flow` (browser): the real 3.3.0 app, taken from git, is used on a

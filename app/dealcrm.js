@@ -11,6 +11,12 @@ import { el, svg, toast, niceDate } from './kit.js';
  */
 export async function renderDealCrm(box, d, { touch, api }) {
   const [tasks, contacts] = await Promise.all([crm.listTasks(), crm.listContacts(), crm.loadStages()]);
+  // a re-render (a task or contact changed anywhere, or the stage was just set) must not lose what is being
+  // typed in this card: keep each field's text and the focus, and put them back once it is rebuilt
+  const typed = [...box.querySelectorAll('input[id]:not([type=checkbox]), select[id]:not(#deal-stage), textarea[id]')]
+    .filter((x) => x.value !== x.defaultValue || x.tagName === 'SELECT').map((x) => [x.id, x.value]);
+  const focus = box.contains(document.activeElement) && document.activeElement.id ? document.activeElement : null;
+  const caret = focus && typeof focus.selectionStart === 'number' ? [focus.selectionStart, focus.selectionEnd] : null;
   box.textContent = '';
   const h = el('div', 'card-head');
   h.appendChild(el('h2', null, 'Pipeline'));
@@ -53,7 +59,10 @@ export async function renderDealCrm(box, d, { touch, api }) {
   add.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!ti.value.trim()) return;
-    try { await crm.addTask({ title: ti.value, due: due.value || null, dealId: d.id }); } catch (err) { toast(err.message); }
+    // cleared before saving, so the re-render the save sets off doesn't carry the text over; put back if it fails
+    const title = ti.value; const when = due.value;
+    ti.value = ''; due.value = '';
+    try { await crm.addTask({ title, due: when || null, dealId: d.id }); } catch (err) { ti.value = title; due.value = when; toast(err.message); }
   });
   sec.appendChild(add);
   box.appendChild(sec);
@@ -100,9 +109,11 @@ export async function renderDealCrm(box, d, { touch, api }) {
   kf.addEventListener('submit', (e) => {
     e.preventDefault();
     if (!kdt.value) { kdt.focus(); return; }
-    (d.keyDates ||= []).push({ id: `k${Date.now().toString(36)}`, label: kl.value, date: kdt.value, done: false });
+    const date = kdt.value;
+    kdt.value = '';
+    (d.keyDates ||= []).push({ id: `k${Date.now().toString(36)}`, label: kl.value, date, done: false });
     touch();
-    crm.log('deal', `${d.name || 'Untitled deal'}: ${kl.value} set for ${kdt.value}`, d.id);
+    crm.log('deal', `${d.name || 'Untitled deal'}: ${kl.value} set for ${date}`, d.id);
     renderDealCrm(box, d, { touch, api });
   });
   kd.appendChild(kf);
@@ -143,6 +154,12 @@ export async function renderDealCrm(box, d, { touch, api }) {
   acts.appendChild(nc);
   ps.appendChild(acts);
   box.appendChild(ps);
+
+  for (const [id, v] of typed) { const x = document.getElementById(id); if (x && box.contains(x)) x.value = v; }
+  if (focus) {
+    const x = document.getElementById(focus.id);
+    if (x && box.contains(x)) { x.focus({ preventScroll: true }); if (caret && typeof x.setSelectionRange === 'function') { try { x.setSelectionRange(...caret); } catch { /* not a text field */ } } }
+  }
 }
 
 const relDue = (t) => {

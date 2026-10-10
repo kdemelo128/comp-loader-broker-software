@@ -24,6 +24,13 @@ await page.fill('#deal-task-due', today);
 await page.press('#deal-task-title', 'Enter');
 await page.waitForFunction(() => /Send LOI/.test(document.querySelector('#deal-crm').textContent));
 check('the next step shows on the deal', /Send LOI to listing broker/.test(await page.textContent('#deal-crm')) && /due today/.test(await page.textContent('#deal-crm')));
+check('adding a next step empties the field', (await page.inputValue('#deal-task-title')) === '');
+// a change elsewhere (here: a task saved on Home or another tab) refreshes the card; what is being typed stays
+await page.fill('#deal-task-title', 'Order the appraisal');
+await page.evaluate(() => document.dispatchEvent(new CustomEvent('crmchange')));
+await page.waitForTimeout(500);
+check('a refresh keeps a half-typed next step and the focus', (await page.inputValue('#deal-task-title')) === 'Order the appraisal' && (await page.evaluate(() => document.activeElement.id)) === 'deal-task-title');
+await page.fill('#deal-task-title', '');
 await page.locator('#deal-crm button', { hasText: '+ New contact' }).click();
 await page.waitForSelector('#contact-name');
 await page.fill('#contact-name', 'Dana Whitlock');
