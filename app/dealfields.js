@@ -43,6 +43,7 @@ export function sourceOf(deal, key, m) {
   const s = deal.sources && deal.sources[key];
   if (!s) return deal.figures && deal.figures[key] !== undefined ? 'entered' : '';
   if (s.hand) return 'typed by the broker';
+  if (s.t12) return s.line || 'the T-12';
   if (s.page) return `OM page ${s.page}`;
   return 'read from the OM';
 }

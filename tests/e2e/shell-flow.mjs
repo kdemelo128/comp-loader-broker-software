@@ -141,7 +141,7 @@ check('arrow keys and Enter go to Settings', await page.isVisible('#view-setting
 
 // settings
 const ids = await page.$$eval('#settings-root section.card', (x) => x.map((e) => e.id));
-check('Settings shows appearance, templates, pipeline, AI, conventions, data and about', JSON.stringify(ids) === JSON.stringify(['settings-look', 'settings-templates', 'settings-pipeline', 'settings-ai', 'settings-conventions', 'settings-data', 'settings-about']), ids.join(','));
+check('Settings shows appearance, templates, pipeline, AI, conventions, T-12 labels, data and about', JSON.stringify(ids) === JSON.stringify(['settings-look', 'settings-templates', 'settings-pipeline', 'settings-ai', 'settings-conventions', 'settings-t12', 'settings-data', 'settings-about']), ids.join(','));
 check('the Settings theme control reflects the choice', (await page.getAttribute('#settings-look [data-theme-set="dark"]', 'aria-checked')) === 'true');
 await page.click('#settings-look [data-theme-set="system"]');
 check('and changes it', (await page.getAttribute('html', 'data-theme')) === null && (await page.getAttribute('.sidebar [data-theme-set="system"]', 'aria-checked')) === 'true');

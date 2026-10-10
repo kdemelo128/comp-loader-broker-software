@@ -5,3 +5,6 @@ node_modules/
 .DS_Store
 .env
 *.env
+
+# real files given for local testing only: never committed (docs/proposals/t12-review-queue.md)
+private/

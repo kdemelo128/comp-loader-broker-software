@@ -56,8 +56,23 @@ await page.waitForSelector('#deal-crm #deal-stage');
 await page.fill('#deal-task-title', 'Call the listing broker');
 await page.press('#deal-task-title', 'Enter');
 await page.waitForTimeout(400);
+// a T-12 (invented) with a line to file: the card, the NOI three ways, and the Review Queue
+const [t12f] = await Promise.all([page.waitForEvent('filechooser'), page.click('#t12-import')]);
+await t12f.setFiles(F + 'invented-square.xlsx');
+await page.waitForSelector('#t12-summary');
+await page.waitForTimeout(600);
+await page.evaluate(() => document.querySelectorAll('.toast').forEach((t) => t.remove())); // a toast is audited on its own (below), not over a screen
 await audit('Deal overview');
 await smallTargets('Deal overview');
+await page.click('#t12-lines');
+await page.waitForSelector('#sheet-body .t12-lines');
+await audit('T-12: every line', '#sheet');
+await page.click('#sheet-close');
+await go('review');
+await page.waitForSelector('#review-root .review-item');
+await audit('Review');
+await smallTargets('Review');
+await go('deal');
 for (const p of ['rentroll', 'whatif', 'visit']) { await page.click(`#tab-${p}`); await page.waitForTimeout(400); await audit(`Deal ${p}`); }
 await page.click('#tab-rentroll');
 await page.locator('#deal-rentroll button[aria-label^="Lease schedule"]').first().click();
@@ -111,6 +126,9 @@ await go('home');
 await audit('Home, dark');
 await go('tools');
 await audit('Tools, dark');
+await go('review');
+await page.waitForSelector('#review-root .review-item');
+await audit('Review, dark');
 await go('settings');
 await page.waitForSelector('#settings-data #backup-make');
 await audit('Settings, dark');

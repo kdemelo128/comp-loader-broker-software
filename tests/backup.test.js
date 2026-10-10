@@ -120,3 +120,14 @@ test('a restore brings the history and snapshots of the deals it keeps, and says
   const r = planRestore(b, here, 'replace');
   assert.deepEqual(Object.keys(r.history).sort(), ['d1', 'd2']);
 });
+
+test('a merge restore combines the T-12 labels you filed, label by label, the newer choice winning', () => {
+  const here = { 'management fees': { category: 'management', at: 200 }, 'pylon sign lease': { category: 'otherOpex', at: 100 } };
+  const there = { 'management fees': { category: 'owner', at: 100 }, 'pylon sign lease': { category: 'otherIncome', at: 300 }, 'roof work': { category: 'capex', at: 50 } };
+  const p = planRestore({ deals: [], kv: { 't12.labels': { entries: there } }, session: null, local: {} }, { deals: [], kv: { 't12.labels': { entries: here } }, session: null, local: {} }, 'merge');
+  assert.deepEqual(p.kv['t12.labels'].entries, { 'management fees': { category: 'management', at: 200 }, 'pylon sign lease': { category: 'otherIncome', at: 300 }, 'roof work': { category: 'capex', at: 50 } });
+  assert.ok(p.summary.includes('T-12 labels you filed: 2 added or updated.'), p.summary.join(' | '));
+  // nothing newer: nothing written
+  const same = planRestore({ deals: [], kv: { 't12.labels': { entries: here } }, session: null, local: {} }, { deals: [], kv: { 't12.labels': { entries: here } }, session: null, local: {} }, 'merge');
+  assert.ok(!('t12.labels' in same.kv));
+});

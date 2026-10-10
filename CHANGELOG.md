@@ -1,5 +1,139 @@
 # Changelog
 
+## 4.7.0: the T-12, and the Review Queue (on the development branch; not merged or deployed)
+
+Phase 2, milestone 1, as approved in `docs/proposals/t12-review-queue.md`,
+with your four answers and two changes to the categories.
+
+**Importing a T-12**
+
+- **Where:** the deal's overview has a new "Operating statement (T-12)" card.
+  "Import a T-12…" reads an .xlsx or .csv on the device; an .xls is refused
+  with what to do.
+- **What is detected:**
+  - month headings in any common form (dates, "Jan-25", "January 2025",
+    "01/2025", "Month 1");
+  - a Total, TTM, T-12 or YTD column;
+  - account numbers;
+  - section headings;
+  - subtotal rows, and the file's own EGI, total expenses and NOI;
+  - negatives in brackets or with a trailing minus.
+- **Signs are made consistent:** expenses written negative read as costs, and
+  vacancy written positive under income reads as a reduction.
+- **The 21 categories:**
+  - income: base rent, vacancy and credit loss, concessions, recoveries,
+    parking, other income;
+  - operating expenses: taxes, insurance, utilities, repairs, contract
+    services, property management fee, payroll, G&A, other;
+  - below the line: capital, reserves, TI and leasing commissions, debt,
+    depreciation, owner and partnership costs. Asset management and
+    owner-level fees go here.
+- **How each line is placed:**
+  1. by your remembered choice for its label;
+  2. by its wording, with the section it sits in deciding between two fits;
+  3. otherwise it goes to Review.
+
+  A label that only says "management fee" is never guessed: it goes to Review
+  asking which it is.
+- **What the card shows:** totals by category, EGI, operating expenses and
+  NOI, with below-the-line items kept apart. "Every line" lets you change any
+  line's category.
+- **Remembered labels:** filing a line with "Remember this label" saves only
+  the label and the category, never an amount. Settings lists them, and any
+  can be forgotten. Backups carry them, and a merge restore combines them
+  label by label, the newer winning.
+- **A partial year** is shown as it is, never scaled up. It goes to Review as
+  "Only N months", and its NOI isn't compared.
+- **Undo:** importing, replacing or removing a statement is one step you can
+  undo, with a snapshot first.
+
+**NOI three ways**
+
+- **The table:** a small table on the card shows the OM's NOI, the T-12's, and
+  the rent roll's, labelled "forward-looking year 1 · a projection, not an
+  actual". Each shows its gap from the T-12's in dollars and percent.
+- **The checks:** three new checks, in "What doesn't add up", the brief and
+  the workbook:
+
+  | Gap | Flag |
+  |---|---|
+  | Within 2% | Nothing |
+  | 2% to 5% | Noted |
+  | Above 5% | Warning |
+
+  - A warning lists where the gap comes from, largest part first (EGI,
+    operating expenses, real estate taxes).
+  - When the OM's NOI is the higher one, it adds that the OM may be pro forma
+    or leave out expenses.
+  - The thresholds are listed in Settings → Calculation conventions.
+- **No change on deals without a T-12:** there is no comparison on them, so
+  the 618 saved results and the 646 displayed figures are identical to 4.6.0.
+
+**"Use the T-12's figures"**
+
+- **What it does:** an explicit button, never automatic. It shows each
+  figure's change before you confirm, then sets EGI, operating expenses, taxes
+  and NOI, each tagged "T-12" with its months. It can also set the rent roll's
+  operating expenses.
+- **The OM's own figures** are kept for the comparison.
+- **Undo** puts them back.
+
+**The Review Queue**
+
+- **The tab:** a new Review tab appears only when something is waiting, with
+  a count. It is also in the search.
+- **What it holds:**
+  - T-12 lines to file, one item per label;
+  - T-12 checks not yet seen: only N months, months that don't add up to the
+    Total column, a stated subtotal or NOI that doesn't match;
+  - AI readings never applied (dismiss);
+  - firm template cells mapped with low confidence ("It's right").
+- **Order:** items are listed with the most money at stake first.
+- **Where each choice goes:** it is recorded where the item lives (the deal,
+  the AI record, the template), so on a deal it can be undone.
+
+**Smaller changes**
+
+- `app/sheetread.js`: the spreadsheet reading the rent roll import used, now
+  shared with the T-12 import.
+- The phone tab bar fits six tabs.
+- The tab bar is a little less see-through (94% light, 92% dark), so its
+  labels keep their contrast over any page.
+- A toast's action button is at least 32 px.
+
+**Tests**
+
+- **`tests/t12-layouts.js`:** eight invented statement layouts, written as
+  files when the tests run. No real file, figure or name is in the
+  repository.
+- **`tests/t12.test.js`** (19 tests): reading amounts, months and labels;
+  matching; each layout's category totals against hand-worked figures; signs;
+  subtotals; partial years; remembered corrections.
+- **`tests/t12-noi.test.js`** (7 tests): the NOI flags at each threshold,
+  direction and cause; a partial year and lines still to file; the OM's own
+  NOI after its figures are used; the Review Queue's items.
+- **Changed tests:**
+  - `backup.test.js`: corrections merged on restore;
+  - `impact.test.js`: a deal with a T-12; every new check reads only what the
+    map lists, and is moved by what it reads.
+- **Mutation checks:** eight deliberate breaks, every one caught:
+  - a bare management fee guessed;
+  - negative expenses not flipped;
+  - a partial year scaled up;
+  - the warning moved to 10%;
+  - the insurance rule removed;
+  - asset management put in operating expenses;
+  - the OM compared with the rent roll without a T-12;
+  - dismissed AI readings kept.
+- **`tests/e2e/t12-flow.mjs`** (35 checks) covers import, Review, filing,
+  NOI three ways, use and undo, reload, Settings, the bare management fee,
+  nine months, the AI and template items, .xls refused, and the phone. It
+  fails on 4.6.0, whose deal screen has no T-12 card.
+- **`a11y-flow`:** axe on the T-12 card, "Every line" and Review, in light
+  and dark.
+- **`tests/tools/t12-local.mjs`:** for real T-12s kept in the git-ignored
+  `private/` folder. It prints only structure.
+
 ## 4.6.0: the keyboard shortcuts, on one sheet (on the development branch; not merged or deployed)
 
 Phase 1, item 4: the `?` sheet.

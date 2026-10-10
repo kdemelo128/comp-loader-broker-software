@@ -160,9 +160,18 @@ export function planRestore(backup, current, mode = 'merge') {
     for (const [tool, list] of Object.entries(backup.kv['tools.scenarios'])) { const m = mergeById(here[tool] || [], list, { stamp: false }); out[tool] = m.list; n += m.added; }
     if (n) { kv['tools.scenarios'] = out; summary.push(`Saved Tools scenarios: ${n} added.`); }
   }
+  // the T-12 labels the broker has filed: combined label by label, the newer choice winning
+  if (backup.kv['t12.labels'] && backup.kv['t12.labels'].entries) {
+    const here = (current.kv['t12.labels'] && current.kv['t12.labels'].entries) || {};
+    const there = backup.kv['t12.labels'].entries;
+    const entries = { ...here };
+    let n = 0;
+    for (const [key, e] of Object.entries(there)) if (e && (!here[key] || (e.at || 0) > (here[key].at || 0))) { if (!here[key] || here[key].category !== e.category) n += 1; entries[key] = e; }
+    if (n) { kv['t12.labels'] = { entries }; summary.push(`T-12 labels you filed: ${n} added or updated.`); }
+  }
   // anything else (settings, layouts) only where the device has none
   for (const [k, v] of Object.entries(backup.kv)) {
-    if (k in kv || ['tpl.library', 'crm.tasks', 'crm.contacts', 'crm.activity', 'tools.scenarios'].includes(k)) continue;
+    if (k in kv || ['tpl.library', 'crm.tasks', 'crm.contacts', 'crm.activity', 'tools.scenarios', 't12.labels'].includes(k)) continue;
     if (!(k in current.kv) || current.kv[k] === null) kv[k] = v;
   }
   const session = current.session ? null : backup.session;

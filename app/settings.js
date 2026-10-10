@@ -2,7 +2,7 @@
  * stages, the AI connection, and the data kept on this device. Each row
  * opens the real control; nothing here is decorative. */
 
-import { $, el, svg } from './kit.js';
+import { $, el, svg, niceDate } from './kit.js';
 import { getTheme } from './theme.js';
 import * as ai from './ai.js';
 import { renderDataCard } from './backupui.js';
@@ -12,6 +12,8 @@ import { editStages } from './home.js';
 import { listTemplates } from './library.js';
 import { VERSION } from './exporters.js';
 import { PRODUCT, TAGLINE, ABOUT_NAME } from './brand.js';
+import { listLabels, forgetLabel } from './t12labels.js';
+import { CATEGORY } from './t12.js';
 import { CONVENTIONS, conv, setConventions, conventionValues } from './engine/conventions.js';
 import { kvSet } from './store.js';
 
@@ -119,6 +121,21 @@ export async function renderSettings() {
   }
   cv.appendChild(cl);
   stack.appendChild(cv);
+
+  // the T-12 labels filed by hand: matched that way on every statement after; any can be forgotten
+  const t12s = section('T-12 labels you filed', 'settings-t12');
+  const labels = await listLabels();
+  if (!labels.length) t12s.appendChild(el('p', 'hint', 'None yet. When you file a T-12 line under a category with “Remember this label”, the label is matched the same way on every statement after. Only the label and the category are kept.'));
+  else {
+    const ll = el('ul', 'set-list');
+    for (const x of labels) {
+      const forget = btn('Forget', async () => { await forgetLabel(x.key); renderSettings(); });
+      forget.setAttribute('aria-label', `Forget “${x.key}”`);
+      ll.appendChild(row(`“${x.key}”`, `${CATEGORY[x.category] ? CATEGORY[x.category].label : x.category} · filed ${niceDate(x.at)}`, [forget]));
+    }
+    t12s.appendChild(ll);
+  }
+  stack.appendChild(t12s);
 
   // data
   const data = el('section', 'card');

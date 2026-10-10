@@ -58,7 +58,7 @@ async function sources() {
   }
   for (const t of toolIndex()) items.push({ group: 'Tools', icon: 'tool', title: t.title, detail: `${t.group} · ${t.desc}`, weight: 0.2, run: () => { close(); openToolById(t.id); } });
   const go = (view, title, keywords) => ({ group: 'Go to', icon: 'go', title, keywords, weight: 0.4, run: () => { close(); api.showView(view); } });
-  items.push(go('home', 'Home', 'dashboard pipeline tasks'), go('deal', 'Deals', 'deal workspace om'), go('comps', 'Comps', 'comparable sales market'), go('tools', 'Tools', 'calculators'), go('settings', 'Settings', 'preferences appearance backup'));
+  items.push(go('home', 'Home', 'dashboard pipeline tasks'), go('deal', 'Deals', 'deal workspace om'), go('comps', 'Comps', 'comparable sales market'), go('tools', 'Tools', 'calculators'), go('review', 'Review', 'queue t-12 t12 unmapped ai readings check'), go('settings', 'Settings', 'preferences appearance backup'));
   const act = (title, detail, run, keywords = '') => ({ group: 'Actions', icon: 'act', title, detail, keywords, weight: 0.3, run: () => { close(); run(); } });
   items.push(
     act('Read an offering memorandum…', 'Choose an OM PDF; its figures are read on this device', () => { api.showView('deal'); document.getElementById('om-file').click(); }, 'om pdf scan new deal'),
