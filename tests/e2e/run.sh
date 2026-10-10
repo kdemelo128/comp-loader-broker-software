@@ -23,7 +23,7 @@ if command -v ffmpeg >/dev/null; then ffmpeg -loglevel error -y -f lavfi -i "sin
 : > files/empty.m4a
 # the AI flow runs the real server code (server/), which needs its one package
 [ -d ../../server/node_modules/@anthropic-ai/sdk ] || (cd ../../server && npm ci --silent)
-(cd ../.. && python3 -m http.server 8080 --bind 127.0.0.1 >/dev/null 2>&1) &
+(cd ../.. && exec python3 -m http.server 8080 --bind 127.0.0.1 >/dev/null 2>&1) &
 SERVER=$!
 trap 'kill $SERVER 2>/dev/null || true' EXIT
 sleep 1
