@@ -8,7 +8,9 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 const exists = (p) => fs.existsSync(path.join(ROOT, p));
-const list = (dir) => fs.readdirSync(path.join(ROOT, dir)).map((f) => `${dir}/${f}`);
+// every file under a directory, subfolders included (app/engine/ …)
+const list = (dir) => fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })
+  .flatMap((e) => (e.isDirectory() ? list(`${dir}/${e.name}`) : [`${dir}/${e.name}`]));
 
 test('the service worker caches every file the app needs, and only files that exist', () => {
   const sw = read('sw.js');

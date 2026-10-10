@@ -6,6 +6,7 @@
  * fit the workbook's Summary reports. Colour carries the set (sold blue, asking
  * orange); every mark also has a text label or a tooltip, so nothing depends on
  * colour alone. */
+import { isPriced } from './engine/comps.js';
 import * as S from './stats.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -22,7 +23,8 @@ const el = (tag, cls, text) => {
   return n;
 };
 
-const ppsf = (c) => (c.price && c.bsf ? c.price / c.bsf : null);
+// one rule for which comps count toward $/SF (engine/comps.js)
+const ppsf = (c) => (isPriced(c) ? c.price / c.bsf : null);
 const money0 = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
 const money2 = (n) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

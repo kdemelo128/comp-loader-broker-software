@@ -6,6 +6,8 @@
  * text produced by layout.js.
  */
 
+import { isPriced } from './engine/comps.js';
+
 export const MAX_COMPS = 15;
 
 const HEAD = /^\s{0,6}(\d{1,3})\s{2,}(\S.*?)\s*$/;
@@ -426,8 +428,9 @@ function g(x) {
 
 /* ----------------------------------------------------------- business rules */
 
+/** $/SF of one comp: only with a price and building SF above zero (engine/comps.js). */
 export function ppsf(c) {
-  return c.price && c.bsf ? c.price / c.bsf : null;
+  return isPriced(c) ? c.price / c.bsf : null;
 }
 
 const isSubset = (a, b) => a.size > 0 && [...a].every((x) => b.has(x));

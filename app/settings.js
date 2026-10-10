@@ -12,6 +12,8 @@ import { editStages } from './home.js';
 import { listTemplates } from './library.js';
 import { VERSION } from './exporters.js';
 import { PRODUCT, TAGLINE, ABOUT_NAME } from './brand.js';
+import { CONVENTIONS, conv, setConventions, conventionValues } from './engine/conventions.js';
+import { kvSet } from './store.js';
 
 let api = null;
 
@@ -96,6 +98,27 @@ export async function renderSettings() {
   al.appendChild(row('AI server', ai.isReady(aiSet) ? `On, through ${host}. Documents, questions and recordings are sent only when you confirm each one.` : 'Off. Reading documents with AI, the deal assistant and transcription need your firm’s AI server; with AI off nothing leaves this device.', [btn('AI settings…', () => openAiSettings(api))]));
   aic.appendChild(al);
   stack.appendChild(aic);
+
+  // calculation conventions: the two that are settings, and every other one stated
+  const cv = section('Calculation conventions', 'settings-conventions');
+  const cl = el('ul', 'set-list');
+  for (const c of CONVENTIONS) {
+    if (c.settable) {
+      const sel = el('select', 'compact');
+      sel.id = `conv-${c.id.replace('.', '-')}`;
+      sel.setAttribute('aria-label', c.label);
+      for (const [v, label] of c.options) { const o = el('option', null, label); o.value = v; sel.appendChild(o); }
+      sel.value = conv(c.id);
+      sel.addEventListener('change', async () => {
+        setConventions({ [c.id]: sel.value });
+        await kvSet('conventions', conventionValues());
+        document.dispatchEvent(new CustomEvent('conventionchange'));
+      });
+      cl.appendChild(row(c.label, c.help, [sel]));
+    } else cl.appendChild(row(c.label, c.value, []));
+  }
+  cv.appendChild(cl);
+  stack.appendChild(cv);
 
   // data
   const data = el('section', 'card');

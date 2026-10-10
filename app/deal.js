@@ -11,82 +11,29 @@ const ok = (x) => typeof x === 'number' && Number.isFinite(x);
 const pos = (x) => ok(x) && x > 0;
 const div = (a, b) => (ok(a) && pos(b) ? a / b : null);
 
-/** Annual debt service: amortizing, or interest only. */
-export function debtService(loan, ratePct, amortYears, io = false) {
-  if (!pos(loan) || !ok(ratePct) || ratePct < 0) return null;
-  const r = ratePct / 100;
-  if (io) return loan * r;
-  if (!pos(amortYears)) return null;
-  const n = amortYears * 12;
-  const i = r / 12;
-  if (i === 0) return loan / amortYears;
-  return 12 * (loan * i) / (1 - (1 + i) ** -n);
-}
+import { debtService, loanConstant, balanceAfter, sizeLoan } from './engine/debt.js';
+import { compBasis } from './engine/comps.js';
+import { walt } from './engine/walt.js';
+import { breakEvenOccupancy } from './engine/breakeven.js';
 
-/** Debt service per dollar of loan, a year: the loan constant. Null when the terms are incomplete. */
-export const loanConstant = (ratePct, amortYears, io = false) => {
-  const ds = debtService(1e6, ratePct, amortYears, io);
-  return ds === null ? null : ds / 1e6;
-};
-
-/** Balance left after `years` of payments on an amortizing loan. */
-export function balanceAfter(loan, ratePct, amortYears, years, io = false) {
-  if (!pos(loan) || !ok(ratePct) || ratePct < 0 || !ok(years) || years < 0) return null;
-  if (io) return loan;
-  if (!pos(amortYears)) return null;
-  const i = ratePct / 100 / 12;
-  const n = amortYears * 12;
-  const k = Math.min(n, Math.round(years * 12));
-  if (i === 0) return loan * (1 - k / n);
-  const pmt = (loan * i) / (1 - (1 + i) ** -n);
-  return loan * (1 + i) ** k - pmt * (((1 + i) ** k - 1) / i);
-}
-
-/** The largest loan the property supports: the least of LTV, DSCR and debt-yield sizing. */
-export function sizeLoan({ price, noi, ltv, dscr, dy, rate, amort, io }) {
-  const out = [];
-  if (pos(price) && pos(ltv)) out.push(['LTV', price * ltv / 100]);
-  const k = loanConstant(rate, amort, io);
-  if (pos(noi) && pos(dscr) && pos(k)) out.push(['DSCR', noi / dscr / k]);
-  if (pos(noi) && pos(dy)) out.push(['Debt yield', noi / (dy / 100)]);
-  if (!out.length) return null;
-  out.sort((a, b) => a[1] - b[1]);
-  return { loan: out[0][1], binding: out[0][0], tests: Object.fromEntries(out) };
-}
-
-const median = (xs) => {
-  const v = xs.filter(ok).sort((a, b) => a - b);
-  if (!v.length) return null;
-  return v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
-};
-
-/** What the comp set says, in the form the deal screen needs. `sales` are included sale comps. */
-export function compBasis(sales) {
-  const priced = sales.filter((c) => pos(c.price) && pos(c.bsf));
-  const sf = priced.reduce((s, c) => s + c.bsf, 0);
-  const ppsfs = priced.map((c) => c.price / c.bsf);
-  const caps = sales.map((c) => c.cap).filter((x) => pos(x));
-  return {
-    n: priced.length,
-    weighted: sf ? priced.reduce((s, c) => s + c.price, 0) / sf : null,
-    median: median(ppsfs),
-    lo: ppsfs.length ? Math.min(...ppsfs) : null,
-    hi: ppsfs.length ? Math.max(...ppsfs) : null,
-    ppsfs,
-    capN: caps.length,
-    medianCap: median(caps),
-  };
-}
+// the loan and comp arithmetic lives in the engine; it is re-exported here for the modules that import it from deal.js
+export { debtService, loanConstant, balanceAfter, sizeLoan, compBasis };
 
 /* ---------------------------------------------------------------- leases */
 
 const YEAR = 365.25 * 86400000;
 
-/** WALT, expiries and occupancy from a rent roll, as of `today`. */
-export function leaseStats(rows, today = new Date()) {
+/**
+ * WALT, expiries and occupancy from a rent roll, as of `asOf` (the rent
+ * roll's as-of date; a Date, ISO text or day). WALT is the engine's one
+ * definition (engine/walt.js): month-to-month and undated leases left out
+ * unless the convention says otherwise.
+ */
+export function leaseStats(rows, asOf = new Date()) {
   if (!rows || !rows.length) return null;
-  const t = today.getTime();
-  let rent = 0; let rentYears = 0; let sfYears = 0; let leasedSf = 0; let totalSf = 0; let mtmRent = 0;
+  const at = asOf instanceof Date ? asOf : new Date(String(asOf).length === 10 ? `${asOf}T00:00:00Z` : asOf);
+  const t = Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate());
+  let rent = 0; let leasedSf = 0; let totalSf = 0;
   let roll12 = 0; let roll24 = 0; let undated = 0; let vacantSf = 0;
   for (const r of rows) {
     if (pos(r.sf)) totalSf += r.sf;
@@ -94,15 +41,13 @@ export function leaseStats(rows, today = new Date()) {
     if (pos(r.sf)) leasedSf += r.sf;
     const a = pos(r.annual) ? r.annual : 0;
     rent += a;
-    if (r.mtm) { mtmRent += a; roll12 += a; roll24 += a; continue; }
+    if (r.mtm) { roll12 += a; roll24 += a; continue; }
     if (!r.end) { undated += a; continue; }
     const yrs = Math.max(0, (new Date(r.end).getTime() - t) / YEAR);
-    rentYears += a * yrs;
-    if (pos(r.sf)) sfYears += r.sf * yrs;
     if (yrs <= 1) roll12 += a;
     if (yrs <= 2) roll24 += a;
   }
-  const datedRent = rent - undated - mtmRent;
+  const w = walt(rows, { asOf: new Date(t) });
   return {
     tenants: rows.filter((r) => !r.vacant).length,
     rent,
@@ -110,8 +55,11 @@ export function leaseStats(rows, today = new Date()) {
     leasedSf: leasedSf || null,
     vacantSf,
     occupancy: totalSf ? (leasedSf / totalSf) * 100 : null,
-    waltIncome: datedRent + mtmRent > 0 ? rentYears / (datedRent + mtmRent) : null,
-    waltSf: leasedSf ? sfYears / leasedSf : null,
+    waltIncome: w.income,
+    waltSf: w.sf,
+    walt: w.headline,
+    waltWeight: w.weight,
+    waltMtm: w.mtm,
     avgRentPsf: leasedSf && rent ? rent / leasedSf : null,
     roll12Pct: rent ? (roll12 / rent) * 100 : null,
     roll24Pct: rent ? (roll24 / rent) * 100 : null,
@@ -143,7 +91,11 @@ export function analyze(d, comps = null, today = new Date()) {
   let price = pos(d.price) ? d.price : null;
   let noi = ok(d.noi) ? d.noi : null;
   const capStated = pos(d.cap) ? d.cap : null;
-  if (price === null && noi !== null && capStated) { price = noi / (capStated / 100); m.derived.price = true; }
+  // a price is worked out from the cap rate only from a positive NOI; from zero or a loss it would be meaningless (or negative)
+  if (price === null && noi !== null && capStated && noi > 0) { price = noi / (capStated / 100); m.derived.price = true; }
+  if (price === null && noi !== null && capStated && noi <= 0) {
+    m.checks.push({ level: 'warn', text: `The NOI is ${noi === 0 ? 'zero' : 'negative'} (${noi < 0 ? '-' : ''}$${Math.round(Math.abs(noi)).toLocaleString('en-US')}), so no price is worked out from the stated ${pct2(capStated)} cap rate.` });
+  }
   if (noi === null && price !== null && capStated) { noi = price * capStated / 100; m.derived.noi = true; }
   m.price = price;
   m.noi = noi;
@@ -159,7 +111,8 @@ export function analyze(d, comps = null, today = new Date()) {
   m.opexPsf = div(d.opex, d.bsf);
   m.taxPsf = div(d.taxes, d.bsf);
   m.age = pos(d.year) ? today.getFullYear() - d.year : null;
-  m.leases = leaseStats(d.rentRoll, today);
+  // measured from the rent roll's own as-of date when it has one, as the Rent roll tab is
+  m.leases = leaseStats(d.rentRoll, d.rentRollAsOf || today);
   // a lease expiration date counts down from today; "9.3 years remaining" was true when the OM was printed
   m.termLeft = yearsLeft(d.lease_exp, today) ?? yearsLeft(d.term_left, today);
   // occupancy as the OM states it, else as the rent roll adds up
@@ -180,13 +133,9 @@ export function analyze(d, comps = null, today = new Date()) {
   // exact; with only effective income it is estimated by scaling EGI up from
   // the occupancy it was earned at; with neither occupancy nor GPR it can only
   // be stated as a share of current income, and is labelled so.
-  const cost = ok(d.opex) && m.debtService !== null ? d.opex + m.debtService : null;
-  m.breakEven = null;
-  m.breakEvenBasis = null;
-  if (cost !== null && pos(d.gpr)) { m.breakEven = (cost / d.gpr) * 100; m.breakEvenBasis = 'gpr'; } else if (cost !== null && pos(d.gross)) {
-    const ratio = (cost / d.gross) * 100;
-    if (pos(m.occ)) { m.breakEven = ratio * (m.occ / 100); m.breakEvenBasis = 'egi-occ'; } else { m.breakEven = ratio; m.breakEvenBasis = 'egi'; }
-  }
+  const be = m.debtService !== null ? breakEvenOccupancy({ gpr: d.gpr, gross: d.gross, occ: m.occ, opex: d.opex, debtService: m.debtService }) : null;
+  m.breakEven = be ? be.value : null;
+  m.breakEvenBasis = be ? be.basis : null;
   m.maxLoan = sizeLoan({ price, noi, ltv: L.ltv, dscr: L.minDscr, dy: L.minDy, rate: L.rate, amort: L.amort, io: L.io });
 
   // a ladder of cap rates around the one in hand

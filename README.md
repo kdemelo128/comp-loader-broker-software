@@ -25,7 +25,8 @@ browser and installs on an iPhone like an app. Five places, in a sidebar on a co
   lease comparisons, residual land value and more). A tool can load the open
   deal's figures and, after you confirm each change, send its result back.
 - **Settings** holds appearance (light, dark or follow the device), the
-  template library, pipeline stages, the AI connection, and backup and restore.
+  template library, pipeline stages, the AI connection, backup and restore,
+  and the calculation conventions (see *How the numbers are kept* below).
 
 **Search or jump** (⌘K on a Mac, Ctrl K elsewhere, or **/**; the search button
 on a phone) finds any deal by name, address or tenant, any contact by name,
@@ -268,7 +269,8 @@ shows numbers in Outlook's preview and Protected View and still recalculates.
 
 ### Judgements it makes, and says it made
 
-- Unpriced listings are kept but never score as $0/SF.
+- Unpriced listings are kept but never score as $0/SF: a comp counts toward
+  any $/SF figure only with a price and a size both above zero.
 - Weighted $/SF is total price over total size, not an average of ratios.
 - Market conditions start at 0% unless the comps' own $/SF-over-time line is
   reliable (five or more sales, R² 0.5 or better, within ±10% a year).
@@ -276,6 +278,31 @@ shows numbers in Outlook's preview and Protected View and still recalculates.
 - Comps past fifteen are set aside, not dropped.
 - On a deal, a figure worked out from others is labelled "derived", and a
   figure you typed over is labelled "edited", with the OM's own value one tap away.
+
+## How the numbers are kept
+
+Each figure is worked out by one function (`app/engine/`), so the Overview,
+the Rent roll tab, the Tools, the brief and the workbooks agree.
+
+- **WALT** is measured from the rent roll's as-of date, weighted by income,
+  with month-to-month leases left out. Every WALT says how it was measured,
+  for example "WALT 3.9 yrs by income". **Settings → Calculation
+  conventions** can weight it by area instead, or count month-to-month leases
+  at zero years. The other conventions are listed there too.
+- **Net effective rent** compounds each escalation at the lease anniversary
+  and takes the free months at the rent in force then. It deducts TI and,
+  when entered, commissions, then divides by the term. Its label says what it
+  is net of, and a discounted version is shown beside it.
+- **Break-even occupancy** is (operating expenses + debt service − income
+  that does not depend on occupancy) ÷ gross potential rent. With no GPR it
+  is estimated from gross income and occupancy, and labelled "(est.)".
+- **Loan payments** amortize over whole months.
+- **No price is worked out from a zero or negative NOI.** The price shows
+  "—" with a warning.
+- **Money** is stored with totals in whole cents and rates per SF or per
+  unit to four decimals. When 4.1 first opens, existing values are rounded
+  once, and each one is listed with its old and new value under **Settings →
+  Your data**.
 
 ## About the name
 
@@ -349,6 +376,11 @@ refinance, waterfall, commission, renewal versus replacement, residual land,
 draws and the rest) against figures worked out independently.
 `tests/tplcells.test.js` checks template mapping, the preview and filling.
 
+`tests/engine.test.js` holds known answers for each shared definition
+(WALT, whole-month debt service, net effective rent, break-even, comp rules)
+and checks that every screen and workbook gives the same figure.
+`tests/money.test.js` checks the cents and four-decimal rounding and its log.
+
 `tests/finance.test.js` checks the deal arithmetic against figures worked out
 independently (debt service, balances, DSCR, debt yield, cash-on-cash, loan
 sizing, break-even occupancy, WALT, net effective rent, IRR, equity multiple,
@@ -390,6 +422,9 @@ app/kit.js            shared helpers: numbers, formatting, toasts, sheets, files
 app/dealui.js         Deals: the list and the deal workspace
 app/om.js             reading figures and the rent roll out of an OM
 app/deal.js           deal maths, checks and questions
+app/engine/           one function per figure: WALT, debt service, net
+                      effective rent, break-even, comp rules, money
+                      rounding, and the calculation conventions
 app/brief.js          the one-page deal brief and the text summary
 app/lease.js          the lease engine: dated rent periods, projection, validation
 app/rentroll.js       rent roll columns, presets and layouts

@@ -19,7 +19,7 @@
  * it holds offline always belong to the same release, never a mix of the old
  * and the new. The old cache is dropped on activate. The test suite also
  * checks this list against the files on disk. */
-const VERSION = '4.0.0';
+const VERSION = '4.1.0';
 const CACHE = `zlatura-${VERSION}`;
 const ASSETS = [
   './',
@@ -62,6 +62,13 @@ const ASSETS = [
   'app/home.js',
   'app/backup.js',
   'app/brand.js',
+  'app/engine/breakeven.js',
+  'app/engine/comps.js',
+  'app/engine/conventions.js',
+  'app/engine/debt.js',
+  'app/engine/leasing.js',
+  'app/engine/money.js',
+  'app/engine/walt.js',
   'app/backupui.js',
   'app/styles.css',
   'app/theme.js',

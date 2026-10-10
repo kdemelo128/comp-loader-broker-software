@@ -33,6 +33,8 @@
  *   = cash flow before debt service
  */
 
+import { walt } from './engine/walt.js';
+
 const DAY = 86400000;
 const ok = (x) => typeof x === 'number' && Number.isFinite(x);
 const pos = (x) => ok(x) && x > 0;
@@ -483,7 +485,7 @@ export function rentRollSummary(rr, asOf) {
   const d = dayOf(asOf || s.asOf);
   const leases = rr.leases || [];
   const totalSf = leases.reduce((x, L) => x + (pos(L.sf) ? L.sf : 0), 0);
-  let leasedSf = 0; let annual = 0; let annualNet = 0; let rentYears = 0; let sfYears = 0; let datedRent = 0; let market = 0; let marketOcc = 0;
+  let leasedSf = 0; let annual = 0; let annualNet = 0; let market = 0; let marketOcc = 0;
   const rows = [];
   for (const L of leases) {
     const ip = inPlace(L, asOf || s.asOf);
@@ -495,16 +497,14 @@ export function rentRollSummary(rr, asOf) {
       if (pos(L.sf)) leasedSf += L.sf;
       annual += ip.monthly * 12;
       annualNet += ip.net * 12;
-      if (yrs !== null) { rentYears += ip.monthly * 12 * yrs; datedRent += ip.monthly * 12; if (pos(L.sf)) sfYears += L.sf * yrs; }
       if (mkt !== null) { market += mkt * 12; marketOcc += ip.monthly * 12; }
     }
     rows.push({
-      id: L.id, unit: L.unit, tenant: L.vacant ? 'Vacant' : L.tenant, sf: L.sf, occupied, monthly: ip.monthly, annual: ip.monthly * 12,
+      id: L.id, unit: L.unit, tenant: L.vacant ? 'Vacant' : L.tenant, sf: L.sf, occupied, mtm: !!L.mtm, monthly: ip.monthly, annual: ip.monthly * 12,
       annualNet: ip.net * 12, psf: pos(L.sf) && occupied ? (ip.monthly * 12) / L.sf : null, end: L.leaseEnd || null, yearsLeft: yrs,
       market: mkt !== null ? mkt * 12 : null, lossToLease: mkt !== null && occupied ? mkt * 12 - ip.monthly * 12 : null,
     });
   }
-  const datedSf = leases.filter((L) => !L.vacant && dayOf(L.leaseEnd) !== null && pos(L.sf) && inPlace(L, asOf || s.asOf).monthly > 0).reduce((x, L) => x + L.sf, 0);
   // expirations by calendar year of the lease end
   const exp = new Map();
   for (const r of rows) {
@@ -519,13 +519,18 @@ export function rentRollSummary(rr, asOf) {
   const byTenant = rows.filter((r) => r.occupied).sort((a, b) => b.annual - a.annual)
     .map((r) => ({ tenant: r.tenant, unit: r.unit, annual: r.annual, share: annual ? (r.annual / annual) * 100 : null }));
   const hhi = byTenant.reduce((x, t) => x + (t.share || 0) ** 2, 0);
+  const w = walt(rows.map((r) => ({ annual: r.occupied ? r.annual : null, sf: r.sf, end: r.end, mtm: r.mtm, vacant: !r.occupied })), { asOf: asOf || s.asOf });
   return {
     rows, totalSf: totalSf || null, leasedSf, occupancy: totalSf ? (leasedSf / totalSf) * 100 : null,
     units: leases.length, occupiedUnits: rows.filter((r) => r.occupied).length,
     annualRent: annual, annualNet, monthlyRent: annual / 12,
     avgRentPsf: leasedSf ? annual / leasedSf : null,
-    waltIncome: datedRent ? rentYears / datedRent : null,
-    waltSf: datedSf ? sfYears / datedSf : null,
+    // WALT: the engine's one definition (engine/walt.js), from the as-of date
+    waltIncome: w.income,
+    waltSf: w.sf,
+    walt: w.headline,
+    waltWeight: w.weight,
+    waltMtm: w.mtm,
     marketRentOccupied: market || null,
     lossToLease: market ? market - marketOcc : null,
     lossToLeasePct: market ? ((market - marketOcc) / market) * 100 : null,

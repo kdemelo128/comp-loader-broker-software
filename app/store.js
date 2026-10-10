@@ -11,6 +11,7 @@
  * here fails quietly, and the app works without it. */
 
 import { FORMATS, PRODUCT, removeOldLocalKeys } from './brand.js';
+import { quantizeDeal, quantizeSession } from './engine/money.js';
 
 const DB = 'zlatura';
 /** The database's name before the product was renamed (copied across once; see moveFromOld). */
@@ -47,7 +48,10 @@ function open() {
       db.onversionchange = () => { db.close(); dbP = null; };
       db.onclose = () => { dbP = null; };
       // nothing reads or writes until the old database's data is here (or known not to exist)
-      moveFromOld(db).catch(() => { /* retried at the next start; the old data is untouched */ }).then(() => resolve(db));
+      moveFromOld(db).catch(() => { /* retried at the next start; the old data is untouched */ })
+        // money kept to whole cents (rates to four decimals): stored data rounded once, every change logged
+        .then(() => migrateMoneyIn(db, { once: true })).catch(() => { /* retried at the next start */ })
+        .then(() => resolve(db));
     };
     req.onerror = () => reject(req.error);
     req.onblocked = () => reject(new Error('storage is busy in another tab'));
@@ -122,6 +126,69 @@ export async function moveFromOld(db) {
   t3.objectStore('meta').put(record, 'rename');
   await doneP(t3);
   return record;
+}
+
+/* ------------------------------------------- money to whole cents (4.1) */
+
+/** The version of the money rounding a stored deal or comp set has had. */
+export const MONEY_VERSION = 1;
+const dealName = (d) => d.name || (d.figures && d.figures.address) || 'Untitled deal';
+
+/**
+ * Round every stored deal's and the comp set's money that hasn't been rounded
+ * yet (totals to whole cents, rates per unit to four decimals: engine/money.js),
+ * and add each value changed, old and new, to the rounding log. One
+ * transaction: all of it or none. With `once`, only on the first start of a
+ * version that rounds (a restore runs it again for what it brought in).
+ */
+async function migrateMoneyIn(db, { once = false } = {}) {
+  if (once && await reqP(db.transaction('meta').objectStore('meta').get('money'))) return [];
+  const t = db.transaction(['deals', STORE, 'meta'], 'readwrite');
+  const deals = t.objectStore('deals'); const sess = t.objectStore(STORE); const meta = t.objectStore('meta');
+  const at = Date.now();
+  const entries = [];
+  const [keys, all, session, log] = await Promise.all([reqP(deals.getAllKeys()), reqP(deals.getAll()), reqP(sess.get(KEY)), reqP(meta.get('rounding'))]);
+  all.forEach((d, i) => {
+    if (!d || (d.moneyVersion || 0) >= MONEY_VERSION) return;
+    const { changes } = quantizeDeal(d);
+    for (const c of changes) entries.push({ at, where: `Deal: ${dealName(d)}`, ...c });
+    d.moneyVersion = MONEY_VERSION;
+    deals.put(d, keys[i]);
+  });
+  if (session && (session.moneyVersion || 0) < MONEY_VERSION) {
+    const { changes } = quantizeSession(session);
+    for (const c of changes) entries.push({ at, where: 'Comp set', ...c });
+    session.moneyVersion = MONEY_VERSION;
+    sess.put(session, KEY);
+  }
+  meta.put({ version: MONEY_VERSION, at }, 'money');
+  if (entries.length) meta.put({ entries: [...((log && log.entries) || []), ...entries] }, 'rounding');
+  await doneP(t);
+  return entries;
+}
+
+/** Round what a restore (or anything else) brought in without rounding. Returns the logged changes. */
+export async function migrateMoney() {
+  try { return await migrateMoneyIn(await open()); } catch { return []; }
+}
+
+/** Every stored value the rounding changed: [{ at, where, path, old, new }]. */
+export async function roundingLog() {
+  try { const db = await open(); return ((await reqP(db.transaction('meta').objectStore('meta').get('rounding'))) || {}).entries || []; } catch { return []; }
+}
+
+/** Add changes made elsewhere (a deal opened from its recovery copy, saved Tools inputs) to the log. */
+export async function logRounding(changes, where) {
+  if (!changes || !changes.length) return;
+  try {
+    const db = await open();
+    const t = db.transaction('meta', 'readwrite');
+    const meta = t.objectStore('meta');
+    const log = await reqP(meta.get('rounding'));
+    const at = Date.now();
+    meta.put({ entries: [...((log && log.entries) || []), ...changes.map((c) => ({ at, where, ...c }))] }, 'rounding');
+    await doneP(t);
+  } catch { /* the values are rounded either way; only the log entry is lost */ }
 }
 
 /** What the move did, for Settings and the tests. */

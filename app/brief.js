@@ -5,6 +5,7 @@
  * doesn't add up, the questions to ask, and what was seen on site. The text
  * summary is the same in five lines, for a text or a Teams message. */
 
+import { waltMethod } from './engine/walt.js';
 import { money0, money2, pct, signed, times, yrs, int, niceDate } from './kit.js';
 
 const h = (doc, tag, cls, text) => {
@@ -27,7 +28,7 @@ export function dealSummaryText(deal, m, comps) {
   lines.push([ok(m.price) ? `Asking ${money0(m.price)}` : (deal.unpriced ? 'Unpriced' : null), ok(m.ppsf) ? `${money2(m.ppsf)}/SF` : null,
     ok(m.cap) ? `${pct(m.cap)} cap` : null].filter(Boolean).join(' · '));
   lines.push([ok(m.noi) ? `NOI ${money0(m.noi)}${m.derived.noi ? ' (derived)' : ''}` : null, ok(f.occ) ? `${pct(f.occ, 1)} occupied` : null,
-    m.leases && ok(m.leases.waltIncome) ? `WALT ${yrs(m.leases.waltIncome)}` : null, f.tenant ? `Tenant ${f.tenant}` : null].filter(Boolean).join(' · '));
+    m.leases && ok(m.leases.walt) ? `WALT ${yrs(m.leases.walt)} (${waltMethod()})` : null, f.tenant ? `Tenant ${f.tenant}` : null].filter(Boolean).join(' · '));
   const L = deal.loan || {};
   if (ok(m.dscr)) {
     lines.push(`At ${pct(L.ltv, 0)} LTV, ${pct(L.rate)}, ${L.io ? 'interest only' : `${L.amort}-yr amortization`}: DSCR ${times(m.dscr)}, cash-on-cash ${pct(m.cashOnCash, 1)}`);
@@ -99,7 +100,7 @@ export function renderDealBrief(box, { deal, m, comps, photos = [], preparedBy =
     ['Gross potential rent', ok(f.gpr) ? money0(f.gpr) : null], ['Gross income (EGI)', ok(f.gross) ? money0(f.gross) : null], ['Operating expenses', ok(f.opex) ? money0(f.opex) : null],
     ['Expense ratio', ok(m.expenseRatio) ? pct(m.expenseRatio, 1) : null], ['Real estate taxes', ok(f.taxes) ? money0(f.taxes) : null],
     ['Pro forma NOI', ok(f.noi_pf) ? money0(f.noi_pf) : null],
-    ['WALT (by income)', m.leases && ok(m.leases.waltIncome) ? yrs(m.leases.waltIncome) : null],
+    [`WALT (${waltMethod()})`, m.leases && ok(m.leases.walt) ? yrs(m.leases.walt) : null],
     ['Rent rolling in 24 months', m.leases && ok(m.leases.roll24Pct) ? pct(m.leases.roll24Pct, 0) : null],
   ]));
   cols.appendChild(left2);

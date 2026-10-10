@@ -12,6 +12,9 @@
  * Deals are saved on the device (IndexedDB) after every change. */
 
 import { readOm } from './om.js';
+import { waltMethod } from './engine/walt.js';
+import { conv } from './engine/conventions.js';
+import { quantizeDeal } from './engine/money.js';
 import { analyze, runScenario, scenarioAnswers } from './deal.js';
 import * as store from './store.js';
 import { renderDealBrief, dealSummaryText, placeLine } from './brief.js';
@@ -145,7 +148,11 @@ function exampleDeal() {
 /* ------------------------------------------------------------- the maths */
 
 function figuresFor(d) {
-  return { ...d.figures, rentRoll: d.rentRoll, loan: d.loan };
+  // WALT and the rent roll's figures are measured from the rent roll's own as-of date
+  // one source: with a rent roll, the analysis reads its rows from it (not a stored copy that could lag behind),
+  // and WALT and its other figures are measured from its own as-of date
+  const rr = d.rr && Array.isArray(d.rr.leases) && d.rr.leases.length ? d.rr : null;
+  return { ...d.figures, rentRoll: rr ? legacyRows(rr) : d.rentRoll, loan: d.loan, rentRollAsOf: rr && rr.settings ? rr.settings.asOf : null };
 }
 function metrics() {
   const comps = api.count() ? api.basis() : null;
@@ -259,6 +266,9 @@ function touch(d = deal) {
   if (!d || deleted.has(d.id)) return;
   if (!opened.has(d.id)) opened.set(d.id, d);
   d.updatedAt = Date.now();
+  // money kept as the engine keeps it: totals to whole cents, rates per unit to four decimals
+  quantizeDeal(d);
+  d.moneyVersion = store.MONEY_VERSION;
   queueSave(d);
   if (d === deal) {
     document.dispatchEvent(new CustomEvent('dealchange'));
@@ -340,7 +350,15 @@ async function openDeal(id, { quiet = false } = {}) {
   deal = { ...newDeal(), ...d, visit: { ...newDeal().visit, ...(d.visit || {}) } };
   opened.set(deal.id, deal);
   try { localStorage.setItem(CUR_KEY, deal.id); } catch { /* fine */ }
-  if (replayed) saveNow(deal);
+  // a copy that missed the rounding (a recovery copy from before 4.1): round it now, and log what changed
+  let rounded = false;
+  if ((deal.moneyVersion || 0) < store.MONEY_VERSION) {
+    const { changes } = quantizeDeal(deal);
+    deal.moneyVersion = store.MONEY_VERSION;
+    store.logRounding(changes, `Deal: ${deal.name || deal.figures.address || 'Untitled deal'}`);
+    rounded = changes.length > 0;
+  }
+  if (replayed || rounded) saveNow(deal);
   render();
   document.dispatchEvent(new CustomEvent('dealchange'));
   badge();
@@ -738,11 +756,11 @@ function renderDerived() {
 
   const tiles = $('deal-tiles');
   tiles.textContent = '';
-  const tile = (k, v, s, cls) => {
+  const tile = (k, v, s, cls, title) => {
     const t = el('div', `tile${cls ? ` ${cls}` : ''}`);
     t.appendChild(el('div', 'k', k));
     t.appendChild(el('div', 'v', v));
-    if (s) t.appendChild(el('div', 's', s));
+    if (s) { const sub = el('div', 's', s); if (title) sub.title = title; t.appendChild(sub); }
     tiles.appendChild(t);
   };
   tile('Asking price', ok(m.price) ? short(m.price) : (deal.unpriced ? 'Unpriced' : '—'), m.derived.price ? 'derived from NOI and cap' : (ok(m.ppsf) ? `${money2(m.ppsf)}/SF` : null));
@@ -752,7 +770,9 @@ function renderDerived() {
   if (ok(m.perUnit)) tile('Per unit', short(m.perUnit), `${int(f.units)} units`);
   else if (ok(m.perLandSf) && !ok(m.ppsf)) tile('Per land SF', money2(m.perLandSf), f.zoning || null);
   const occ = m.leases && ok(m.leases.occupancy) ? m.leases.occupancy : f.occ;
-  if (ok(occ)) tile('Occupancy', pct(occ, 1), m.leases && ok(m.leases.waltIncome) ? `WALT ${yrs(m.leases.waltIncome)}` : null, occ < 85 ? 'warn' : '');
+  const asOfRR = deal.rr && deal.rr.settings ? deal.rr.settings.asOf : null;
+  if (ok(occ)) tile('Occupancy', pct(occ, 1), m.leases && ok(m.leases.walt) ? `WALT ${yrs(m.leases.walt)} ${waltMethod()}` : null, occ < 85 ? 'warn' : '',
+    m.leases && ok(m.leases.walt) ? `WALT ${waltMethod({}, asOfRR ? niceDate(`${asOfRR}T12:00:00`) : 'today')}${conv('walt.mtm') === 'exclude' ? '; month-to-month leases left out' : ''} (Settings → Calculation conventions)` : null);
   else if (ok(m.termLeft)) tile('Lease term left', yrs(m.termLeft), f.lease_type || null, m.termLeft < 5 ? 'warn' : '');
   tile('DSCR', ok(m.dscr) ? times(m.dscr) : '—', ok(m.cashOnCash) ? `cash-on-cash ${pct(m.cashOnCash, 1)}` : 'set loan terms below', ok(m.dscr) ? (m.dscr < 1.2 ? 'bad' : m.dscr < 1.25 ? 'warn' : 'good') : '');
 
@@ -1415,7 +1435,7 @@ function renderRentRoll(m) {
     const add = (k, v, s2, cls) => { const x = el('div', `tile${cls ? ` ${cls}` : ''}`); x.appendChild(el('div', 'k', k)); x.appendChild(el('div', 'v', v)); if (s2) x.appendChild(el('div', 's', s2)); t.appendChild(x); };
     add('In-place rent', short(sum.annualRent), `as of ${rr.settings.asOf}`);
     add('Occupancy', pct(sum.occupancy, 1), sum.totalSf ? `${int(sum.leasedSf)} SF leased` : null, ok(sum.occupancy) && sum.occupancy < 85 ? 'warn' : '');
-    add('WALT', yrs(sum.waltIncome), 'by income');
+    add('WALT', yrs(sum.walt), waltMethod());
     const soon = sum.expirations.filter((e) => typeof e.year === 'number' && e.year <= new Date().getFullYear() + 1).reduce((x, e) => x + (e.rentPct || 0), 0);
     add('Expiring by next year-end', pct(soon, 0), 'of rent', soon >= 25 ? 'warn' : '');
     box.appendChild(t);
@@ -2017,6 +2037,8 @@ export function initDeal(compsApi) {
   window.addEventListener('pagehide', flushNow);
   $('om-file').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; readOmFile(f); });
   // tasks or contacts changed (here or on Home): the open deal's pipeline card follows
+  // a convention changed in Settings (WALT weighting, month-to-month leases): figures are shown again on it
+  document.addEventListener('conventionchange', () => { if (deal) render(); });
   document.addEventListener('crmchange', () => { const box = $('deal-crm'); const d = deal; if (box && d) renderDealCrm(box, d, { touch: () => touch(d), api }); });
   $('photo-file').addEventListener('change', (e) => { const fs = [...e.target.files]; e.target.value = ''; addPhotos(fs); });
   document.addEventListener('omdrop', (e) => {
