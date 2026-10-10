@@ -139,6 +139,25 @@ the figures against the page tags before relying on them.
 
 All of it is kept on the device with the deals.
 
+### History, undo and snapshots
+
+Every change to a deal is kept in its **History** (the deal's ⋯ menu): what
+changed, the old and new values, and when. **Undo** and **Redo**, in the
+deal's header, say what they would undo or redo. On a keyboard, use Ctrl Z or
+⌘Z for undo, and Shift with it (or Ctrl Y) for redo; while you are typing in a
+field, those keys undo the typing instead. The last 100 steps can be undone,
+and they survive closing the app. **Undo to here** in History goes back to just
+after any step. An undo is itself recorded, and an undo that would overwrite
+something changed since is refused, with a reason.
+
+A **snapshot** is a copy of the deal you can compare with or go back to.
+Name one yourself ("Before the seller call"), up to 20 per deal. Up to 10
+more are taken automatically before an import, Tools or AI figures applied, a
+restore, and a backup restore that overwrites the deal. **Compare** lists
+every difference, then and now; **Restore** is one step, and can be undone.
+Photos and recordings you remove are kept for 30 days, so an undo or restore
+can bring them back.
+
 ### Your data: backup and restore
 
 Everything lives in this browser on this device, so **Your data** (in

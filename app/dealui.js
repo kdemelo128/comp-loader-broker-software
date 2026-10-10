@@ -17,6 +17,7 @@ import { conv } from './engine/conventions.js';
 import { quantizeDeal } from './engine/money.js';
 import { analyze, runScenario, scenarioAnswers } from './deal.js';
 import * as store from './store.js';
+import { undoState, inverseOf, mediaRefs, withBytes, applyChanges, placeOf, snapshotData, restoreInto, diffDeal, SNAPSHOTS } from './history.js';
 import { renderDealBrief, dealSummaryText, placeLine } from './brief.js';
 import { fromOmRows, project, rentRollSummary } from './lease.js';
 import { projectionNow, projectionLater, projectionSync, projectionError } from './projector.js';
@@ -263,29 +264,52 @@ const hasFigures = () => deal && Object.values(deal.figures).some((v) => v !== n
  * change to one deal can never be written under another, and switching,
  * closing or leaving the app writes the last change first rather than
  * dropping it. */
-function touch(d = deal) {
+/* A change can say what it was, for the deal's history: touch(d, { kind,
+ * label }). Without one, the history labels it from what changed. Changes to
+ * one deal within one save are one entry. */
+const pendingMeta = new Map(); // deal id -> { kind, label, rounded }
+function noteChange(d, meta) {
+  const m = pendingMeta.get(d.id) || {};
+  if (meta && meta.kind && (!m.kind || m.kind === 'edit')) m.kind = meta.kind;
+  if (meta && meta.label) m.label = m.label && m.label !== meta.label ? `${m.label}; ${meta.label}` : meta.label;
+  if (meta && meta.snapshot) m.snapshot = meta.snapshot;
+  if (meta && meta.rounded && meta.rounded.length) m.rounded = [...(m.rounded || []), ...meta.rounded];
+  pendingMeta.set(d.id, m);
+}
+function touch(d = deal, meta = null) {
   if (!d || deleted.has(d.id)) return;
   if (!opened.has(d.id)) opened.set(d.id, d);
   d.updatedAt = Date.now();
   // money kept as the engine keeps it: totals to whole cents, rates per unit to four decimals
-  quantizeDeal(d);
+  const { changes } = quantizeDeal(d);
   d.moneyVersion = store.MONEY_VERSION;
+  // the flat rent roll is rebuilt from the leases on every change (and isn't recorded): its rounding isn't news
+  const rounded = d.rr ? changes.filter((c) => !/^rentRoll\[/.test(c.path)) : changes;
+  noteChange(d, { ...(meta || {}), rounded });
   queueSave(d);
   if (d === deal) {
     document.dispatchEvent(new CustomEvent('dealchange'));
     badge();
   }
 }
+const stored = new Set(); // deals storage has a copy of: a new deal's first save isn't delayed, so its first edits are entries of their own
 function queueSave(d) {
   if (pending && pending !== d) saveNow(pending);
   pending = d;
   writeRecovery(d);
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(flushDeal, 400);
+  saveTimer = setTimeout(flushDeal, stored.has(d.id) ? 400 : 0);
 }
 function saveNow(d) {
   const at = d.updatedAt;
-  return store.saveDeal(d).then((ok) => { if (ok) clearRecovery(d.id, at); return ok; });
+  const meta = pendingMeta.get(d.id) || null;
+  pendingMeta.delete(d.id);
+  return store.saveDeal(d, meta).then((ok) => {
+    if (ok) { clearRecovery(d.id, at); stored.add(d.id); }
+    else if (meta) noteChange(d, meta); // not saved: the next save carries the label
+    if (d === deal) refreshUndo();
+    return ok;
+  });
 }
 /** Write the pending change now. Resolves when storage has it (or has refused it). */
 export function flushDeal() {
@@ -350,6 +374,7 @@ async function openDeal(id, { quiet = false } = {}) {
   }
   deal = { ...newDeal(), ...d, visit: { ...newDeal().visit, ...(d.visit || {}) } };
   opened.set(deal.id, deal);
+  stored.add(deal.id);
   try { localStorage.setItem(CUR_KEY, deal.id); } catch { /* fine */ }
   // a copy that missed the rounding (a recovery copy from before 4.1): round it now, and log what changed
   let rounded = false;
@@ -358,6 +383,7 @@ async function openDeal(id, { quiet = false } = {}) {
     deal.moneyVersion = store.MONEY_VERSION;
     store.logRounding(changes, `Deal: ${deal.name || deal.figures.address || 'Untitled deal'}`);
     rounded = changes.length > 0;
+    if (rounded && !replayed) noteChange(deal, { kind: 'rounding', label: `Stored money rounded to whole cents (rates to four decimals): ${changes.length} value${changes.length === 1 ? '' : 's'}` });
   }
   if (replayed || rounded) saveNow(deal);
   render();
@@ -476,8 +502,9 @@ function render() {
   r.textContent = '';
   if (reading) return renderReading(r);
   if (!deal) return renderLanding(r);
-  if (ensureRentRoll(deal)) touch();
+  if (ensureRentRoll(deal)) touch(deal, { kind: 'create', label: 'Rent roll set up' });
   renderDeal(r);
+  refreshUndo();
 }
 
 function renderReading(r) {
@@ -577,7 +604,14 @@ function renderDeal(r) {
   const back = button('btn-plain btn-sm ws-back', 'All deals', closeDeal, '<path d="M15 6l-6 6 6 6"/>');
   top.appendChild(back);
   const acts = el('div', 'view-actions');
+  // undo and redo for this deal: each button says what it would undo or redo
+  const undoB = button('btn-gray', null, () => stepHistory('undo'), '<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 010 10h-3"/>');
+  undoB.id = 'deal-undo';
+  const redoB = button('btn-gray', null, () => stepHistory('redo'), '<path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 000 10h3"/>');
+  redoB.id = 'deal-redo';
+  for (const b of [undoB, redoB]) { b.disabled = true; b.setAttribute('aria-label', b === undoB ? 'Nothing to undo' : 'Nothing to redo'); b.title = b.getAttribute('aria-label'); }
   acts.append(
+    undoB, redoB,
     button('btn-primary', 'Excel', exportExcel, '<path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14"/>'),
     button('', 'Share', shareSummary, '<path d="M12 15V3m0 0L8 7m4-4l4 4M6 11H5a1 1 0 00-1 1v8a1 1 0 001 1h14a1 1 0 001-1v-8a1 1 0 00-1-1h-1"/>'),
     more,
@@ -738,13 +772,14 @@ function ensureRentRoll(d) {
 function drawRentRoll() {
   const box = $('deal-rentroll');
   if (!box || !deal) return;
-  renderRentRollWorkspace(box, deal, api, rentRollChanged);
+  const d = deal;
+  renderRentRollWorkspace(box, deal, api, rentRollChanged, { snapshot: (reason) => snapshotBefore(d, reason) });
 }
 
 /** Any rent roll edit: the flat rows the analysis reads follow, the deal saves, the analysis redraws. */
-function rentRollChanged() {
+function rentRollChanged(meta = null) {
   deal.rentRoll = legacyRows(deal.rr);
-  touch();
+  touch(deal, meta);
   renderDerived();
 }
 
@@ -1683,7 +1718,7 @@ function renderAudio(into = null) {
       const d = deal;
       const keep = d.visit.audio;
       d.visit.audio = keep.filter((q) => q !== a);
-      touch(d);
+      touch(d, { label: `Deleted voice note ${a.name || ''}`.trim() });
       renderAudio();
       toast('Voice note deleted.', { label: 'Undo', run: () => { d.visit.audio = keep; touch(d); if (deal === d) renderAudio(); } });
     });
@@ -1768,7 +1803,7 @@ async function addAudioFiles(files) {
     });
     (d.visit.audio ||= []).push({ id: `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, at: f.lastModified || Date.now(), blob: f, name: f.name.replace(/\.[^.]+$/, ''), seconds });
   }
-  if (good.length) touch(d);
+  if (good.length) touch(d, { label: `Added ${good.length} voice note${good.length === 1 ? '' : 's'}` });
   if (deal === d) renderAudio();
   toast(`${good.length} voice note${good.length === 1 ? '' : 's'} added.${empty.length ? ` ${empty.length} empty file${empty.length === 1 ? '' : 's'} skipped.` : ''}`);
 }
@@ -1793,7 +1828,7 @@ function renderPhotos(into = null) {
       const d = deal;
       const keep = d.visit.photos;
       d.visit.photos = keep.filter((q) => q !== p);
-      touch(d);
+      touch(d, { label: 'Deleted a photo' });
       renderPhotos();
       // the undo belongs to this deal, even if another one is open by the time it is tapped
       toast('Photo deleted.', { label: 'Undo', run: () => { d.visit.photos = keep; touch(d); if (deal === d) renderPhotos(); } });
@@ -1843,7 +1878,7 @@ async function addPhotos(files) {
     added += 1;
   }
   if (!d.visit.at) d.visit.at = Date.now();
-  touch(d);
+  touch(d, { label: `Added ${added} photo${added === 1 ? '' : 's'}` });
   if (deal === d) renderPhotos();
   const where = deal === d ? 'the deal' : `${d.name || 'the earlier deal'}`;
   const failed = list.length - added;
@@ -1883,6 +1918,8 @@ export function dealForTools() {
  */
 export function applyFromTools({ figures = {}, loan = {}, live = {} }, toolTitle) {
   if (!deal) return false;
+  const n = [figures, loan, live].reduce((a, o) => a + Object.values(o).filter((v) => v !== null && v !== undefined).length, 0);
+  const snap = n > 1 ? snapshotBefore(deal, `Before applying the ${toolTitle} tool`) : null;
   for (const [k, v] of Object.entries(figures)) {
     if (v === null || v === undefined || (typeof v === 'number' && !Number.isFinite(v))) continue;
     deal.figures[k] = v;
@@ -1891,7 +1928,7 @@ export function applyFromTools({ figures = {}, loan = {}, live = {} }, toolTitle
   }
   for (const [k, v] of Object.entries(loan)) if (v !== null && v !== undefined) deal.loan[k] = v;
   deal.live = { ...(deal.live || {}), ...Object.fromEntries(Object.entries(live).filter(([, v]) => v !== null && v !== undefined)) };
-  touch();
+  touch(deal, { kind: 'tool', label: `From the ${toolTitle} tool`, snapshot: snap });
   render();
   return true;
 }
@@ -1918,6 +1955,7 @@ function aiHost() {
  * stays as an alternative reading, so it is one tap to go back.
  */
 function applyReviewed(entries) {
+  const snap = snapshotBefore(deal, 'Before figures from AI reading');
   for (const { key, value, source } of entries) {
     if (!(key in KIND) || value === null || value === undefined) continue;
     const before = deal.figures[key];
@@ -1935,7 +1973,7 @@ function applyReviewed(entries) {
     deal.sources[key] = { ...source, orig: value, hand: false, alts: [...alts, ...((s && s.alts) || []).filter((a) => a.value !== value)] };
     if (key === 'address' && !deal.name) deal.name = value;
   }
-  touch();
+  touch(deal, { kind: 'ai', label: `Figures from AI reading: ${entries.length} field${entries.length === 1 ? '' : 's'}`, snapshot: snap });
   render();
 }
 
@@ -2037,6 +2075,7 @@ async function dealMenu() {
     ...(IN_ARTIFACT ? [] : [{ label: 'Deal brief', sub: 'print or save as PDF, with photos', value: 'brief', icon: '<path d="M7 9V3h10v6M7 17H5a2 2 0 01-2-2v-4a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2h-2M7 14h10v7H7z"/>' }]),
     { label: 'Fill my Excel template…', sub: 'your firm’s underwriting or rent roll workbook', value: 'template', icon: '<path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/>' },
     { label: 'Use as the comps subject', value: 'subject', icon: '<path d="M5 12h14M13 6l6 6-6 6"/>' },
+    { label: 'History…', sub: 'every change to this deal; undo to any step', value: 'history', icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>' },
     '-',
     { label: 'Read documents with AI…', sub: 'OM, rent roll, T-12 or lease: figures to check, page by page', value: 'ai-read', icon: '<path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8z"/><path d="M5 17l.9 2.1L8 20l-2.1.9L5 23l-.9-2.1L2 20l2.1-.9z"/>' },
     { label: 'Ask about this deal…', sub: 'answers from this deal’s figures, with sources', value: 'ai-ask', icon: '<path d="M21 12a8 8 0 01-11.6 7.1L4 21l1.9-5.4A8 8 0 1121 12z"/>' },
@@ -2054,6 +2093,7 @@ async function dealMenu() {
     toast((await copyText(dealSummaryText(deal, m, comps))) ? 'Summary copied.' : 'The browser blocked copying here.');
   } else if (v === 'brief') printBrief();
   else if (v === 'subject') useAsSubject();
+  else if (v === 'history') openHistory();
   else if (v === 'template') openTemplates();
   else if (v === 'ai-read') chooseForAi();
   else if (v === 'ai-ask') openAssistant(aiHost());
@@ -2076,6 +2116,236 @@ async function dealMenu() {
 
 /* ------------------------------------------------------------------- start */
 
+/* ------------------------------------------------------------ snapshots */
+
+/** An automatic snapshot of `d` as it is now, before a bulk change. Returns its id (the save finishes on its own). */
+function snapshotBefore(d, reason) {
+  if (!d) return null;
+  const id = `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  store.saveSnapshot(d.id, { id, name: reason, auto: true, reason }, snapshotData(d));
+  return id;
+}
+
+async function takeSnapshot() {
+  const d = deal;
+  if (!d) return;
+  const name = (window.prompt('Name this snapshot', `Snapshot, ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`) || '').trim();
+  if (!name) return;
+  await flushDeal();
+  const r = await store.saveSnapshot(d.id, { name }, snapshotData(d));
+  if (r === 'full') toast(`This deal has ${SNAPSHOTS.manual} named snapshots, the most kept. Delete one to make room.`);
+  else if (!r) toast('The snapshot couldn’t be saved: storage is full or blocked.');
+  else { toast(`Snapshot “${name}” taken.`); openHistory(); }
+}
+
+/** A snapshot against the deal now: each difference, then and now. */
+function compareSnapshot(snap) {
+  const d = deal;
+  if (!d) return;
+  const changes = diffDeal(snap.data, snapshotData(d));
+  const body = api.sheetOpen({ eyebrow: `Snapshot · ${when(snap.at)}`, title: snap.name, sub: changes.length ? `${changes.length} difference${changes.length === 1 ? '' : 's'} between this snapshot and the deal now.` : 'The deal is the same as this snapshot.' });
+  if (!changes.length) return;
+  const t = el('table', 'mini');
+  t.id = 'snapshot-compare';
+  const h = el('tr');
+  for (const x of ['', 'In the snapshot', 'Now']) h.appendChild(el('th', null, x));
+  t.appendChild(h);
+  const show = (v) => (v === undefined || v === null || v === '' ? '—' : typeof v === 'object' ? (Array.isArray(v) ? `${v.length} item${v.length === 1 ? '' : 's'}` : (v.unit || v.name || v.tenant || 'details')) : typeof v === 'number' ? v.toLocaleString('en-US', { maximumFractionDigits: 4 }) : String(v));
+  for (const c of changes.slice(0, 300)) {
+    const tr = el('tr');
+    tr.append(el('td', null, placeOf(c.path, c.new === undefined ? snap.data : d)), el('td', 'n', show(c.old)), el('td', 'n', show(c.new)));
+    t.appendChild(tr);
+  }
+  const w = el('div', 'scroll');
+  w.appendChild(t);
+  body.appendChild(w);
+  if (changes.length > 300) body.appendChild(el('p', 'hint-sm', `And ${changes.length - 300} more.`));
+  const b = button('btn-sm', 'Restore this snapshot', () => { api.sheetClose(); restoreSnapshot(snap); });
+  b.style.marginTop = '10px';
+  body.appendChild(b);
+}
+
+/**
+ * Put a snapshot back: one recorded, undoable step, after an automatic
+ * snapshot of the deal as it was. With `undoing` (a history entry too large to
+ * undo step by step), the step is recorded as that entry's undo.
+ */
+async function restoreSnapshot(snap, undoing = null) {
+  const d = deal;
+  if (!d) return;
+  await flushDeal();
+  const before = snapshotBefore(d, `Before restoring “${snap.name}”`);
+  const refs = mediaRefs(snap.data);
+  const blobs = new Map();
+  for (const x of [...((d.visit || {}).photos || []), ...((d.visit || {}).audio || [])]) if (x && x.blob) blobs.set(String(x.id), x.blob);
+  const need = [...refs].filter((id) => !blobs.has(id));
+  if (need.length) for (const [k, v] of await store.trashedMedia(need)) blobs.set(k, v);
+  if (deal !== d) return;
+  const missing = restoreInto(d, snap.data, blobs);
+  if (d.rr) d.rentRoll = legacyRows(d.rr);
+  if (undoing) pendingMeta.set(d.id, { kind: 'undo', undoes: [undoing.id], label: `Undid: ${undoing.label}`, snapshot: before, always: true });
+  touch(d, undoing ? null : { kind: 'restore', label: `Restored snapshot “${snap.name}”`, snapshot: before });
+  await flushDeal();
+  render();
+  toast(undoing ? `Undid: ${undoing.label}` : `Restored “${snap.name}”.${missing.length ? ` ${missing.length} photo${missing.length === 1 ? ' or recording was' : 's or recordings were'} no longer kept and ${missing.length === 1 ? 'is' : 'are'} left out.` : ''} Undo puts the deal back as it was.`);
+}
+
+async function snapshotSection(body, d) {
+  const sec = el('section', 'rr-sec');
+  sec.id = 'snapshots';
+  const head = el('div', 'card-head');
+  head.style.padding = '0';
+  head.appendChild(el('h3', 'sec-label', 'Snapshots'));
+  head.appendChild(button('btn-sm', 'Take a snapshot', takeSnapshot));
+  sec.appendChild(head);
+  const snaps = (await store.snapshotsOf(d.id)).reverse();
+  const manual = snaps.filter((x) => !x.auto).length;
+  sec.appendChild(el('p', 'hint-sm', `A copy of the deal you can compare with or go back to. ${manual} of ${SNAPSHOTS.manual} named; up to ${SNAPSHOTS.auto} automatic ones are kept, taken before imports, Tools and AI applied, restores.`));
+  if (snaps.length) {
+    const ul = el('ul', 'list snapshot-list');
+    for (const x of snaps) {
+      const li = el('li', 'li');
+      li.dataset.snapshot = x.id;
+      const main = el('div', 'li-main');
+      main.appendChild(el('div', 'li-title', x.name));
+      main.appendChild(el('div', 'li-sub', `${when(x.at)} · ${x.auto ? 'automatic' : 'named'}`));
+      li.appendChild(main);
+      li.appendChild(button('btn-plain btn-sm', 'Compare', () => compareSnapshot(x)));
+      li.appendChild(button('btn-plain btn-sm', 'Restore', () => { api.sheetClose(); restoreSnapshot(x); }));
+      const del = button('btn-plain btn-sm', 'Delete', async () => { await store.deleteSnapshot(d.id, x.id); toast(`Snapshot “${x.name}” deleted.`); openHistory(); });
+      del.setAttribute('aria-label', `Delete snapshot ${x.name}`);
+      li.appendChild(del);
+      ul.appendChild(li);
+    }
+    sec.appendChild(ul);
+  }
+  body.appendChild(sec);
+}
+
+/* ------------------------------------------------------- undo and redo */
+
+/* Each deal's history (store.js, history.js) is the undo stack: Undo
+ * reverses the latest action, Redo puts it back, and both are recorded, so
+ * the history stays a true record. An undo applies only if what it would
+ * change still holds the value the action left there. */
+const MAC = /Mac|iPhone|iPad/.test(globalThis.navigator ? navigator.platform || navigator.userAgent : '');
+const KEYS = { undo: MAC ? '⌘Z' : 'Ctrl Z', redo: MAC ? '⇧⌘Z' : 'Ctrl Y' };
+async function refreshUndo() {
+  const d = deal;
+  if (!d) return;
+  const st = undoState(await store.historyOf(d.id));
+  if (deal !== d) return;
+  for (const [id, e, word] of [['deal-undo', st.undo, 'Undo'], ['deal-redo', st.redo, 'Redo']]) {
+    const b = $(id);
+    if (!b) continue;
+    b.disabled = !e;
+    const t = e ? `${word}: ${e.label} (${KEYS[word.toLowerCase()]})` : `Nothing to ${word.toLowerCase()}`;
+    b.setAttribute('aria-label', t);
+    b.title = t;
+  }
+}
+
+let stepping = false;
+/** Undo (back to just after `uptoId`, if given) or redo, as one recorded step. */
+async function stepHistory(which, uptoId = null) {
+  const d = deal;
+  if (!d || stepping) return;
+  stepping = true;
+  try {
+    await flushDeal();
+    const hist = await store.historyOf(d.id);
+    const st = undoState(hist);
+    let targets = [];
+    if (which === 'redo') targets = st.redo ? [st.redo] : [];
+    else if (uptoId) { const i = st.done.findIndex((e) => e.id === uptoId); targets = i >= 0 ? st.done.slice(i + 1).reverse() : []; }
+    else targets = st.undo ? [st.undo] : [];
+    if (!targets.length) { toast(which === 'redo' ? 'Nothing to redo.' : 'Nothing to undo.'); return; }
+    const big = targets.find((e) => !e.changes);
+    if (big) {
+      const snap = big.snapshot ? (await store.snapshotsOf(d.id)).find((x) => x.id === big.snapshot) : null;
+      if (snap && which === 'undo' && targets.length === 1) { stepping = false; await restoreSnapshot(snap, big); return; }
+      toast(which === 'redo' ? `“${big.label}” is too large to redo step by step: do it again instead.` : `“${big.label}” is too large to undo step by step.${snap ? ' Restore the snapshot taken before it instead (⋯ → History).' : ''}`);
+      return;
+    }
+    let changes = which === 'redo' ? targets[0].changes : targets.flatMap((e) => inverseOf(e.changes));
+    // photos and recordings: the bytes come from the deal, or the trash
+    const refs = mediaRefs(changes);
+    if (refs.size) {
+      const blobs = new Map();
+      for (const x of [...((d.visit || {}).photos || []), ...((d.visit || {}).audio || [])]) if (x && x.blob) blobs.set(String(x.id), x.blob);
+      const missing = [...refs].filter((id) => !blobs.has(id));
+      if (missing.length) for (const [k, v] of await store.trashedMedia(missing)) blobs.set(k, v);
+      try { changes = withBytes(changes, blobs); } catch { toast(`Can’t ${which} “${targets[0].label}”: a photo or recording it needs is no longer kept (removed more than ${store.TRASH_DAYS} days ago).`); return; }
+    }
+    if (deal !== d) return;
+    const stale = applyChanges(d, changes);
+    if (stale.length) { toast(`Can’t ${which} “${targets[0].label}”: ${placeOf(stale[0], d)} has changed since.`); return; }
+    if (d.rr) d.rentRoll = legacyRows(d.rr);
+    const label = which === 'redo' ? `Redid: ${targets[0].label}`
+      : targets.length > 1 ? `Undid ${targets.length} changes, back to just after “${(hist.find((e) => e.id === uptoId) || {}).label}”` : `Undid: ${targets[0].label}`;
+    d.updatedAt = Date.now();
+    d.moneyVersion = store.MONEY_VERSION;
+    pendingMeta.set(d.id, which === 'redo' ? { kind: 'redo', redoes: targets[0].id, label, always: true } : { kind: 'undo', undoes: targets.map((e) => e.id), label, always: true });
+    queueSave(d);
+    await flushDeal();
+    if (deal === d) render();
+    toast(label);
+  } finally { stepping = false; }
+}
+
+/* Ctrl/Cmd Z and Shift Ctrl/Cmd Z (or Ctrl Y) undo and redo the deal, except
+ * in a field with typing not yet committed, where they undo the typing. */
+const committed = new WeakMap(); // field -> its value when focused or last committed
+const valueOf = (t) => (t.isContentEditable ? t.textContent : t.value);
+function undoKeys(e) {
+  if (!deal || e.defaultPrevented || e.altKey || !(e.metaKey || e.ctrlKey)) return;
+  const k = (e.key || '').toLowerCase();
+  if (k !== 'z' && k !== 'y') return;
+  const t = e.target;
+  const field = t && (t.isContentEditable || /^(INPUT|TEXTAREA)$/.test(t.tagName));
+  if (field && committed.has(t) && committed.get(t) !== valueOf(t)) return; // the field's own undo
+  if (document.querySelector('dialog[open]')) return;
+  const card = $('deal-card');
+  if (!card || !card.offsetParent) return; // the deal isn't on screen
+  e.preventDefault();
+  stepHistory(k === 'y' || e.shiftKey ? 'redo' : 'undo');
+}
+
+const KIND_WORD = { create: 'created', edit: 'edit', import: 'import', tool: 'from Tools', ai: 'from AI', restore: 'restored', rounding: 'rounding (a record; not undone)', undo: 'undo', redo: 'redo', snapshot: 'snapshot' };
+const when = (at) => new Date(at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+/** Every change to the open deal, newest first, with Undo to here. */
+async function openHistory() {
+  const d = deal;
+  if (!d) return;
+  await flushDeal();
+  const hist = await store.historyOf(d.id);
+  const st = undoState(hist);
+  const body = api.sheetOpen({ eyebrow: d.name || d.figures.address || 'Deal', title: 'History', sub: `Every change to this deal, newest first. Undo goes back one step (${KEYS.undo}); “Undo to here” goes back to just after that step. Undoing is itself recorded.` });
+  await snapshotSection(body, d);
+  body.appendChild(el('h3', 'sec-label', 'Changes'));
+  if (!hist.length) { body.appendChild(el('p', 'hint', 'No changes recorded yet.')); return; }
+  const canUndo = new Set(st.done.map((e) => e.id));
+  const ul = el('ul', 'list history-list');
+  ul.id = 'history-list';
+  for (const e of [...hist].reverse()) {
+    const li = el('li', `li hist-${e.kind}`);
+    li.dataset.entry = e.id;
+    const main = el('div', 'li-main');
+    main.appendChild(el('div', 'li-title', e.label));
+    main.appendChild(el('div', 'li-sub', `${when(e.at)} · ${KIND_WORD[e.kind] || e.kind}${e.changes === null ? ' · too large to undo step by step' : ''}`));
+    if (e.rounded && e.rounded.length) {
+      const sub = el('div', 'li-sub', e.rounded.slice(0, 5).map((r) => `${r.path}: ${r.old} → ${r.new}`).join('; ') + (e.rounded.length > 5 ? `; and ${e.rounded.length - 5} more` : ''));
+      sub.style.whiteSpace = 'normal';
+      main.appendChild(sub);
+    }
+    li.appendChild(main);
+    if (e === st.undo) li.appendChild(button('btn-plain btn-sm', 'Undo', () => { api.sheetClose(); stepHistory('undo'); }));
+    else if (canUndo.has(e.id)) li.appendChild(button('btn-plain btn-sm', 'Undo to here', () => { api.sheetClose(); stepHistory('undo', e.id); }));
+    ul.appendChild(li);
+  }
+  body.appendChild(ul);
+}
+
 export function initDeal(compsApi) {
   api = compsApi;
   // a phone suspends a page it has hidden, and may never resume it: the last
@@ -2096,6 +2366,11 @@ export function initDeal(compsApi) {
   });
   // the comps moved: the comparison follows
   document.addEventListener('compschange', () => { if (deal) renderDerived(); });
+  // undo keys, and what a field held when focused or last committed (see undoKeys)
+  document.addEventListener('focusin', (e) => { const t = e.target; if (t && (t.isContentEditable || /^(INPUT|TEXTAREA)$/.test(t.tagName))) committed.set(t, valueOf(t)); });
+  document.addEventListener('change', (e) => { const t = e.target; if (t && committed.has(t)) committed.set(t, valueOf(t)); }, true);
+  document.addEventListener('keydown', undoKeys);
+  store.sweepTrash();
   render();
   let cur = null;
   try { cur = localStorage.getItem(CUR_KEY); } catch { cur = null; }

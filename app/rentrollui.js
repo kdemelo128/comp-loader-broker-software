@@ -59,11 +59,13 @@ const ROW_H = 41; // a row's height in px until one is measured
  * Draw the workspace into `box` for `deal`. `onChange()` is called after any
  * edit (it saves and refreshes the deal analysis); `rr` lives on deal.rr.
  */
-export function renderRentRollWorkspace(box, deal, compsApi, onChange) {
+export function renderRentRollWorkspace(box, deal, compsApi, onChange, hooks = {}) {
   api = compsApi;
   box.textContent = '';
   const rr = deal.rr;
-  const changed = (redraw = true) => { onChange(); if (redraw) refresh(); };
+  const changed = (redraw = true, meta = null) => { onChange(meta); if (redraw) refresh(); };
+  // an automatic snapshot of the deal before a bulk change (the deal's history keeps it); its id, or null
+  changed.snapshot = (reason) => (hooks.snapshot ? hooks.snapshot(reason) : null);
 
   const head = el('div', 'card-head');
   head.appendChild(el('h2', null, 'Rent roll'));
@@ -251,7 +253,7 @@ export function renderRentRollWorkspace(box, deal, compsApi, onChange) {
         else if (v === 'del') {
           const at = rr.leases.indexOf(L);
           rr.leases.splice(at, 1);
-          changed();
+          changed(true, { label: `Deleted unit ${L.unit || L.tenant || ''}`.trim() });
           toast(`Unit ${L.unit || ''} deleted.`, { label: 'Undo', run: () => { rr.leases.splice(at, 0, L); changed(); } });
         }
       });
@@ -707,7 +709,7 @@ async function moreMenu(deal, rr, changed) {
   else if (v === 'clear') {
     const old = rr.leases;
     rr.leases = [];
-    changed();
+    changed(true, { label: 'Cleared the rent roll' });
     toast('Rent roll cleared.', { label: 'Undo', run: () => { rr.leases = old; changed(); } });
   }
 }
@@ -866,10 +868,11 @@ function mapImport(rr, table, fileLabel, changed) {
   body.appendChild(mode);
   done.addEventListener('click', () => {
     const { leases, skipped } = rowsToLeases(rr, table, guess);
+    const snap = changed.snapshot('Before importing a rent roll');
     const old = rr.leases;
     rr.leases = rep.checked ? leases : [...rr.leases, ...leases];
     api.sheetClose();
-    changed();
+    changed(true, { kind: 'import', label: `Imported ${leases.length} unit${leases.length === 1 ? '' : 's'} from a spreadsheet${rep.checked ? ', replacing the rent roll' : ''}`, snapshot: snap });
     toast(`${leases.length} unit${leases.length === 1 ? '' : 's'} imported${skipped ? `; ${skipped} row${skipped === 1 ? '' : 's'} skipped (no unit, tenant or rent)` : ''}. Each rent is one documented period from the lease start to the lease end.`,
       { label: 'Undo', run: () => { rr.leases = old; changed(); } }, 9000);
   });

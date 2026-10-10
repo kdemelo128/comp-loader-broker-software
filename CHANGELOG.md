@@ -1,5 +1,78 @@
 # Changelog
 
+## 4.3.0: change history, undo and snapshots (on the development branch; not merged or deployed)
+
+Phase 1, checkpoint (d), parts A and B, as approved. Backups version 2 and
+the storage limits (parts C and D) follow in a second pull request.
+
+### History and undo
+
+- **History:** every change to a deal is kept in its history, as an entry
+  with:
+  - what changed, old and new;
+  - a plain-English label ("NOI: 393,450 → 400,000", "Deleted unit 110",
+    "Imported 500 units from a spreadsheet");
+  - the time.
+
+  Edits within one save (400 ms) are one entry. The entry is written in the
+  same IndexedDB transaction as the deal, so both are saved or neither is.
+  Changes made from Home or by a restore are recorded too.
+- **Undo and Redo** for the deal:
+  - buttons in the deal's header say what they would undo or redo;
+  - Ctrl/Cmd Z and Shift Ctrl/Cmd Z (or Ctrl Y) do the same, except while
+    you're typing in a field;
+  - 100 steps, kept across reloads;
+  - "Undo to here" in History (⋯ → History);
+  - an undo is itself recorded;
+  - an undo is refused, with a reason, if a value it would change has changed
+    since.
+- **Rounding:** values rounded as they are saved, and the 4.1 migration's
+  rounding, are recorded as rounding entries in the deal's history. They are
+  never undone.
+- **Removed photos and recordings** are kept in a trash for 30 days, so an
+  undo or restore can bring them back. A deleted deal's history and snapshots
+  are kept 30 days too.
+
+### Snapshots
+
+- Named snapshots, up to 20 per deal.
+- Automatic ones, up to 10, taken before:
+  - a rent roll import;
+  - Tools applying more than one field;
+  - AI figures applied;
+  - a snapshot restore;
+  - a backup restore that overwrites the deal.
+- **Compare** lists every difference, then and now. **Restore** is one step
+  you can undo.
+- An import too large to keep as one entry (over 256 KB of changes, e.g. 1,000
+  leases) is undone by restoring the snapshot taken before it.
+
+### Storage
+
+- The database moves to version 2 and gains three stores: history, snapshots
+  and trash. Nothing already stored is touched.
+- If an older tab still holds the database, the new tab says so and waits.
+  If a newer version takes over the database, the tab says "Reload to finish
+  updating", and edits made meanwhile are kept in its recovery copy.
+
+### Performance
+
+- A save on the 500-lease deal now takes 15 ms instead of 3 ms (43 ms
+  instead of 10 ms with the CPU slowed 4×), 400 ms after the last keystroke.
+- No main-thread block of 50 ms or more.
+- `perf-flow`'s budgets still pass: an edit is 80–88 ms against 67–79 ms on
+  4.2.1, measured back to back.
+
+### Tests
+
+- `tests/history.test.js`: 13 tests, including 400 random round trips of
+  compare-and-apply.
+- `history-flow`: 18 checks.
+- `snapshot-flow`: 24 checks, including axe on the History sheet.
+- `upgrade-flow`: 20 checks. A 4.2.1 database with a deal, a photo, a task
+  and a backup is upgraded, plus the blocked and outdated cases.
+- The new flows and unit tests fail on 4.2.1.
+
 ## 4.2.1: a failed projection says so (on the development branch; not merged or deployed)
 
 - **What if:** with NOI taken from the rent roll, a projection that failed
